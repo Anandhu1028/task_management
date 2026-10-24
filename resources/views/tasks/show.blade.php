@@ -480,207 +480,10 @@
                 @endif
             </div>
             @endif
+        </div>
 
-            {{-- ── Subtasks ─────────────────────────────────────────────── --}}
-            <section class="tf-task-detail__card tf-subtasks" aria-labelledby="subtasks-title" id="subtasks-section">
-                <header class="tf-task-detail__card-header">
-                    <h2 id="subtasks-title"><i class="bi bi-check2-square" aria-hidden="true"></i> Subtasks</h2>
-                    <span class="tf-task-detail__count" id="subtasks-count-badge">
-                        {{ $task->subtasks->where('is_completed', true)->count() }} / {{ $task->subtasks->count() }}
-                    </span>
-                </header>
-
-                {{-- Progress bar --}}
-                @if ($task->subtasks->isNotEmpty())
-                    @php
-                        $subtaskTotal = $task->subtasks->count();
-                        $subtaskDone  = $task->subtasks->where('is_completed', true)->count();
-                        $subtaskPct   = $subtaskTotal > 0 ? (int) round($subtaskDone / $subtaskTotal * 100) : 0;
-                    @endphp
-                    <div class="tf-subtasks__progress-bar-wrap" aria-hidden="true">
-                        <div class="tf-subtasks__progress-bar" style="width:{{ $subtaskPct }}%" id="subtasks-progress-bar"></div>
-                    </div>
-                @else
-                    <div class="tf-subtasks__progress-bar-wrap" aria-hidden="true">
-                        <div class="tf-subtasks__progress-bar" style="width:0%" id="subtasks-progress-bar"></div>
-                    </div>
-                @endif
-
-                {{-- Subtask list --}}
-                <ul class="tf-subtasks__list" id="subtasks-list" aria-label="Subtasks" data-reorder-url="{{ route('subtasks.reorder', $task) }}">
-                    @foreach ($task->subtasks as $subtask)
-                        @php
-                            $subtaskDueDate = $subtask->due_date;
-                            $mainDueDate = $task->due_date ?? $task->original_deadline;
-                            $isExceeding = $subtaskDueDate && $mainDueDate && $subtaskDueDate->gt($mainDueDate);
-                            $isOverdue = $subtaskDueDate && $subtaskDueDate->isPast() && ! $subtask->is_completed;
-                            $subStatus = $subtask->status ?? ($subtask->is_completed ? 'completed' : 'todo');
-                            $subStatusLabel = ['todo' => 'To Do', 'in_progress' => 'In Progress', 'completed' => 'Completed'][$subStatus] ?? ucfirst(str_replace('_', ' ', $subStatus));
-                            $subPriority = $subtask->priority ?? 'medium';
-                        @endphp
-                        <li class="tf-subtasks__item{{ $subtask->is_completed ? ' is-done' : '' }}"
-                            id="subtask-{{ $subtask->id }}"
-                            data-subtask-id="{{ $subtask->id }}"
-                            data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
-                            data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                            draggable="true">
-                            <span class="tf-subtasks__drag-handle" aria-hidden="true" title="Drag to reorder">
-                                <i class="bi bi-grip-vertical"></i>
-                            </span>
-                            <button
-                                type="button"
-                                class="tf-subtasks__toggle"
-                                data-toggle-url="{{ route('subtasks.toggle', [$task, $subtask]) }}"
-                                aria-label="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
-                                title="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
-                                aria-pressed="{{ $subtask->is_completed ? 'true' : 'false' }}"
-                            >
-                                <i class="bi {{ $subtask->is_completed ? 'bi-check-circle-fill' : 'bi-circle' }}"></i>
-                            </button>
-                            <span class="tf-subtasks__title-wrap">
-                                <span class="tf-subtasks__title"
-                                    contenteditable="false"
-                                    data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                                    data-original="{{ e($subtask->title) }}"
-                                    title="Double-click to inline edit"
-                                >{{ $subtask->title }}</span>
-
-                                {{-- Created by badge (explicitly separated from assignee) --}}
-                                <span class="tf-subtasks__meta tf-subtasks__meta--creator" title="Created by {{ $subtask->creator?->name ?? 'Unknown' }}">
-                                    <i class="bi bi-person-plus text-primary" aria-hidden="true"></i>
-                                    <small>By:</small>
-                                    <strong>{{ Str::limit($subtask->creator?->name ?? 'Unknown', 13) }}</strong>
-                                </span>
-
-                                {{-- Assignee --}}
-                                @if ($subtask->assignee)
-                                    <span class="tf-subtasks__meta tf-subtasks__meta--assignee" title="Assigned to {{ $subtask->assignee->name }}">
-                                        <i class="bi bi-person" aria-hidden="true"></i>
-                                        {{ Str::limit($subtask->assignee->name, 13) }}
-                                    </span>
-                                @else
-                                    <span class="tf-subtasks__meta tf-subtasks__meta--unassigned" title="Unassigned">
-                                        <i class="bi bi-person-dash" aria-hidden="true"></i> Unassigned
-                                    </span>
-                                @endif
-
-                                {{-- Priority --}}
-                                <span class="tf-subtasks__meta tf-subtasks__priority tf-subtasks__priority--{{ $subPriority }}" title="Priority: {{ ucfirst($subPriority) }}">
-                                    {{ ucfirst($subPriority) }}
-                                </span>
-
-                                {{-- Status --}}
-                                <span class="tf-subtasks__meta tf-subtasks__status tf-subtasks__status--{{ $subStatus }}" title="Status: {{ $subStatusLabel }}">
-                                    {{ $subStatusLabel }}
-                                </span>
-
-                                {{-- Deadline / Due Date --}}
-                                @if ($subtaskDueDate)
-                                    <span class="tf-subtasks__meta{{ $isOverdue || $isExceeding ? ' is-overdue' : '' }}" title="{{ $isExceeding ? 'Exceeds main task deadline (' . $mainDueDate->format('M d') . ')' : ($isOverdue ? 'Overdue' : 'Deadline') }}">
-                                        <i class="bi bi-calendar2" aria-hidden="true"></i>
-                                        {{ $subtaskDueDate->format('M d') }}
-                                        @if ($isExceeding)
-                                            <i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="Exceeds main task deadline"></i>
-                                        @endif
-                                    </span>
-                                @endif
-                            </span>
-
-                            <div class="tf-subtasks__item-actions">
-                                <button
-                                    type="button"
-                                    class="tf-subtasks__action-btn tf-subtasks__open-modal"
-                                    data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
-                                    data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                                    aria-label="View & edit details"
-                                    title="View & edit details"
-                                ><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
-                                <button
-                                    type="button"
-                                    class="tf-subtasks__delete"
-                                    data-delete-url="{{ route('subtasks.destroy', [$task, $subtask]) }}"
-                                    aria-label="Delete subtask"
-                                    title="Delete subtask"
-                                ><i class="bi bi-trash3" aria-hidden="true"></i></button>
-                            </div>
-                        </li>
-                    @endforeach
-                </ul>
-
-                {{-- Add subtask row --}}
-                <div class="tf-subtasks__add-row" id="subtask-add-row">
-                    <form
-                        method="POST"
-                        action="{{ route('subtasks.store', $task) }}"
-                        class="tf-subtasks__add-form"
-                        id="subtask-add-form"
-                        hidden
-                    >
-                        @csrf
-                        <input
-                            type="text"
-                            name="title"
-                            id="subtask-title-input"
-                            class="tf-subtasks__add-input"
-                            placeholder="Add subtask title (e.g. Backend Development)…"
-                            maxlength="500"
-                            required
-                            autocomplete="off"
-                            aria-label="Subtask title"
-                        >
-                        <div class="tf-subtasks__add-meta" id="subtask-add-meta">
-                            <select name="assigned_to" id="subtask-assigned-to" class="tf-subtasks__add-select" aria-label="Assign to">
-                                <option value="">Assign to employee…</option>
-                                @foreach ($employees->where('company_id', $task->company_id)->where('department_id', $task->department_id) as $emp)
-                                    <option value="{{ $emp->id }}">{{ $emp->name }}</option>
-                                @endforeach
-                            </select>
-                            <select name="priority" id="subtask-priority" class="tf-subtasks__add-select" aria-label="Priority">
-                                <option value="low">Low Priority</option>
-                                <option value="medium" selected>Medium Priority</option>
-                                <option value="high">High Priority</option>
-                                <option value="critical">Critical Priority</option>
-                            </select>
-                            <select name="status" id="subtask-status" class="tf-subtasks__add-select" aria-label="Status">
-                                <option value="todo" selected>To Do</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="completed">Completed</option>
-                            </select>
-                            <input
-                                type="date"
-                                name="due_date"
-                                id="subtask-due-date"
-                                class="tf-subtasks__add-date"
-                                aria-label="Deadline"
-                                title="Deadline"
-                                @if ($task->due_date) max="{{ $task->due_date->format('Y-m-d') }}" @endif
-                            >
-                        </div>
-                        <div class="tf-subtasks__add-desc-row" id="subtask-add-desc-row">
-                            <textarea
-                                name="description"
-                                id="subtask-description-input"
-                                class="tf-subtasks__add-desc"
-                                rows="2"
-                                maxlength="5000"
-                                placeholder="Details / Description (optional)…"
-                            ></textarea>
-                        </div>
-                        <div class="tf-subtasks__add-actions" id="subtask-add-actions">
-                            <button type="submit" class="tf-btn tf-btn--primary tf-btn--xs">
-                                <i class="bi bi-plus-lg"></i> Add Subtask
-                            </button>
-                            <button type="button" class="tf-btn tf-btn--ghost tf-btn--xs" id="subtask-cancel-btn">Cancel</button>
-                        </div>
-                    </form>
-                    <button type="button" class="tf-subtasks__add-trigger" id="subtask-add-trigger">
-                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Subtask
-                    </button>
-                </div>
-            </section>
-            </div>
-            <div class="tf-task-detail__main">
-                <nav class="tf-task-detail__tabs" aria-label="Task details" role="tablist">
+        <div class="tf-task-detail__main">
+            <nav class="tf-task-detail__tabs" aria-label="Task details" role="tablist">
                     <button type="button" class="is-active" role="tab" aria-selected="true" aria-controls="task-details-overview" data-task-detail-tab="overview">
                         <i class="bi bi-grid" aria-hidden="true"></i> Overview
                     </button>
@@ -962,121 +765,616 @@
                 </div>
             </div>
 
-            <aside class="tf-task-detail__sidebar" aria-label="Task activity">
-                <section class="tf-task-detail__card tf-task-detail__activity-card">
-                    <header class="tf-task-detail__activity-header">
-                        <div class="tf-task-detail__activity-heading">
-                            <div>
-                                <span>Task activity</span>
-                                <small>Recent updates and history</small>
-                            </div>
-                            @if ($deadline)
-                                @php
-                                    $isOverdue = $daysUntilDeadline !== null && $daysUntilDeadline < 0 && ! in_array($status, ['completed', 'cancelled'], true);
-                                    $isDueToday = $daysUntilDeadline === 0 && ! in_array($status, ['completed', 'cancelled'], true);
-                                    $isCompleted = $status === 'completed';
-                                    $deadlineToneClass = $isCompleted ? 'is-completed' : ($isOverdue ? 'is-overdue' : ($isDueToday ? 'is-due-today' : ''));
-                                @endphp
-                                <article class="tf-task-detail__deadline-event {{ $deadlineToneClass }}">
-                                    <span class="tf-task-detail__deadline-icon">
-                                        <i class="bi {{ $isCompleted ? 'bi-check2' : ($isOverdue ? 'bi-exclamation-triangle' : ($isDueToday ? 'bi-alarm' : 'bi-calendar-event')) }}" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="tf-task-detail__deadline-text">
-                                        <strong>Due:</strong>
-                                        <time datetime="{{ $deadline->toIso8601String() }}">{{ $deadline->format('M d, Y') }}</time>
-                                    </span>
-                                    <small class="{{ $deadlineToneClass }}">
-                                        @if ($isCompleted)
-                                            Completed
-                                        @elseif ($isOverdue)
-                                            {{ abs($daysUntilDeadline) }} {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} overdue
-                                        @elseif ($isDueToday)
-                                            Due today
-                                        @else
-                                            {{ $daysUntilDeadline }} {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left
-                                        @endif
-                                    </small>
-                                </article>
-                            @endif
-                        </div>
+            <aside class="tf-task-detail__sidebar" aria-label="Task activity and subtasks">
+                <section class="tf-task-detail__card tf-task-detail__activity-card tf-activity-wrapper-card">
+                    {{-- Top Two Tabs: Subtask & Timeline --}}
+                    <header class="tf-activity-tabs-header">
+                        <nav class="tf-activity-tabs-nav" role="tablist" aria-label="Task Activity and Subtasks">
+                            <button
+                                type="button"
+                                class="tf-activity-tab-btn is-active"
+                                id="tab-subtasks-btn"
+                                data-activity-tab="subtasks"
+                                role="tab"
+                                aria-selected="true"
+                                aria-controls="panel-subtasks"
+                            >
+                                <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtask
+                                <span class="tf-activity-tab-badge" id="tab-subtasks-count-badge">{{ $task->subtasks->count() }}</span>
+                            </button>
+                            <button
+                                type="button"
+                                class="tf-activity-tab-btn"
+                                id="tab-timeline-btn"
+                                data-activity-tab="timeline"
+                                role="tab"
+                                aria-selected="false"
+                                aria-controls="panel-timeline"
+                            >
+                                <i class="bi bi-clock-history" aria-hidden="true"></i> Timeline
+                                <span class="tf-activity-tab-badge">{{ $activity->count() }}</span>
+                            </button>
+                        </nav>
                     </header>
 
-                    <div id="task-activity-timeline" role="tabpanel" data-task-activity-panel="timeline">
-                        @if ($activity->isNotEmpty())
-                            <ol class="tf-task-detail__timeline">
-                                @foreach ($activity as $event)
-                                    @php
-                                        $activityIcon = match ($event['tone']) {
-                                            'hold' => 'bi-pause',
-                                            'created' => 'bi-plus-lg',
-                                            'assigned', 'reassigned' => 'bi-person-plus',
-                                            'start' => 'bi-play-fill',
-                                            'submission' => 'bi-send',
-                                            'review' => 'bi-check-lg',
-                                            'resume' => 'bi-arrow-repeat',
-                                            'accepted' => 'bi-check2',
-                                            'cancellation', 'cancelled' => 'bi-x-lg',
-                                            'risk' => 'bi-exclamation-lg',
-                                            'work_update' => 'bi-chat-left-text',
-                                            'subtask' => 'bi-check2-square',
-                                            default => 'bi-arrow-left-right',
-                                        };
-                                    @endphp
-                                    <li class="tf-task-detail__timeline-item tf-task-detail__timeline-item--{{ $event['tone'] }}" data-task-activity-type="{{ $event['tone'] }}">
-                                        <span class="tf-task-detail__timeline-marker" aria-hidden="true">
-                                            <i class="bi {{ $activityIcon }}"></i>
+                    {{-- ── TAB 1: SUBTASKS VIEW (MATCHING USER SCREENSHOT) ── --}}
+                    <div class="tf-activity-tab-panel is-active" id="panel-subtasks" role="tabpanel" aria-labelledby="tab-subtasks-btn">
+                        @php
+                            $subtaskTotal = $task->subtasks->count();
+                            $subtaskDone  = $task->subtasks->where('is_completed', true)->count();
+                            $subtaskPct   = $subtaskTotal > 0 ? (int) round($subtaskDone / $subtaskTotal * 100) : 0;
+
+                            // Gantt Date Range Computation
+                            $ganttMin = null;
+                            $ganttMax = null;
+                            foreach ($task->subtasks as $st) {
+                                if ($st->start_date) {
+                                    $ganttMin = $ganttMin ? min($ganttMin, $st->start_date->copy()) : $st->start_date->copy();
+                                }
+                                if ($st->due_date) {
+                                    $ganttMax = $ganttMax ? max($ganttMax, $st->due_date->copy()) : $st->due_date->copy();
+                                }
+                            }
+                            if (! $ganttMin) {
+                                $ganttMin = $task->start_date ? $task->start_date->copy() : today()->subDays(3);
+                            }
+                            if (! $ganttMax) {
+                                $ganttMax = $task->due_date ? $task->due_date->copy() : today()->addDays(7);
+                            }
+                            $ganttMin = min($ganttMin, today()->subDays(3));
+                            $ganttMax = max($ganttMax, today()->addDays(6));
+
+                            $ganttDays = [];
+                            $currGanttDay = $ganttMin->copy();
+                            while ($currGanttDay->lte($ganttMax) && count($ganttDays) < 31) {
+                                $ganttDays[] = $currGanttDay->copy();
+                                $currGanttDay->addDay();
+                            }
+                            $totalGanttDays = max(1, count($ganttDays));
+
+                            $todayStr = today()->format('Y-m-d');
+                            $todayIndex = null;
+                            foreach ($ganttDays as $idx => $d) {
+                                if ($d->format('Y-m-d') === $todayStr) {
+                                    $todayIndex = $idx;
+                                    break;
+                                }
+                            }
+                        @endphp
+
+                        <div class="tf-subtask-view-wrapper">
+                            {{-- Card 1: Subtasks Table Card --}}
+                            <div class="tf-subtask-card">
+                                <div class="tf-subtask-card__header">
+                                    <div class="tf-subtask-card__title-group">
+                                        <span class="tf-subtask-card__icon" aria-hidden="true">
+                                            <i class="bi bi-grid-3x3-gap"></i>
                                         </span>
-                                        <div class="tf-task-detail__timeline-content">
-                                            <div class="tf-task-detail__timeline-heading">
-                                                <p>
-                                                    <strong>{{ $event['actor'] }}</strong> {{ $event['text'] }}
-                                                    @if ($event['badge'])
-                                                        <span class="tf-task-detail__timeline-badge tf-task-detail__timeline-badge--{{ \Illuminate\Support\Str::slug($event['badge']) }}">{{ $event['badge'] }}</span>
-                                                    @endif
-                                                </p>
-                                                <time datetime="{{ $event['at']->toIso8601String() }}">
-                                                    <span>{{ $event['at']->format('M d, Y') }}</span>
-                                                </time>
+                                        <h3 class="tf-subtask-card__title">Subtasks</h3>
+                                        <span class="tf-subtask-card__subtitle" id="subtasks-count-subtitle">
+                                            {{ $subtaskTotal }} total ({{ $subtaskDone }} completed)
+                                        </span>
+                                    </div>
+                                    <div class="tf-subtask-card__actions">
+                                        <button type="button" class="tf-btn-add-subtask" id="subtask-add-btn">
+                                            <i class="bi bi-plus-lg"></i> Add Subtask
+                                        </button>
+                                        <button type="button" class="tf-btn-expand-all" id="subtask-expand-btn">
+                                            <i class="bi bi-arrows-angle-expand"></i> Expand All
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {{-- Progress bar --}}
+                                <div class="tf-subtask-card__progress-wrap">
+                                    <div class="tf-subtask-card__progress-bar-track">
+                                        <div class="tf-subtask-card__progress-bar-fill" id="subtasks-progress-fill" style="width: {{ $subtaskPct }}%"></div>
+                                    </div>
+                                    <span class="tf-subtask-card__progress-text" id="subtasks-progress-pct">{{ $subtaskPct }}%</span>
+                                </div>
+
+                                {{-- Subtasks Table --}}
+                                <div class="tf-subtask-table-responsive">
+                                    <table class="tf-subtask-table" id="subtasks-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-num">#</th>
+                                                <th class="col-subtask">Subtask</th>
+                                                <th class="col-assignee">Assignee</th>
+                                                <th class="col-timeframe">Timeframe</th>
+                                                <th class="col-duration">Duration</th>
+                                                <th class="col-status">Status</th>
+                                                <th class="col-progress">Progress</th>
+                                                <th class="col-actions">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="subtasks-list" data-reorder-url="{{ route('subtasks.reorder', $task) }}">
+                                            @forelse ($task->subtasks->sortBy('sort_order') as $index => $subtask)
+                                                @php
+                                                    $stStart = $subtask->start_date;
+                                                    $stDue   = $subtask->due_date;
+                                                    $stDays  = ($stStart && $stDue)
+                                                        ? max(1, $stStart->diffInDays($stDue) + 1)
+                                                        : ($subtask->estimated_hours ? max(1, (int) round($subtask->estimated_hours / 8)) : 1);
+                                                    $stStatus = $subtask->status ?? ($subtask->is_completed ? 'completed' : 'todo');
+                                                    $statusLabel = match ($stStatus) {
+                                                        'completed' => 'Completed',
+                                                        'in_progress' => 'In Progress',
+                                                        'on_hold' => 'On Hold',
+                                                        'in_review' => 'In Review',
+                                                        default => 'Pending',
+                                                    };
+                                                    $statusClass = match ($stStatus) {
+                                                        'completed' => 'is-completed',
+                                                        'in_progress' => 'is-in-progress',
+                                                        'on_hold' => 'is-on-hold',
+                                                        'in_review' => 'is-in-review',
+                                                        default => 'is-pending',
+                                                    };
+                                                    $stProg = $subtask->is_completed ? 100 : (int) ($subtask->progress_percentage ?? 0);
+                                                    $progColorClass = $stProg === 100 ? 'is-completed' : ($stProg > 0 ? 'is-in-progress' : 'is-zero');
+
+                                                    $avatarColors = ['#3b82f6', '#6366f1', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#10b981'];
+                                                    $assigneeId = $subtask->assignee?->id ?? 0;
+                                                    $avatarBg = $avatarColors[$assigneeId % count($avatarColors)];
+                                                    $assigneeInitial = $subtask->assignee ? mb_strtoupper(mb_substr($subtask->assignee->name, 0, 1)) : '?';
+                                                @endphp
+                                                <tr
+                                                    class="tf-subtasks__item tf-subtask-row{{ $subtask->is_completed ? ' is-done' : '' }}"
+                                                    id="subtask-{{ $subtask->id }}"
+                                                    data-subtask-id="{{ $subtask->id }}"
+                                                    data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
+                                                    data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                    draggable="true"
+                                                >
+                                                    <td class="col-num">
+                                                        <span class="tf-row-idx">{{ $index + 1 }}</span>
+                                                    </td>
+                                                    <td class="col-subtask">
+                                                        <div class="tf-st-subtask-cell">
+                                                            <button
+                                                                type="button"
+                                                                class="tf-subtasks__toggle tf-st-toggle-btn {{ $subtask->is_completed ? 'is-completed' : ($stStatus === 'in_progress' ? 'is-in-progress' : 'is-pending') }}"
+                                                                data-toggle-url="{{ route('subtasks.toggle', [$task, $subtask]) }}"
+                                                                aria-label="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
+                                                                title="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
+                                                                aria-pressed="{{ $subtask->is_completed ? 'true' : 'false' }}"
+                                                            >
+                                                                <i class="bi {{ $subtask->is_completed ? 'bi-check-circle-fill' : ($stStatus === 'in_progress' ? 'bi-record-circle-fill' : 'bi-circle') }}"></i>
+                                                            </button>
+                                                            <div class="tf-st-title-desc">
+                                                                <span
+                                                                    class="tf-subtasks__title tf-st-title"
+                                                                    contenteditable="false"
+                                                                    data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                                    data-original="{{ e($subtask->title) }}"
+                                                                    title="Double-click to inline edit"
+                                                                >{{ $subtask->title }}</span>
+                                                                <div class="tf-st-description">
+                                                                    {{ $subtask->description ?: 'No details provided.' }}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="col-assignee">
+                                                        @if ($subtask->assignee)
+                                                            <div class="tf-st-assignee" title="Assigned to {{ $subtask->assignee->name }}">
+                                                                <span class="tf-st-avatar" style="background-color: {{ $avatarBg }};">{{ $assigneeInitial }}</span>
+                                                                <span class="tf-st-assignee-name">{{ Str::limit($subtask->assignee->name, 16) }}</span>
+                                                            </div>
+                                                        @else
+                                                            <div class="tf-st-assignee is-unassigned" title="Unassigned">
+                                                                <span class="tf-st-avatar is-unassigned">?</span>
+                                                                <span class="tf-st-assignee-name text-muted">Unassigned</span>
+                                                            </div>
+                                                        @endif
+                                                    </td>
+                                                    <td class="col-timeframe">
+                                                        <div class="tf-st-timeframe">
+                                                            @if ($stStart && $stDue)
+                                                                <span class="tf-st-dates">{{ $stStart->format('M d') }} – {{ $stDue->format('M d') }}</span>
+                                                                <small class="tf-st-subdays">({{ $stDays }} {{ Str::plural('day', $stDays) }})</small>
+                                                            @elseif ($stDue)
+                                                                <span class="tf-st-dates">Due {{ $stDue->format('M d') }}</span>
+                                                                <small class="tf-st-subdays">({{ $stDays }} {{ Str::plural('day', $stDays) }})</small>
+                                                            @else
+                                                                <span class="text-muted">—</span>
+                                                            @endif
+                                                        </div>
+                                                    </td>
+                                                    <td class="col-duration">
+                                                        <span class="tf-st-duration-badge">{{ $stDays }} {{ Str::plural('day', $stDays) }}</span>
+                                                    </td>
+                                                    <td class="col-status">
+                                                        <span class="tf-st-status-pill {{ $statusClass }}">{{ $statusLabel }}</span>
+                                                    </td>
+                                                    <td class="col-progress">
+                                                        <div class="tf-st-progress-box">
+                                                            <span class="tf-st-progress-pct">{{ $stProg }}%</span>
+                                                            <div class="tf-st-mini-track">
+                                                                <div class="tf-st-mini-fill {{ $progColorClass }}" style="width: {{ $stProg }}%"></div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="col-actions">
+                                                        <div class="tf-st-actions-wrap">
+                                                            <button
+                                                                type="button"
+                                                                class="tf-st-action-btn tf-subtasks__open-modal"
+                                                                data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
+                                                                data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                                aria-label="Edit subtask"
+                                                                title="Edit subtask"
+                                                            >
+                                                                <i class="bi bi-pencil" aria-hidden="true"></i>
+                                                            </button>
+                                                            <div class="dropdown d-inline-block">
+                                                                <button
+                                                                    type="button"
+                                                                    class="tf-st-action-btn dropdown-toggle-none"
+                                                                    data-bs-toggle="dropdown"
+                                                                    aria-expanded="false"
+                                                                    aria-label="More options"
+                                                                    title="More options"
+                                                                >
+                                                                    <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+                                                                </button>
+                                                                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="dropdown-item tf-subtasks__open-modal"
+                                                                            data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
+                                                                            data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                                        >
+                                                                            <i class="bi bi-pencil me-2"></i> Edit Details
+                                                                        </button>
+                                                                    </li>
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="dropdown-item tf-dropdown-toggle-subtask"
+                                                                            data-toggle-url="{{ route('subtasks.toggle', [$task, $subtask]) }}"
+                                                                        >
+                                                                            <i class="bi {{ $subtask->is_completed ? 'bi-arrow-counterclockwise' : 'bi-check2-circle' }} me-2"></i>
+                                                                            {{ $subtask->is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
+                                                                        </button>
+                                                                    </li>
+                                                                    <li><hr class="dropdown-divider"></li>
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="dropdown-item text-danger tf-subtasks__delete"
+                                                                            data-delete-url="{{ route('subtasks.destroy', [$task, $subtask]) }}"
+                                                                        >
+                                                                            <i class="bi bi-trash3 me-2"></i> Delete Subtask
+                                                                        </button>
+                                                                    </li>
+                                                                </ul>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            @empty
+                                                <tr id="subtasks-empty-row">
+                                                    <td colspan="8" class="text-center py-4 text-muted">
+                                                        <i class="bi bi-check2-square d-block fs-3 mb-2 text-primary opacity-50"></i>
+                                                        No subtasks created yet. Click <strong>+ Add Subtask</strong> above to create one.
+                                                    </td>
+                                                </tr>
+                                            @endforelse
+
+                                            {{-- Inline Quick Add Row --}}
+                                            <tr id="subtask-quick-add-row" class="tf-subtask-quick-add-row" hidden>
+                                                <td class="col-num"><i class="bi bi-plus text-primary fs-5"></i></td>
+                                                <td colspan="7">
+                                                    <form method="POST" action="{{ route('subtasks.store', $task) }}" id="subtask-quick-add-form" class="tf-quick-add-form">
+                                                        @csrf
+                                                        <div class="tf-quick-add-fields">
+                                                            <input
+                                                                type="text"
+                                                                name="title"
+                                                                id="quick-add-title"
+                                                                class="form-control form-control-sm"
+                                                                placeholder="Subtask title (e.g. Home Page Module)..."
+                                                                required
+                                                                maxlength="500"
+                                                                autocomplete="off"
+                                                            >
+                                                            <input
+                                                                type="text"
+                                                                name="description"
+                                                                id="quick-add-desc"
+                                                                class="form-control form-control-sm"
+                                                                placeholder="Short description/details..."
+                                                                maxlength="1000"
+                                                            >
+                                                            <select name="assigned_to" class="form-select form-select-sm" aria-label="Assign to">
+                                                                <option value="">Assignee (Optional)</option>
+                                                                @foreach ($employees->where('company_id', $task->company_id)->where('department_id', $task->department_id) as $emp)
+                                                                    <option value="{{ $emp->id }}">{{ $emp->name }}</option>
+                                                                @endforeach
+                                                            </select>
+                                                            <input
+                                                                type="date"
+                                                                name="start_date"
+                                                                class="form-control form-control-sm"
+                                                                placeholder="Start Date"
+                                                                title="Start Date"
+                                                            >
+                                                            <input
+                                                                type="date"
+                                                                name="due_date"
+                                                                class="form-control form-control-sm"
+                                                                placeholder="Deadline"
+                                                                title="Deadline"
+                                                                @if ($task->due_date) max="{{ $task->due_date->format('Y-m-d') }}" @endif
+                                                            >
+                                                            <select name="priority" class="form-select form-select-sm" aria-label="Priority">
+                                                                <option value="medium" selected>Medium</option>
+                                                                <option value="high">High</option>
+                                                                <option value="critical">Critical</option>
+                                                                <option value="low">Low</option>
+                                                            </select>
+                                                            <select name="status" class="form-select form-select-sm" aria-label="Status">
+                                                                <option value="todo" selected>Pending</option>
+                                                                <option value="in_progress">In Progress</option>
+                                                                <option value="completed">Completed</option>
+                                                            </select>
+                                                            <div class="tf-quick-add-actions">
+                                                                <button type="submit" class="btn btn-sm btn-primary">
+                                                                    <i class="bi bi-check-lg"></i> Add
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-light" id="quick-add-cancel-btn">
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {{-- Card 2: Subtask Timeline (Gantt View) --}}
+                            <div class="tf-subtask-card tf-gantt-card mt-4">
+                                <div class="tf-gantt-card__header">
+                                    <span class="tf-gantt-card__icon" aria-hidden="true">
+                                        <i class="bi bi-calendar2-range"></i>
+                                    </span>
+                                    <h3 class="tf-gantt-card__title">Subtask Timeline (Gantt View)</h3>
+                                </div>
+
+                                <div class="tf-gantt-scroll-container">
+                                    <div class="tf-gantt-chart">
+                                        {{-- Date Header Row --}}
+                                        <div class="tf-gantt-row tf-gantt-row--header">
+                                            <div class="tf-gantt-col-name tf-gantt-col-name--header">
+                                                <span>Subtask</span>
                                             </div>
-                                            @if ($event['detail'])
-                                                <span class="tf-task-detail__timeline-detail">{{ $event['detail'] }}</span>
-                                            @endif
-                                            @if ($event['attachments']->isNotEmpty())
-                                                <div class="tf-task-detail__timeline-attachments" aria-label="Activity attachments">
-                                                    @foreach ($event['attachments'] as $attachment)
-                                                        @php
-                                                            $isImage = str_starts_with($attachment->mime_type ?? '', 'image/');
-                                                            $attachmentUrl = $isImage
-                                                                ? route('tasks.attachments.preview', [$task, $attachment])
-                                                                : route('tasks.attachments.download', [$task, $attachment]);
-                                                        @endphp
-                                                        <a href="{{ $attachmentUrl }}" @if ($isImage) target="_blank" rel="noopener noreferrer" @endif>
-                                                            <span class="tf-task-detail__timeline-attachment-icon" aria-hidden="true">
-                                                                @if ($isImage)
-                                                                    <img src="{{ $attachmentUrl }}" alt="" loading="lazy">
-                                                                @else
-                                                                    <i class="bi bi-file-earmark"></i>
-                                                                @endif
-                                                            </span>
-                                                            <span class="tf-task-detail__timeline-attachment-copy">
-                                                                <strong>{{ $attachment->original_name }}</strong>
-                                                                <small>{{ $isImage ? 'Image attachment' : 'File attachment' }}</small>
-                                                            </span>
-                                                        </a>
+                                            <div class="tf-gantt-timeline-area">
+                                                <div class="tf-gantt-date-grid">
+                                                    @foreach ($ganttDays as $gDay)
+                                                        <div class="tf-gantt-date-cell{{ $gDay->format('Y-m-d') === $todayStr ? ' is-today' : '' }}">
+                                                            {{ $gDay->format('M j') }}
+                                                        </div>
                                                     @endforeach
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {{-- Subtask Rows --}}
+                                        <div class="tf-gantt-body">
+                                            @foreach ($task->subtasks->sortBy('sort_order') as $subtask)
+                                                @php
+                                                    $stStart = $subtask->start_date ? $subtask->start_date->copy() : null;
+                                                    $stDue   = $subtask->due_date ? $subtask->due_date->copy() : null;
+                                                    if ($stStart && $stDue) {
+                                                        $dur = max(1, $stStart->diffInDays($stDue) + 1);
+                                                    } elseif ($subtask->estimated_hours) {
+                                                        $dur = max(1, (int) round($subtask->estimated_hours / 8));
+                                                    } else {
+                                                        $dur = 2;
+                                                    }
+
+                                                    if ($stStart) {
+                                                        $sIdx = max(0, $ganttMin->diffInDays($stStart, false));
+                                                    } elseif ($stDue) {
+                                                        $sIdx = max(0, $ganttMin->diffInDays($stDue->copy()->subDays($dur - 1), false));
+                                                    } else {
+                                                        $sIdx = $todayIndex !== null ? max(0, $todayIndex) : 1;
+                                                    }
+                                                    $spDays = min($totalGanttDays - $sIdx, max(1, $dur));
+
+                                                    $bLeft = ($sIdx / $totalGanttDays) * 100;
+                                                    $bWidth = ($spDays / $totalGanttDays) * 100;
+
+                                                    $stStatus = $subtask->status ?? ($subtask->is_completed ? 'completed' : 'todo');
+                                                    $barClass = match($stStatus) {
+                                                        'completed' => 'tf-gantt-bar--completed',
+                                                        'in_progress' => 'tf-gantt-bar--in-progress',
+                                                        'on_hold' => 'tf-gantt-bar--not-started',
+                                                        default => 'tf-gantt-bar--pending',
+                                                    };
+                                                @endphp
+                                                <div class="tf-gantt-row" id="gantt-row-{{ $subtask->id }}">
+                                                    <div class="tf-gantt-col-name" title="{{ $subtask->title }}">
+                                                        <i class="bi bi-briefcase me-2 text-muted"></i>
+                                                        <span class="tf-gantt-name-text">{{ $subtask->title }}</span>
+                                                    </div>
+                                                    <div class="tf-gantt-timeline-area">
+                                                        <div class="tf-gantt-grid-lines">
+                                                            @foreach ($ganttDays as $gDay)
+                                                                <div class="tf-gantt-grid-line{{ $gDay->format('Y-m-d') === $todayStr ? ' is-today' : '' }}"></div>
+                                                            @endforeach
+                                                        </div>
+                                                        <div
+                                                            class="tf-gantt-bar {{ $barClass }}"
+                                                            style="left: {{ $bLeft }}%; width: {{ $bWidth }}%;"
+                                                            title="{{ $subtask->title }}: {{ $dur }} {{ Str::plural('day', $dur) }}"
+                                                        >
+                                                            <span class="tf-gantt-bar-label">{{ $dur }} {{ Str::plural('day', $dur) }}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+
+                                            {{-- Vertical Today Line --}}
+                                            @if ($todayIndex !== null)
+                                                @php
+                                                    $todayColLeft = ($todayIndex / $totalGanttDays * 100) + (100 / $totalGanttDays / 2);
+                                                @endphp
+                                                <div class="tf-gantt-today-line" style="left: calc({{ $todayColLeft }}% + 220px);">
+                                                    <div class="tf-gantt-today-tag">
+                                                        <strong>Today</strong>
+                                                        <small>{{ today()->format('M j') }}</small>
+                                                    </div>
                                                 </div>
                                             @endif
                                         </div>
-                                    </li>
-                                @endforeach
-                            </ol>
-                        @else
-                            <div class="tf-task-detail__card-body">
-                                <p class="tf-task-detail__empty-copy">No activity has been recorded for this task.</p>
+                                    </div>
+                                </div>
+
+                                {{-- Gantt Legend --}}
+                                <div class="tf-gantt-legend">
+                                    <div class="tf-gantt-legend-item">
+                                        <span class="tf-gantt-legend-color tf-gantt-legend--completed"></span>
+                                        <span>Completed</span>
+                                    </div>
+                                    <div class="tf-gantt-legend-item">
+                                        <span class="tf-gantt-legend-color tf-gantt-legend--in-progress"></span>
+                                        <span>In Progress</span>
+                                    </div>
+                                    <div class="tf-gantt-legend-item">
+                                        <span class="tf-gantt-legend-color tf-gantt-legend--pending"></span>
+                                        <span>Pending</span>
+                                    </div>
+                                    <div class="tf-gantt-legend-item">
+                                        <span class="tf-gantt-legend-color tf-gantt-legend--not-started"></span>
+                                        <span>Not Started</span>
+                                    </div>
+                                </div>
                             </div>
-                        @endif
+                        </div>
                     </div>
 
+                    {{-- ── TAB 2: TIMELINE VIEW ── --}}
+                    <div class="tf-activity-tab-panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline-btn" hidden>
+                        <header class="tf-task-detail__activity-header">
+                            <div class="tf-task-detail__activity-heading">
+                                <div>
+                                    <span>Task activity</span>
+                                    <small>Recent updates and history</small>
+                                </div>
+                                @if ($deadline)
+                                    @php
+                                        $isOverdue = $daysUntilDeadline !== null && $daysUntilDeadline < 0 && ! in_array($status, ['completed', 'cancelled'], true);
+                                        $isDueToday = $daysUntilDeadline === 0 && ! in_array($status, ['completed', 'cancelled'], true);
+                                        $isCompleted = $status === 'completed';
+                                        $deadlineToneClass = $isCompleted ? 'is-completed' : ($isOverdue ? 'is-overdue' : ($isDueToday ? 'is-due-today' : ''));
+                                    @endphp
+                                    <article class="tf-task-detail__deadline-event {{ $deadlineToneClass }}">
+                                        <span class="tf-task-detail__deadline-icon">
+                                            <i class="bi {{ $isCompleted ? 'bi-check2' : ($isOverdue ? 'bi-exclamation-triangle' : ($isDueToday ? 'bi-alarm' : 'bi-calendar-event')) }}" aria-hidden="true"></i>
+                                        </span>
+                                        <span class="tf-task-detail__deadline-text">
+                                            <strong>Due:</strong>
+                                            <time datetime="{{ $deadline->toIso8601String() }}">{{ $deadline->format('M d, Y') }}</time>
+                                        </span>
+                                        <small class="{{ $deadlineToneClass }}">
+                                            @if ($isCompleted)
+                                                Completed
+                                            @elseif ($isOverdue)
+                                                {{ abs($daysUntilDeadline) }} {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} overdue
+                                            @elseif ($isDueToday)
+                                                Due today
+                                            @else
+                                                {{ $daysUntilDeadline }} {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left
+                                            @endif
+                                        </small>
+                                    </article>
+                                @endif
+                            </div>
+                        </header>
+
+                        <div id="task-activity-timeline" role="tabpanel" data-task-activity-panel="timeline">
+                            @if ($activity->isNotEmpty())
+                                <ol class="tf-task-detail__timeline">
+                                    @foreach ($activity as $event)
+                                        @php
+                                            $activityIcon = match ($event['tone']) {
+                                                'hold' => 'bi-pause',
+                                                'created' => 'bi-plus-lg',
+                                                'assigned', 'reassigned' => 'bi-person-plus',
+                                                'start' => 'bi-play-fill',
+                                                'submission' => 'bi-send',
+                                                'review' => 'bi-check-lg',
+                                                'resume' => 'bi-arrow-repeat',
+                                                'accepted' => 'bi-check2',
+                                                'cancellation', 'cancelled' => 'bi-x-lg',
+                                                'risk' => 'bi-exclamation-lg',
+                                                'work_update' => 'bi-chat-left-text',
+                                                'subtask' => 'bi-check2-square',
+                                                default => 'bi-arrow-left-right',
+                                            };
+                                        @endphp
+                                        <li class="tf-task-detail__timeline-item tf-task-detail__timeline-item--{{ $event['tone'] }}" data-task-activity-type="{{ $event['tone'] }}">
+                                            <span class="tf-task-detail__timeline-marker" aria-hidden="true">
+                                                <i class="bi {{ $activityIcon }}"></i>
+                                            </span>
+                                            <div class="tf-task-detail__timeline-content">
+                                                <div class="tf-task-detail__timeline-heading">
+                                                    <p>
+                                                        <strong>{{ $event['actor'] }}</strong> {{ $event['text'] }}
+                                                        @if ($event['badge'])
+                                                            <span class="tf-task-detail__timeline-badge tf-task-detail__timeline-badge--{{ \Illuminate\Support\Str::slug($event['badge']) }}">{{ $event['badge'] }}</span>
+                                                        @endif
+                                                    </p>
+                                                    <time datetime="{{ $event['at']->toIso8601String() }}">
+                                                        <span>{{ $event['at']->format('M d, Y') }}</span>
+                                                    </time>
+                                                </div>
+                                                @if ($event['detail'])
+                                                    <span class="tf-task-detail__timeline-detail">{{ $event['detail'] }}</span>
+                                                @endif
+                                                @if ($event['attachments']->isNotEmpty())
+                                                    <div class="tf-task-detail__timeline-attachments" aria-label="Activity attachments">
+                                                        @foreach ($event['attachments'] as $attachment)
+                                                            @php
+                                                                $isImage = str_starts_with($attachment->mime_type ?? '', 'image/');
+                                                                $attachmentUrl = $isImage
+                                                                    ? route('tasks.attachments.preview', [$task, $attachment])
+                                                                    : route('tasks.attachments.download', [$task, $attachment]);
+                                                            @endphp
+                                                            <a href="{{ $attachmentUrl }}" @if ($isImage) target="_blank" rel="noopener noreferrer" @endif>
+                                                                <span class="tf-task-detail__timeline-attachment-icon" aria-hidden="true">
+                                                                    @if ($isImage)
+                                                                        <img src="{{ $attachmentUrl }}" alt="" loading="lazy">
+                                                                    @else
+                                                                        <i class="bi bi-file-earmark"></i>
+                                                                    @endif
+                                                                </span>
+                                                                <span class="tf-task-detail__timeline-attachment-copy">
+                                                                    <strong>{{ $attachment->original_name }}</strong>
+                                                                    <small>{{ $isImage ? 'Image attachment' : 'File attachment' }}</small>
+                                                                </span>
+                                                            </a>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        </li>
+                                    @endforeach
+                                </ol>
+                            @else
+                                <div class="tf-task-detail__card-body">
+                                    <p class="tf-task-detail__empty-copy">No activity has been recorded for this task.</p>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
                 </section>
             </aside>
         </div>
@@ -1222,6 +1520,75 @@
     (function () {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
+        // ── Activity Tabs (Subtask vs Timeline) ──────────────────────────────
+        document.querySelectorAll('[data-activity-tab]').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const target = tab.dataset.activityTab;
+                document.querySelectorAll('[data-activity-tab]').forEach(btn => {
+                    const isActive = btn === tab;
+                    btn.classList.toggle('is-active', isActive);
+                    btn.setAttribute('aria-selected', String(isActive));
+                });
+                document.querySelectorAll('.tf-activity-tab-panel').forEach(panel => {
+                    const isMatch = panel.id === `panel-${target}`;
+                    panel.hidden = !isMatch;
+                    panel.classList.toggle('is-active', isMatch);
+                });
+            });
+        });
+
+        // ── Quick Add Subtask Row ─────────────────────────────────────────────
+        const addSubtaskBtn = document.getElementById('subtask-add-btn');
+        const quickAddRow   = document.getElementById('subtask-quick-add-row');
+        const quickAddCancel = document.getElementById('quick-add-cancel-btn');
+        const quickAddForm  = document.getElementById('subtask-quick-add-form');
+
+        addSubtaskBtn?.addEventListener('click', () => {
+            if (quickAddRow) {
+                quickAddRow.removeAttribute('hidden');
+                document.getElementById('quick-add-title')?.focus();
+            }
+        });
+
+        quickAddCancel?.addEventListener('click', () => {
+            quickAddRow?.setAttribute('hidden', '');
+            quickAddForm?.reset();
+        });
+
+        quickAddForm?.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const formData = new FormData(quickAddForm);
+            fetch(quickAddForm.action, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: formData,
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    window.location.reload();
+                } else {
+                    alert(data.message || 'Failed to add subtask');
+                }
+            })
+            .catch(() => {
+                window.location.reload();
+            });
+        });
+
+        // ── Expand All Descriptions ───────────────────────────────────────────
+        const expandBtn = document.getElementById('subtask-expand-btn');
+        expandBtn?.addEventListener('click', () => {
+            const table = document.getElementById('subtasks-table');
+            const isExpanded = table?.classList.toggle('is-expanded');
+            if (expandBtn) {
+                expandBtn.innerHTML = `<i class="bi ${isExpanded ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'}"></i> ${isExpanded ? 'Collapse All' : 'Expand All'}`;
+            }
+        });
+
         // ── Helpers ──────────────────────────────────────────────────────────
         function updateSubtaskBadge() {
             const list   = document.getElementById('subtasks-list');
@@ -1230,10 +1597,17 @@
             const done   = list.querySelectorAll('.tf-subtasks__item.is-done');
             const total  = items.length;
             const doneCount = done.length;
-            const badge  = document.getElementById('subtasks-count-badge');
-            const bar    = document.getElementById('subtasks-progress-bar');
-            if (badge) { badge.textContent = `${doneCount} / ${total}`; }
-            if (bar) { bar.style.width = total > 0 ? `${Math.round(doneCount / total * 100)}%` : '0%'; }
+            const pct = total > 0 ? Math.round(doneCount / total * 100) : 0;
+
+            const subtitle = document.getElementById('subtasks-count-subtitle');
+            const tabBadge = document.getElementById('tab-subtasks-count-badge');
+            const fill     = document.getElementById('subtasks-progress-fill');
+            const pctText  = document.getElementById('subtasks-progress-pct');
+
+            if (subtitle) { subtitle.textContent = `${total} total (${doneCount} completed)`; }
+            if (tabBadge) { tabBadge.textContent = total; }
+            if (fill) { fill.style.width = `${pct}%`; }
+            if (pctText) { pctText.textContent = `${pct}%`; }
         }
 
         // ── Toggle complete ───────────────────────────────────────────────────
@@ -1249,16 +1623,59 @@
             })
             .then(r => r.json())
             .then(data => {
-                const li = btn.closest('.tf-subtasks__item');
-                li.classList.toggle('is-done', data.is_completed);
+                const row = btn.closest('.tf-subtasks__item');
+                row.classList.toggle('is-done', data.is_completed);
+
                 const icon = btn.querySelector('i');
-                icon.className = `bi ${data.is_completed ? 'bi-check-circle-fill' : 'bi-circle'}`;
+                if (data.is_completed) {
+                    btn.className = 'tf-subtasks__toggle tf-st-toggle-btn is-completed';
+                    icon.className = 'bi bi-check-circle-fill';
+                } else {
+                    btn.className = 'tf-subtasks__toggle tf-st-toggle-btn is-pending';
+                    icon.className = 'bi bi-circle';
+                }
                 btn.setAttribute('aria-pressed', String(data.is_completed));
                 btn.setAttribute('aria-label', data.is_completed ? 'Mark incomplete' : 'Mark complete');
                 btn.title = data.is_completed ? 'Mark incomplete' : 'Mark complete';
+
+                // Update status pill and progress in row
+                const statusPill = row.querySelector('.tf-st-status-pill');
+                if (statusPill) {
+                    if (data.is_completed) {
+                        statusPill.className = 'tf-st-status-pill is-completed';
+                        statusPill.textContent = 'Completed';
+                    } else {
+                        statusPill.className = 'tf-st-status-pill is-pending';
+                        statusPill.textContent = 'Pending';
+                    }
+                }
+                const progPct = row.querySelector('.tf-st-progress-pct');
+                const progFill = row.querySelector('.tf-st-mini-fill');
+                if (progPct) { progPct.textContent = data.is_completed ? '100%' : '0%'; }
+                if (progFill) {
+                    progFill.style.width = data.is_completed ? '100%' : '0%';
+                    progFill.className = `tf-st-mini-fill ${data.is_completed ? 'is-completed' : 'is-zero'}`;
+                }
+
+                // Update Gantt bar class
+                const subtaskId = row.dataset.subtaskId;
+                const ganttRow = document.getElementById(`gantt-row-${subtaskId}`);
+                const ganttBar = ganttRow?.querySelector('.tf-gantt-bar');
+                if (ganttBar) {
+                    ganttBar.className = `tf-gantt-bar ${data.is_completed ? 'tf-gantt-bar--completed' : 'tf-gantt-bar--pending'}`;
+                }
+
                 updateSubtaskBadge();
             })
             .catch(() => {});
+        });
+
+        // Dropdown toggle complete button
+        document.getElementById('subtasks-list')?.addEventListener('click', function (e) {
+            const dropdownToggle = e.target.closest('.tf-dropdown-toggle-subtask');
+            if (!dropdownToggle) { return; }
+            const row = dropdownToggle.closest('.tf-subtasks__item');
+            row?.querySelector('.tf-subtasks__toggle')?.click();
         });
 
         // ── Delete subtask ────────────────────────────────────────────────────
@@ -1274,7 +1691,10 @@
             .then(r => r.json())
             .then(data => {
                 if (data.ok) {
-                    btn.closest('.tf-subtasks__item').remove();
+                    const row = btn.closest('.tf-subtasks__item');
+                    const subtaskId = row.dataset.subtaskId;
+                    row.remove();
+                    document.getElementById(`gantt-row-${subtaskId}`)?.remove();
                     updateSubtaskBadge();
                 }
             })
@@ -1287,7 +1707,6 @@
             if (!titleEl || titleEl.contentEditable === 'true') { return; }
             titleEl.contentEditable = 'true';
             titleEl.focus();
-            // Select all text
             const range = document.createRange();
             range.selectNodeContents(titleEl);
             window.getSelection().removeAllRanges();
@@ -1328,46 +1747,19 @@
             })
             .then(r => r.json())
             .then(data => {
-                if (data.ok) { titleEl.dataset.original = newTitle; }
-                else { titleEl.textContent = titleEl.dataset.original; }
+                if (data.ok) {
+                    titleEl.dataset.original = newTitle;
+                    const row = titleEl.closest('.tf-subtasks__item');
+                    const subtaskId = row.dataset.subtaskId;
+                    const ganttRow = document.getElementById(`gantt-row-${subtaskId}`);
+                    const nameText = ganttRow?.querySelector('.tf-gantt-name-text');
+                    if (nameText) { nameText.textContent = newTitle; }
+                } else {
+                    titleEl.textContent = titleEl.dataset.original;
+                }
             })
             .catch(() => { titleEl.textContent = titleEl.dataset.original; });
         }, true);
-
-        // ── Add subtask form ──────────────────────────────────────────────────
-        const trigger    = document.getElementById('subtask-add-trigger');
-        const form       = document.getElementById('subtask-add-form');
-        const input      = document.getElementById('subtask-title-input');
-        const metaRow    = document.getElementById('subtask-add-meta');
-        const actionsRow = document.getElementById('subtask-add-actions');
-        const cancelBtn  = document.getElementById('subtask-cancel-btn');
-
-        function openAddForm() {
-            trigger?.classList.add('is-hidden');
-            form?.removeAttribute('hidden');
-            metaRow?.removeAttribute('hidden');
-            actionsRow?.removeAttribute('hidden');
-            input?.focus();
-        }
-
-        function closeAddForm() {
-            trigger?.classList.remove('is-hidden');
-            form?.setAttribute('hidden', '');
-            if (metaRow) { metaRow.hidden = true; }
-            if (actionsRow) { actionsRow.hidden = true; }
-            if (input) { input.value = ''; }
-        }
-
-        trigger?.addEventListener('click', openAddForm);
-        cancelBtn?.addEventListener('click', closeAddForm);
-
-        // Show meta row when user starts typing
-        input?.addEventListener('input', function () {
-            if (this.value.trim()) {
-                metaRow?.removeAttribute('hidden');
-                actionsRow?.removeAttribute('hidden');
-            }
-        });
 
         // ── Drag-to-reorder ───────────────────────────────────────────────────
         const list = document.getElementById('subtasks-list');
@@ -1399,7 +1791,6 @@
                 dragSrc?.classList.remove('is-dragging');
                 dragSrc = null;
 
-                // Persist new order
                 const reorderUrl = list.dataset.reorderUrl;
                 const ids = [...list.querySelectorAll('.tf-subtasks__item')].map(li => parseInt(li.dataset.subtaskId, 10));
                 if (reorderUrl) {

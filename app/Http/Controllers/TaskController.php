@@ -23,6 +23,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -163,8 +164,7 @@ class TaskController extends Controller
         Task $task,
         TaskWorkflowService $workflow,
         SubtaskProgressService $subtaskProgress,
-    ): View
-    {
+    ): View {
         $this->authorize('view', $task);
 
         $task->load([
@@ -234,8 +234,7 @@ class TaskController extends Controller
         Task $task,
         TaskWorkflowService $workflow,
         SubtaskActivityService $subtaskActivity,
-    ): RedirectResponse
-    {
+    ): RedirectResponse {
         $this->authorize('update', $task);
 
         $validated = $request->validated();
@@ -818,74 +817,74 @@ class TaskController extends Controller
             return true;
         }
 
-        /**
-         * @param  array<string, mixed>  $validated
-         */
-        private function preventConflictingSubtaskTimeframeChange(
-            Task $task,
-            array $validated,
-            User $actor,
-            SubtaskActivityService $subtaskActivity,
-        ): void {
-            $oldStartDate = $task->start_date?->toDateString();
-            $oldDeadline = ($task->due_date ?? $task->original_deadline)?->toDateString();
-            $newStartDate = array_key_exists('start_date', $validated)
-                ? $validated['start_date']
-                : $oldStartDate;
-            $newDeadline = array_key_exists('due_date', $validated)
-                ? ($validated['due_date'] ?? $task->original_deadline?->toDateString())
-                : $oldDeadline;
-            $startDateChanged = array_key_exists('start_date', $validated) && $newStartDate !== $oldStartDate;
-            $deadlineChanged = array_key_exists('due_date', $validated)
-                && ($validated['due_date'] ?? null) !== $task->due_date?->toDateString();
-
-            if (! $startDateChanged && ! $deadlineChanged) {
-                return;
-            }
-
-            $subtasks = $task->subtasks()
-                ->get(['id', 'task_id', 'title', 'start_date', 'due_date', 'assigned_to', 'created_by']);
-            $startConflicts = $startDateChanged && $newStartDate !== null
-                ? $subtasks->filter(fn ($subtask): bool => $subtask->start_date !== null
-                    && $subtask->start_date->lt(Carbon::parse($newStartDate)))
-                : collect();
-            $deadlineConflicts = $deadlineChanged && $newDeadline !== null
-                ? $subtasks->filter(fn ($subtask): bool => $subtask->due_date !== null
-                    && $subtask->due_date->gt(Carbon::parse($newDeadline)))
-                : collect();
-            $conflicts = $startConflicts->merge($deadlineConflicts)->unique('id')->values();
-
-            if ($conflicts->isEmpty()) {
-                return;
-            }
-
-            DB::transaction(fn () => $subtaskActivity->recordParentDeadlineConflicts(
-                $task,
-                $conflicts,
-                $actor,
-                $oldDeadline,
-                $newDeadline,
-                $oldStartDate,
-                $newStartDate,
-            ));
-
-            $errors = [];
-            if ($startConflicts->isNotEmpty()) {
-                $errors['start_date'] = 'The new main task start date conflicts with subtasks: '.$startConflicts->pluck('title')->implode(', ').'. Correct their dates before saving.';
-            }
-            if ($deadlineConflicts->isNotEmpty()) {
-                $errors['due_date'] = 'The new main task deadline conflicts with subtasks: '.$deadlineConflicts->pluck('title')->implode(', ').'. Correct their dates before saving.';
-            }
-
-            throw \Illuminate\Validation\ValidationException::withMessages($errors);
-        }
-
         return User::query()
             ->whereIn('id', $assigneeIds)
             ->where('company_id', $companyId)
             ->where('department_id', $departmentId)
             ->where('status', 'active')
             ->count() === count($assigneeIds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function preventConflictingSubtaskTimeframeChange(
+        Task $task,
+        array $validated,
+        User $actor,
+        SubtaskActivityService $subtaskActivity,
+    ): void {
+        $oldStartDate = $task->start_date?->toDateString();
+        $oldDeadline = ($task->due_date ?? $task->original_deadline)?->toDateString();
+        $newStartDate = array_key_exists('start_date', $validated)
+            ? $validated['start_date']
+            : $oldStartDate;
+        $newDeadline = array_key_exists('due_date', $validated)
+            ? ($validated['due_date'] ?? $task->original_deadline?->toDateString())
+            : $oldDeadline;
+        $startDateChanged = array_key_exists('start_date', $validated) && $newStartDate !== $oldStartDate;
+        $deadlineChanged = array_key_exists('due_date', $validated)
+            && ($validated['due_date'] ?? null) !== $task->due_date?->toDateString();
+
+        if (! $startDateChanged && ! $deadlineChanged) {
+            return;
+        }
+
+        $subtasks = $task->subtasks()
+            ->get(['id', 'task_id', 'title', 'start_date', 'due_date', 'assigned_to', 'created_by']);
+        $startConflicts = $startDateChanged && $newStartDate !== null
+            ? $subtasks->filter(fn ($subtask): bool => $subtask->start_date !== null
+                && $subtask->start_date->lt(Carbon::parse($newStartDate)))
+            : collect();
+        $deadlineConflicts = $deadlineChanged && $newDeadline !== null
+            ? $subtasks->filter(fn ($subtask): bool => $subtask->due_date !== null
+                && $subtask->due_date->gt(Carbon::parse($newDeadline)))
+            : collect();
+        $conflicts = $startConflicts->merge($deadlineConflicts)->unique('id')->values();
+
+        if ($conflicts->isEmpty()) {
+            return;
+        }
+
+        DB::transaction(fn () => $subtaskActivity->recordParentDeadlineConflicts(
+            $task,
+            $conflicts,
+            $actor,
+            $oldDeadline,
+            $newDeadline,
+            $oldStartDate,
+            $newStartDate,
+        ));
+
+        $errors = [];
+        if ($startConflicts->isNotEmpty()) {
+            $errors['start_date'] = 'The new main task start date conflicts with subtasks: '.$startConflicts->pluck('title')->implode(', ').'. Correct their dates before saving.';
+        }
+        if ($deadlineConflicts->isNotEmpty()) {
+            $errors['due_date'] = 'The new main task deadline conflicts with subtasks: '.$deadlineConflicts->pluck('title')->implode(', ').'. Correct their dates before saving.';
+        }
+
+        throw ValidationException::withMessages($errors);
     }
 
     private function redirectWithTaskOperation(Task $task, string $title, string $message): RedirectResponse

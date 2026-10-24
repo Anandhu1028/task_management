@@ -24,6 +24,14 @@ class Subtask extends Model
         'completed' => 'Completed',
     ];
 
+    protected $attributes = [
+        'is_completed' => false,
+        'status' => 'todo',
+        'priority' => 'medium',
+        'progress_percentage' => 0,
+        'sort_order' => 0,
+    ];
+
     protected $fillable = [
         'task_id',
         'created_by',
