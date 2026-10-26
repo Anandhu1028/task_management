@@ -24,7 +24,7 @@ class SubtaskController extends Controller
 
     public function store(Request $request, Task $task): RedirectResponse|JsonResponse
     {
-        $this->authorize('update', $task);
+        $this->authorize('createSubtask', $task);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:500'],
@@ -63,7 +63,7 @@ class SubtaskController extends Controller
 
     public function bulkStore(Request $request, Task $task): JsonResponse
     {
-        $this->authorize('update', $task);
+        $this->authorize('createSubtask', $task);
 
         $validated = $request->validate([
             'subtasks' => ['required', 'array', 'min:1', 'max:50'],
@@ -201,9 +201,11 @@ class SubtaskController extends Controller
         $managerFields = ['title', 'description', 'assigned_to', 'priority', 'start_date', 'due_date', 'estimated_hours'];
         $managerChanges = $this->hasManagerChanges($subtask, $validated, $managerFields);
         $statusOrProgressChanged = $this->hasStatusOrProgressChanges($subtask, $validated);
+        $assigneeChanged = array_key_exists('assigned_to', $validated)
+            && (int) ($validated['assigned_to'] ?? 0) !== (int) ($subtask->assigned_to ?? 0);
 
         if ($managerChanges) {
-            $this->authorize('update', $task);
+            $this->authorize($assigneeChanged ? 'update' : 'updateSubtask', $task);
         } elseif ($statusOrProgressChanged) {
             $this->authorize('changeStatus', $task);
         } else {
@@ -427,8 +429,8 @@ class SubtaskController extends Controller
 
     public function destroy(Request $request, Task $task, Subtask $subtask): JsonResponse
     {
-        $this->authorize('update', $task);
         abort_if($subtask->task_id !== $task->id, 404);
+        $this->authorize('deleteSubtask', [$task, $subtask]);
 
         $actor = $request->user();
 

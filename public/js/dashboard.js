@@ -91,6 +91,7 @@
 
         operationCloseTimer = window.setTimeout(closeOperationModal, 2000);
     };
+    window.tfShowOperationComplete = showOperationComplete;
 
     if (window.tfCompletedOperation) {
         showOperationComplete(window.tfCompletedOperation);

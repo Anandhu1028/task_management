@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\User;
 
@@ -26,6 +27,32 @@ class TaskPolicy
     public function update(User $user, Task $task): bool
     {
         return $user->can('tasks.update') && $this->canManage($user, $task);
+    }
+
+    public function createSubtask(User $user, Task $task): bool
+    {
+        return $this->update($user, $task)
+            || ($user->can('tasks.change_status')
+                && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+                && $this->isActiveAssignee($user, $task));
+    }
+
+    public function updateSubtask(User $user, Task $task): bool
+    {
+        return $this->createSubtask($user, $task);
+    }
+
+    public function deleteSubtask(User $user, Task $task, ?Subtask $subtask = null): bool
+    {
+        if ($this->updateSubtask($user, $task)) {
+            return true;
+        }
+
+        if ($subtask && (int) $subtask->created_by === (int) $user->id) {
+            return Task::query()->visibleTo($user)->whereKey($task->getKey())->exists();
+        }
+
+        return false;
     }
 
     public function delete(User $user, Task $task): bool

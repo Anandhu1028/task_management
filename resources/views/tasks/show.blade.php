@@ -766,36 +766,35 @@
             </div>
 
             <aside class="tf-task-detail__sidebar" aria-label="Task activity and subtasks">
-                <section class="tf-task-detail__card tf-task-detail__activity-card tf-activity-wrapper-card">
-                    {{-- Top Two Tabs: Subtask & Timeline --}}
-                    <header class="tf-activity-tabs-header">
-                        <nav class="tf-activity-tabs-nav" role="tablist" aria-label="Task Activity and Subtasks">
-                            <button
-                                type="button"
-                                class="tf-activity-tab-btn is-active"
-                                id="tab-subtasks-btn"
-                                data-activity-tab="subtasks"
-                                role="tab"
-                                aria-selected="true"
-                                aria-controls="panel-subtasks"
-                            >
-                                <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtask
-                                <span class="tf-activity-tab-badge" id="tab-subtasks-count-badge">{{ $task->subtasks->count() }}</span>
-                            </button>
-                            <button
-                                type="button"
-                                class="tf-activity-tab-btn"
-                                id="tab-timeline-btn"
-                                data-activity-tab="timeline"
-                                role="tab"
-                                aria-selected="false"
-                                aria-controls="panel-timeline"
-                            >
-                                <i class="bi bi-clock-history" aria-hidden="true"></i> Timeline
-                                <span class="tf-activity-tab-badge">{{ $activity->count() }}</span>
-                            </button>
-                        </nav>
-                    </header>
+                {{-- Separate Tab Card --}}
+                <div class="tf-task-detail__card tf-activity-tabs-card">
+                    <nav class="tf-activity-tabs-nav" role="tablist" aria-label="Task Activity and Subtasks">
+                        <button
+                            type="button"
+                            class="tf-activity-tab-btn is-active"
+                            id="tab-subtasks-btn"
+                            data-activity-tab="subtasks"
+                            role="tab"
+                            aria-selected="true"
+                            aria-controls="panel-subtasks"
+                        >
+                            <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtask
+                            <span class="tf-activity-tab-badge" id="tab-subtasks-count-badge">{{ $task->subtasks->count() }}</span>
+                        </button>
+                        <button
+                            type="button"
+                            class="tf-activity-tab-btn"
+                            id="tab-timeline-btn"
+                            data-activity-tab="timeline"
+                            role="tab"
+                            aria-selected="false"
+                            aria-controls="panel-timeline"
+                        >
+                            <i class="bi bi-clock-history" aria-hidden="true"></i> Timeline
+                            <span class="tf-activity-tab-badge">{{ $activity->count() }}</span>
+                        </button>
+                    </nav>
+                </div>
 
                     {{-- ── TAB 1: SUBTASKS VIEW (MATCHING USER SCREENSHOT) ── --}}
                     <div class="tf-activity-tab-panel is-active" id="panel-subtasks" role="tabpanel" aria-labelledby="tab-subtasks-btn">
@@ -842,8 +841,7 @@
                             }
                         @endphp
 
-                        <div class="tf-subtask-view-wrapper">
-                            {{-- Card 1: Subtasks Table Card --}}
+                        {{-- Card 1: Subtasks Table Card --}}
                             <div class="tf-subtask-card">
                                 <div class="tf-subtask-card__header">
                                     <div class="tf-subtask-card__title-group">
@@ -856,12 +854,92 @@
                                         </span>
                                     </div>
                                     <div class="tf-subtask-card__actions">
-                                        <button type="button" class="tf-btn-add-subtask" id="subtask-add-btn">
-                                            <i class="bi bi-plus-lg"></i> Add Subtask
-                                        </button>
-                                        <button type="button" class="tf-btn-expand-all" id="subtask-expand-btn">
-                                            <i class="bi bi-arrows-angle-expand"></i> Expand All
-                                        </button>
+                                        @can('createSubtask', $task)
+                                            <div class="tf-quick-add-anchor">
+                                                <button type="button" class="tf-btn-add-subtask" id="subtask-add-btn" aria-expanded="false" aria-controls="subtask-quick-add-panel">
+                                                    <i class="bi bi-plus-lg"></i> Add Subtask
+                                                </button>
+                                                <section class="tf-quick-add-panel" id="subtask-quick-add-panel" aria-labelledby="quick-add-heading" hidden>
+                                            <div class="tf-quick-add-panel__header">
+                                                <div>
+                                                    <h4 id="quick-add-heading">New subtask</h4>
+                                                    <p>Add a subtask and its details.</p>
+                                                </div>
+                                                <button type="button" class="tf-quick-add-panel__close" id="quick-add-cancel-btn" aria-label="Close">
+                                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                                </button>
+                                            </div>
+                                            <div id="quick-add-alert" class="tf-quick-add-panel__alert" role="alert" hidden></div>
+                                            <form method="POST" action="{{ route('subtasks.store', $task) }}" id="subtask-quick-add-form" class="tf-quick-add-form">
+                                                @csrf
+                                                <div class="tf-quick-add-fields">
+                                                    <label class="tf-quick-add-field tf-quick-add-field--full">
+                                                        <span>Title <em>*</em></span>
+                                                        <input
+                                                            type="text"
+                                                            name="title"
+                                                            id="quick-add-title"
+                                                            class="form-control form-control-sm"
+                                                            placeholder="Enter subtask title"
+                                                            required
+                                                            maxlength="500"
+                                                            autocomplete="off"
+                                                        >
+                                                    </label>
+                                                    <label class="tf-quick-add-field tf-quick-add-field--full">
+                                                        <span>Description</span>
+                                                        <textarea
+                                                            name="description"
+                                                            id="quick-add-desc"
+                                                            class="form-control form-control-sm"
+                                                            placeholder="Short description or details"
+                                                            rows="2"
+                                                            maxlength="1000"
+                                                        ></textarea>
+                                                    </label>
+                                                    <label class="tf-quick-add-field tf-quick-add-field--full">
+                                                        <span>Assignee</span>
+                                                        <select name="assigned_to" class="form-select form-select-sm" aria-label="Assign to">
+                                                            <option value="">Unassigned</option>
+                                                            @foreach ($employees->where('company_id', $task->company_id)->where('department_id', $task->department_id) as $emp)
+                                                                <option value="{{ $emp->id }}">{{ $emp->name }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                    </label>
+                                                    <label class="tf-quick-add-field">
+                                                        <span>Start date</span>
+                                                        <input type="date" name="start_date" class="form-control form-control-sm" aria-label="Start date">
+                                                    </label>
+                                                    <label class="tf-quick-add-field">
+                                                        <span>Due date</span>
+                                                        <input
+                                                            type="date"
+                                                            name="due_date"
+                                                            class="form-control form-control-sm"
+                                                            aria-label="Due date"
+                                                            @if ($task->due_date) max="{{ $task->due_date->format('Y-m-d') }}" @endif
+                                                        >
+                                                    </label>
+                                                    <label class="tf-quick-add-field">
+                                                        <span>Priority</span>
+                                                        <select name="priority" class="form-select form-select-sm" aria-label="Priority">
+                                                            <option value="medium" selected>Medium</option>
+                                                            <option value="high">High</option>
+                                                            <option value="critical">Critical</option>
+                                                            <option value="low">Low</option>
+                                                        </select>
+                                                    </label>
+                                                </div>
+                                                <div class="tf-quick-add-actions">
+                                                    <button type="button" class="btn btn-sm btn-light" id="quick-add-cancel-footer">Cancel</button>
+                                                    <button type="submit" class="btn btn-sm btn-primary" id="quick-add-submit">
+                                                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Subtask
+                                                    </button>
+                                                </div>
+                                            </form>
+                                                </section>
+                                            </div>
+                                        @endcan
                                     </div>
                                 </div>
 
@@ -878,24 +956,22 @@
                                     <table class="tf-subtask-table" id="subtasks-table">
                                         <thead>
                                             <tr>
-                                                <th class="col-num">#</th>
                                                 <th class="col-subtask">Subtask</th>
                                                 <th class="col-assignee">Assignee</th>
                                                 <th class="col-timeframe">Timeframe</th>
-                                                <th class="col-duration">Duration</th>
+                                                <th class="col-priority">Priority</th>
                                                 <th class="col-status">Status</th>
-                                                <th class="col-progress">Progress</th>
                                                 <th class="col-actions">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="subtasks-list" data-reorder-url="{{ route('subtasks.reorder', $task) }}">
-                                            @forelse ($task->subtasks->sortBy('sort_order') as $index => $subtask)
+                                            @forelse ($task->subtasks->sortBy('sort_order') as $subtask)
                                                 @php
                                                     $stStart = $subtask->start_date;
                                                     $stDue   = $subtask->due_date;
-                                                    $stDays  = ($stStart && $stDue)
-                                                        ? max(1, $stStart->diffInDays($stDue) + 1)
-                                                        : ($subtask->estimated_hours ? max(1, (int) round($subtask->estimated_hours / 8)) : 1);
+                                                    $stDurationDays = ($stStart && $stDue)
+                                                        ? max(1, (int) $stStart->diffInDays($stDue) + 1)
+                                                        : null;
                                                     $stStatus = $subtask->status ?? ($subtask->is_completed ? 'completed' : 'todo');
                                                     $statusLabel = match ($stStatus) {
                                                         'completed' => 'Completed',
@@ -911,10 +987,7 @@
                                                         'in_review' => 'is-in-review',
                                                         default => 'is-pending',
                                                     };
-                                                    $stProg = $subtask->is_completed ? 100 : (int) ($subtask->progress_percentage ?? 0);
-                                                    $progColorClass = $stProg === 100 ? 'is-completed' : ($stProg > 0 ? 'is-in-progress' : 'is-zero');
-
-                                                    $avatarColors = ['#3b82f6', '#6366f1', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#10b981'];
+                                                    $avatarColors = ['#3b82f6', '#2563eb', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#10b981'];
                                                     $assigneeId = $subtask->assignee?->id ?? 0;
                                                     $avatarBg = $avatarColors[$assigneeId % count($avatarColors)];
                                                     $assigneeInitial = $subtask->assignee ? mb_strtoupper(mb_substr($subtask->assignee->name, 0, 1)) : '?';
@@ -923,25 +996,14 @@
                                                     class="tf-subtasks__item tf-subtask-row{{ $subtask->is_completed ? ' is-done' : '' }}"
                                                     id="subtask-{{ $subtask->id }}"
                                                     data-subtask-id="{{ $subtask->id }}"
+                                                    data-status="{{ $stStatus }}"
                                                     data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
                                                     data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                    data-delete-url="{{ route('subtasks.destroy', [$task, $subtask]) }}"
                                                     draggable="true"
                                                 >
-                                                    <td class="col-num">
-                                                        <span class="tf-row-idx">{{ $index + 1 }}</span>
-                                                    </td>
                                                     <td class="col-subtask">
                                                         <div class="tf-st-subtask-cell">
-                                                            <button
-                                                                type="button"
-                                                                class="tf-subtasks__toggle tf-st-toggle-btn {{ $subtask->is_completed ? 'is-completed' : ($stStatus === 'in_progress' ? 'is-in-progress' : 'is-pending') }}"
-                                                                data-toggle-url="{{ route('subtasks.toggle', [$task, $subtask]) }}"
-                                                                aria-label="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
-                                                                title="{{ $subtask->is_completed ? 'Mark incomplete' : 'Mark complete' }}"
-                                                                aria-pressed="{{ $subtask->is_completed ? 'true' : 'false' }}"
-                                                            >
-                                                                <i class="bi {{ $subtask->is_completed ? 'bi-check-circle-fill' : ($stStatus === 'in_progress' ? 'bi-record-circle-fill' : 'bi-circle') }}"></i>
-                                                            </button>
                                                             <div class="tf-st-title-desc">
                                                                 <span
                                                                     class="tf-subtasks__title tf-st-title"
@@ -950,7 +1012,7 @@
                                                                     data-original="{{ e($subtask->title) }}"
                                                                     title="Double-click to inline edit"
                                                                 >{{ $subtask->title }}</span>
-                                                                <div class="tf-st-description">
+                                                                <div class="tf-st-description" title="{{ $subtask->description ?: 'No details provided.' }}">
                                                                     {{ $subtask->description ?: 'No details provided.' }}
                                                                 </div>
                                                             </div>
@@ -972,167 +1034,52 @@
                                                     <td class="col-timeframe">
                                                         <div class="tf-st-timeframe">
                                                             @if ($stStart && $stDue)
-                                                                <span class="tf-st-dates">{{ $stStart->format('M d') }} – {{ $stDue->format('M d') }}</span>
-                                                                <small class="tf-st-subdays">({{ $stDays }} {{ Str::plural('day', $stDays) }})</small>
+                                                                <span class="tf-st-dates">From {{ $stStart->format('M d') }} to {{ $stDue->format('M d') }}</span>
+                                                                <span class="tf-st-duration-badge">{{ $stDurationDays }} {{ Str::plural('day', $stDurationDays) }}</span>
                                                             @elseif ($stDue)
                                                                 <span class="tf-st-dates">Due {{ $stDue->format('M d') }}</span>
-                                                                <small class="tf-st-subdays">({{ $stDays }} {{ Str::plural('day', $stDays) }})</small>
+                                                            @elseif ($stStart)
+                                                                <span class="tf-st-dates">From {{ $stStart->format('M d') }}</span>
                                                             @else
                                                                 <span class="text-muted">—</span>
                                                             @endif
                                                         </div>
                                                     </td>
-                                                    <td class="col-duration">
-                                                        <span class="tf-st-duration-badge">{{ $stDays }} {{ Str::plural('day', $stDays) }}</span>
+                                                    <td class="col-priority">
+                                                        <span class="tf-st-priority-badge tf-subtasks__meta tf-subtasks__priority--{{ $subtask->priority ?? 'medium' }}">
+                                                            {{ ucfirst($subtask->priority ?? 'medium') }}
+                                                        </span>
                                                     </td>
                                                     <td class="col-status">
                                                         <span class="tf-st-status-pill {{ $statusClass }}">{{ $statusLabel }}</span>
-                                                    </td>
-                                                    <td class="col-progress">
-                                                        <div class="tf-st-progress-box">
-                                                            <span class="tf-st-progress-pct">{{ $stProg }}%</span>
-                                                            <div class="tf-st-mini-track">
-                                                                <div class="tf-st-mini-fill {{ $progColorClass }}" style="width: {{ $stProg }}%"></div>
-                                                            </div>
-                                                        </div>
                                                     </td>
                                                     <td class="col-actions">
                                                         <div class="tf-st-actions-wrap">
                                                             <button
                                                                 type="button"
-                                                                class="tf-st-action-btn tf-subtasks__open-modal"
+                                                                class="tf-st-action-btn tf-subtask-status-trigger"
                                                                 data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
                                                                 data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                                                                aria-label="Edit subtask"
-                                                                title="Edit subtask"
+                                                                aria-haspopup="menu"
+                                                                aria-expanded="false"
+                                                                aria-controls="subtaskActionsMenu"
+                                                                aria-label="Update subtask status"
+                                                                title="Update subtask status"
                                                             >
-                                                                <i class="bi bi-pencil" aria-hidden="true"></i>
+                                                                <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
                                                             </button>
-                                                            <div class="dropdown d-inline-block">
-                                                                <button
-                                                                    type="button"
-                                                                    class="tf-st-action-btn dropdown-toggle-none"
-                                                                    data-bs-toggle="dropdown"
-                                                                    aria-expanded="false"
-                                                                    aria-label="More options"
-                                                                    title="More options"
-                                                                >
-                                                                    <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
-                                                                </button>
-                                                                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-                                                                    <li>
-                                                                        <button
-                                                                            type="button"
-                                                                            class="dropdown-item tf-subtasks__open-modal"
-                                                                            data-subtask-url="{{ route('subtasks.show', [$task, $subtask]) }}"
-                                                                            data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                                                                        >
-                                                                            <i class="bi bi-pencil me-2"></i> Edit Details
-                                                                        </button>
-                                                                    </li>
-                                                                    <li>
-                                                                        <button
-                                                                            type="button"
-                                                                            class="dropdown-item tf-dropdown-toggle-subtask"
-                                                                            data-toggle-url="{{ route('subtasks.toggle', [$task, $subtask]) }}"
-                                                                        >
-                                                                            <i class="bi {{ $subtask->is_completed ? 'bi-arrow-counterclockwise' : 'bi-check2-circle' }} me-2"></i>
-                                                                            {{ $subtask->is_completed ? 'Mark Incomplete' : 'Mark Complete' }}
-                                                                        </button>
-                                                                    </li>
-                                                                    <li><hr class="dropdown-divider"></li>
-                                                                    <li>
-                                                                        <button
-                                                                            type="button"
-                                                                            class="dropdown-item text-danger tf-subtasks__delete"
-                                                                            data-delete-url="{{ route('subtasks.destroy', [$task, $subtask]) }}"
-                                                                        >
-                                                                            <i class="bi bi-trash3 me-2"></i> Delete Subtask
-                                                                        </button>
-                                                                    </li>
-                                                                </ul>
-                                                            </div>
                                                         </div>
                                                     </td>
                                                 </tr>
                                             @empty
                                                 <tr id="subtasks-empty-row">
-                                                    <td colspan="8" class="text-center py-4 text-muted">
+                                                    <td colspan="6" class="text-center py-4 text-muted">
                                                         <i class="bi bi-check2-square d-block fs-3 mb-2 text-primary opacity-50"></i>
                                                         No subtasks created yet. Click <strong>+ Add Subtask</strong> above to create one.
                                                     </td>
                                                 </tr>
                                             @endforelse
 
-                                            {{-- Inline Quick Add Row --}}
-                                            <tr id="subtask-quick-add-row" class="tf-subtask-quick-add-row" hidden>
-                                                <td class="col-num"><i class="bi bi-plus text-primary fs-5"></i></td>
-                                                <td colspan="7">
-                                                    <form method="POST" action="{{ route('subtasks.store', $task) }}" id="subtask-quick-add-form" class="tf-quick-add-form">
-                                                        @csrf
-                                                        <div class="tf-quick-add-fields">
-                                                            <input
-                                                                type="text"
-                                                                name="title"
-                                                                id="quick-add-title"
-                                                                class="form-control form-control-sm"
-                                                                placeholder="Subtask title (e.g. Home Page Module)..."
-                                                                required
-                                                                maxlength="500"
-                                                                autocomplete="off"
-                                                            >
-                                                            <input
-                                                                type="text"
-                                                                name="description"
-                                                                id="quick-add-desc"
-                                                                class="form-control form-control-sm"
-                                                                placeholder="Short description/details..."
-                                                                maxlength="1000"
-                                                            >
-                                                            <select name="assigned_to" class="form-select form-select-sm" aria-label="Assign to">
-                                                                <option value="">Assignee (Optional)</option>
-                                                                @foreach ($employees->where('company_id', $task->company_id)->where('department_id', $task->department_id) as $emp)
-                                                                    <option value="{{ $emp->id }}">{{ $emp->name }}</option>
-                                                                @endforeach
-                                                            </select>
-                                                            <input
-                                                                type="date"
-                                                                name="start_date"
-                                                                class="form-control form-control-sm"
-                                                                placeholder="Start Date"
-                                                                title="Start Date"
-                                                            >
-                                                            <input
-                                                                type="date"
-                                                                name="due_date"
-                                                                class="form-control form-control-sm"
-                                                                placeholder="Deadline"
-                                                                title="Deadline"
-                                                                @if ($task->due_date) max="{{ $task->due_date->format('Y-m-d') }}" @endif
-                                                            >
-                                                            <select name="priority" class="form-select form-select-sm" aria-label="Priority">
-                                                                <option value="medium" selected>Medium</option>
-                                                                <option value="high">High</option>
-                                                                <option value="critical">Critical</option>
-                                                                <option value="low">Low</option>
-                                                            </select>
-                                                            <select name="status" class="form-select form-select-sm" aria-label="Status">
-                                                                <option value="todo" selected>Pending</option>
-                                                                <option value="in_progress">In Progress</option>
-                                                                <option value="completed">Completed</option>
-                                                            </select>
-                                                            <div class="tf-quick-add-actions">
-                                                                <button type="submit" class="btn btn-sm btn-primary">
-                                                                    <i class="bi bi-check-lg"></i> Add
-                                                                </button>
-                                                                <button type="button" class="btn btn-sm btn-light" id="quick-add-cancel-btn">
-                                                                    Cancel
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </form>
-                                                </td>
-                                            </tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1257,12 +1204,12 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
                     </div>
 
                     {{-- ── TAB 2: TIMELINE VIEW ── --}}
                     <div class="tf-activity-tab-panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline-btn" hidden>
-                        <header class="tf-task-detail__activity-header">
+                        <section class="tf-task-detail__card tf-task-detail__activity-card">
+                            <header class="tf-task-detail__activity-header">
                             <div class="tf-task-detail__activity-heading">
                                 <div>
                                     <span>Task activity</span>
@@ -1374,8 +1321,8 @@
                                 </div>
                             @endif
                         </div>
+                        </section>
                     </div>
-                </section>
             </aside>
         </div>
     </div>
@@ -1515,6 +1462,33 @@
         window.addEventListener('scroll', positionWorkflowPanel, true);
     </script>
 
+    <div class="tf-subtask-actions-menu" id="subtaskActionsMenu" role="menu" aria-label="Subtask actions" hidden>
+        <p class="tf-subtask-actions-menu__alert" id="subtaskActionsMenuAlert" role="alert" hidden></p>
+        <button type="button" class="tf-subtask-actions-menu__item" role="menuitem" data-subtask-action="edit">
+            <i class="bi bi-pencil" aria-hidden="true"></i>
+            Edit subtask
+        </button>
+        <div class="tf-subtask-actions-menu__divider" role="separator"></div>
+        <button type="button" class="tf-subtask-actions-menu__item" role="menuitem" data-subtask-status="completed">
+            <i class="bi bi-check-circle text-success" aria-hidden="true"></i>
+            Mark as complete
+        </button>
+        <button type="button" class="tf-subtask-actions-menu__item" role="menuitem" data-subtask-status="in_progress">
+            <i class="bi bi-play-circle text-primary" aria-hidden="true"></i>
+            In progress
+        </button>
+        <button type="button" class="tf-subtask-actions-menu__item" role="menuitem" data-subtask-status="on_hold">
+            <i class="bi bi-pause-circle text-warning" aria-hidden="true"></i>
+            On hold
+        </button>
+        <div class="tf-subtask-actions-menu__divider" role="separator"></div>
+        <button type="button" class="tf-subtask-actions-menu__item tf-subtask-actions-menu__item--danger" role="menuitem" data-subtask-action="delete">
+            <i class="bi bi-trash3" aria-hidden="true"></i>
+            Delete subtask
+        </button>
+    </div>
+    @include('tasks._subtask-modal')
+
     {{-- Subtask interactions --}}
     <script>
     (function () {
@@ -1537,55 +1511,109 @@
             });
         });
 
-        // ── Quick Add Subtask Row ─────────────────────────────────────────────
+        // ── Quick Add Subtask Panel ───────────────────────────────────────────
         const addSubtaskBtn = document.getElementById('subtask-add-btn');
-        const quickAddRow   = document.getElementById('subtask-quick-add-row');
-        const quickAddCancel = document.getElementById('quick-add-cancel-btn');
-        const quickAddForm  = document.getElementById('subtask-quick-add-form');
+        const quickAddPanel = document.getElementById('subtask-quick-add-panel');
+        const quickAddForm = document.getElementById('subtask-quick-add-form');
+        const quickAddAlert = document.getElementById('quick-add-alert');
+        const quickAddSubmit = document.getElementById('quick-add-submit');
+        const quickAddCancelButtons = [
+            document.getElementById('quick-add-cancel-btn'),
+            document.getElementById('quick-add-cancel-footer'),
+        ];
+
+        if (quickAddPanel) {
+            document.body.append(quickAddPanel);
+        }
+
+        function positionQuickAddPanel() {
+            if (!quickAddPanel || !addSubtaskBtn) { return; }
+            const buttonRect = addSubtaskBtn.getBoundingClientRect();
+            const panelRect = quickAddPanel.getBoundingClientRect();
+            const padding = 12;
+            const left = Math.max(
+                padding,
+                Math.min(buttonRect.left, window.innerWidth - panelRect.width - padding),
+            );
+            const top = buttonRect.bottom + panelRect.height + padding <= window.innerHeight
+                ? buttonRect.bottom + 8
+                : Math.max(padding, buttonRect.top - panelRect.height - 8);
+
+            quickAddPanel.style.left = `${left}px`;
+            quickAddPanel.style.top = `${top}px`;
+        }
+
+        function closeQuickAddPanel(restoreFocus = false, resetForm = false) {
+            if (!quickAddPanel) { return; }
+            quickAddPanel.hidden = true;
+            addSubtaskBtn?.setAttribute('aria-expanded', 'false');
+            quickAddAlert.hidden = true;
+            quickAddAlert.textContent = '';
+            if (resetForm) {
+                quickAddForm?.reset();
+            }
+            if (restoreFocus) {
+                addSubtaskBtn?.focus();
+            }
+        }
 
         addSubtaskBtn?.addEventListener('click', () => {
-            if (quickAddRow) {
-                quickAddRow.removeAttribute('hidden');
+            if (!quickAddPanel) { return; }
+            quickAddPanel.hidden = !quickAddPanel.hidden;
+            const isOpen = !quickAddPanel.hidden;
+            addSubtaskBtn.setAttribute('aria-expanded', String(isOpen));
+            if (isOpen) {
+                quickAddAlert.hidden = true;
+                positionQuickAddPanel();
                 document.getElementById('quick-add-title')?.focus();
             }
         });
 
-        quickAddCancel?.addEventListener('click', () => {
-            quickAddRow?.setAttribute('hidden', '');
-            quickAddForm?.reset();
+        quickAddCancelButtons.forEach(button => {
+            button?.addEventListener('click', () => closeQuickAddPanel(true, true));
         });
 
-        quickAddForm?.addEventListener('submit', function (e) {
-            e.preventDefault();
-            const formData = new FormData(quickAddForm);
-            fetch(quickAddForm.action, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'application/json',
-                },
-                body: formData,
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.ok) {
-                    window.location.reload();
-                } else {
-                    alert(data.message || 'Failed to add subtask');
+        document.addEventListener('pointerdown', event => {
+            if (!quickAddPanel || quickAddPanel.hidden) { return; }
+            if (quickAddPanel.contains(event.target) || addSubtaskBtn?.contains(event.target)) { return; }
+            closeQuickAddPanel();
+        });
+
+        quickAddPanel?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                closeQuickAddPanel(true);
+            }
+        });
+
+        window.addEventListener('resize', () => closeQuickAddPanel());
+        window.addEventListener('scroll', () => closeQuickAddPanel(), true);
+
+        quickAddForm?.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            quickAddSubmit.disabled = true;
+            quickAddAlert.hidden = true;
+
+            try {
+                const response = await fetch(quickAddForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: new FormData(quickAddForm),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    const firstValidationError = Object.values(data.errors || {}).flat()[0];
+                    throw new Error(firstValidationError || data.message || 'Failed to add subtask.');
                 }
-            })
-            .catch(() => {
-                window.location.reload();
-            });
-        });
 
-        // ── Expand All Descriptions ───────────────────────────────────────────
-        const expandBtn = document.getElementById('subtask-expand-btn');
-        expandBtn?.addEventListener('click', () => {
-            const table = document.getElementById('subtasks-table');
-            const isExpanded = table?.classList.toggle('is-expanded');
-            if (expandBtn) {
-                expandBtn.innerHTML = `<i class="bi ${isExpanded ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'}"></i> ${isExpanded ? 'Collapse All' : 'Expand All'}`;
+                window.location.reload();
+            } catch (error) {
+                quickAddAlert.textContent = error.message || 'Failed to add subtask.';
+                quickAddAlert.hidden = false;
+            } finally {
+                quickAddSubmit.disabled = false;
             }
         });
 
@@ -1610,73 +1638,192 @@
             if (pctText) { pctText.textContent = `${pct}%`; }
         }
 
-        // ── Toggle complete ───────────────────────────────────────────────────
-        document.getElementById('subtasks-list')?.addEventListener('click', function (e) {
-            const btn = e.target.closest('.tf-subtasks__toggle');
-            if (!btn) { return; }
-            const url = btn.dataset.toggleUrl;
-            if (!url) { return; }
+        const statusMenuEl = document.getElementById('subtaskActionsMenu');
+        const statusMenuAlert = document.getElementById('subtaskActionsMenuAlert');
+        let activeStatusRow = null;
+        let activeStatusTrigger = null;
 
-            fetch(url, {
-                method: 'PATCH',
-                headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
-            })
-            .then(r => r.json())
-            .then(data => {
-                const row = btn.closest('.tf-subtasks__item');
-                row.classList.toggle('is-done', data.is_completed);
+        if (statusMenuEl) {
+            document.body.append(statusMenuEl);
+        }
 
-                const icon = btn.querySelector('i');
-                if (data.is_completed) {
-                    btn.className = 'tf-subtasks__toggle tf-st-toggle-btn is-completed';
-                    icon.className = 'bi bi-check-circle-fill';
-                } else {
-                    btn.className = 'tf-subtasks__toggle tf-st-toggle-btn is-pending';
-                    icon.className = 'bi bi-circle';
+        function closeStatusMenu(restoreFocus = false) {
+            if (!statusMenuEl) { return; }
+            statusMenuEl.hidden = true;
+            activeStatusTrigger?.setAttribute('aria-expanded', 'false');
+            if (restoreFocus) {
+                activeStatusTrigger?.focus();
+            }
+            activeStatusRow = null;
+            activeStatusTrigger = null;
+        }
+
+        function positionStatusMenu(trigger) {
+            const triggerRect = trigger.getBoundingClientRect();
+            const menuRect = statusMenuEl.getBoundingClientRect();
+            const gap = 6;
+            const viewportPadding = 8;
+            const left = Math.max(
+                viewportPadding,
+                Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - viewportPadding),
+            );
+            const top = triggerRect.bottom + menuRect.height + viewportPadding <= window.innerHeight
+                ? triggerRect.bottom + gap
+                : Math.max(viewportPadding, triggerRect.top - menuRect.height - gap);
+
+            statusMenuEl.style.left = `${left}px`;
+            statusMenuEl.style.top = `${top}px`;
+        }
+
+        function openStatusMenu(row, trigger) {
+            if (!statusMenuEl) { return; }
+            closeStatusMenu();
+            activeStatusRow = row;
+            activeStatusTrigger = trigger;
+            statusMenuAlert.textContent = '';
+            statusMenuAlert.hidden = true;
+            statusMenuEl.hidden = false;
+            trigger.setAttribute('aria-expanded', 'true');
+            positionStatusMenu(trigger);
+            statusMenuEl.querySelector('[role="menuitem"]')?.focus();
+        }
+
+        function updateSubtaskStatusRow(row, subtask) {
+            const statusClasses = {
+                completed: 'is-completed',
+                in_progress: 'is-in-progress',
+                on_hold: 'is-on-hold',
+                in_review: 'is-in-review',
+            };
+            const statusClass = statusClasses[subtask.status] || 'is-pending';
+
+            row.dataset.status = subtask.status;
+            row.classList.toggle('is-done', subtask.is_completed);
+
+            const statusPill = row.querySelector('.tf-st-status-pill');
+            if (statusPill) {
+                statusPill.className = `tf-st-status-pill ${statusClass}`;
+                statusPill.textContent = subtask.status_label || 'Pending';
+            }
+
+            const ganttBar = document.getElementById(`gantt-row-${row.dataset.subtaskId}`)?.querySelector('.tf-gantt-bar');
+            if (ganttBar) {
+                const ganttStatusClass = subtask.is_completed
+                    ? 'tf-gantt-bar--completed'
+                    : (subtask.status === 'in_progress' ? 'tf-gantt-bar--in-progress' : 'tf-gantt-bar--pending');
+                ganttBar.className = `tf-gantt-bar ${ganttStatusClass}`;
+            }
+        }
+
+        document.getElementById('subtasks-list')?.addEventListener('click', function (event) {
+            const trigger = event.target.closest('.tf-subtask-status-trigger');
+            if (!trigger) { return; }
+            openStatusMenu(trigger.closest('.tf-subtasks__item'), trigger);
+        });
+
+        statusMenuEl?.addEventListener('click', async function (event) {
+            const editButton = event.target.closest('[data-subtask-action="edit"]');
+            if (editButton && activeStatusRow) {
+                const row = activeStatusRow;
+                closeStatusMenu();
+                openSubtaskModal(row.dataset.subtaskUrl, row.dataset.updateUrl, row.dataset.deleteUrl);
+                return;
+            }
+
+            const statusButton = event.target.closest('[data-subtask-status]');
+            if (!statusButton || !activeStatusRow) { return; }
+
+            const statusButtons = [...statusMenuEl.querySelectorAll('[data-subtask-status]')];
+            statusButtons.forEach(button => { button.disabled = true; });
+            statusMenuAlert.hidden = true;
+
+            try {
+                const response = await fetch(activeStatusRow.dataset.updateUrl, {
+                    method: 'PATCH',
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ status: statusButton.dataset.subtaskStatus }),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok || !data.subtask) {
+                    throw new Error(data.message || 'Unable to update the subtask status.');
                 }
-                btn.setAttribute('aria-pressed', String(data.is_completed));
-                btn.setAttribute('aria-label', data.is_completed ? 'Mark incomplete' : 'Mark complete');
-                btn.title = data.is_completed ? 'Mark incomplete' : 'Mark complete';
 
-                // Update status pill and progress in row
-                const statusPill = row.querySelector('.tf-st-status-pill');
-                if (statusPill) {
-                    if (data.is_completed) {
-                        statusPill.className = 'tf-st-status-pill is-completed';
-                        statusPill.textContent = 'Completed';
-                    } else {
-                        statusPill.className = 'tf-st-status-pill is-pending';
-                        statusPill.textContent = 'Pending';
-                    }
-                }
-                const progPct = row.querySelector('.tf-st-progress-pct');
-                const progFill = row.querySelector('.tf-st-mini-fill');
-                if (progPct) { progPct.textContent = data.is_completed ? '100%' : '0%'; }
-                if (progFill) {
-                    progFill.style.width = data.is_completed ? '100%' : '0%';
-                    progFill.className = `tf-st-mini-fill ${data.is_completed ? 'is-completed' : 'is-zero'}`;
-                }
-
-                // Update Gantt bar class
-                const subtaskId = row.dataset.subtaskId;
-                const ganttRow = document.getElementById(`gantt-row-${subtaskId}`);
-                const ganttBar = ganttRow?.querySelector('.tf-gantt-bar');
-                if (ganttBar) {
-                    ganttBar.className = `tf-gantt-bar ${data.is_completed ? 'tf-gantt-bar--completed' : 'tf-gantt-bar--pending'}`;
-                }
-
+                updateSubtaskStatusRow(activeStatusRow, data.subtask);
                 updateSubtaskBadge();
-            })
-            .catch(() => {});
+                closeStatusMenu();
+            } catch (error) {
+                statusMenuAlert.textContent = error.message || 'Unable to update the subtask status.';
+                statusMenuAlert.hidden = false;
+            } finally {
+                statusButtons.forEach(button => { button.disabled = false; });
+            }
         });
 
-        // Dropdown toggle complete button
-        document.getElementById('subtasks-list')?.addEventListener('click', function (e) {
-            const dropdownToggle = e.target.closest('.tf-dropdown-toggle-subtask');
-            if (!dropdownToggle) { return; }
-            const row = dropdownToggle.closest('.tf-subtasks__item');
-            row?.querySelector('.tf-subtasks__toggle')?.click();
+        statusMenuEl?.addEventListener('click', async function (event) {
+            const deleteButton = event.target.closest('[data-subtask-action="delete"]');
+            if (!deleteButton || !activeStatusRow || !confirm('Delete this subtask?')) { return; }
+
+            deleteButton.disabled = true;
+            statusMenuAlert.hidden = true;
+            try {
+                const response = await fetch(activeStatusRow.dataset.deleteUrl, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.message || 'Unable to delete the subtask.');
+                }
+
+                const subtaskId = activeStatusRow.dataset.subtaskId;
+                activeStatusRow.remove();
+                document.getElementById(`gantt-row-${subtaskId}`)?.remove();
+                updateSubtaskBadge();
+                closeStatusMenu();
+            } catch (error) {
+                statusMenuAlert.textContent = error.message || 'Unable to delete the subtask.';
+                statusMenuAlert.hidden = false;
+            } finally {
+                deleteButton.disabled = false;
+            }
         });
+
+        statusMenuEl?.addEventListener('keydown', function (event) {
+            const items = [...statusMenuEl.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+            const currentIndex = items.indexOf(document.activeElement);
+            let nextIndex = null;
+
+            if (event.key === 'ArrowDown') {
+                nextIndex = (currentIndex + 1) % items.length;
+            } else if (event.key === 'ArrowUp') {
+                nextIndex = (currentIndex - 1 + items.length) % items.length;
+            } else if (event.key === 'Home') {
+                nextIndex = 0;
+            } else if (event.key === 'End') {
+                nextIndex = items.length - 1;
+            } else if (event.key === 'Escape') {
+                closeStatusMenu(true);
+                return;
+            }
+
+            if (nextIndex !== null && items.length > 0) {
+                event.preventDefault();
+                items[nextIndex].focus();
+            }
+        });
+
+        document.addEventListener('pointerdown', function (event) {
+            if (!statusMenuEl || statusMenuEl.hidden) { return; }
+            if (statusMenuEl.contains(event.target) || activeStatusTrigger?.contains(event.target)) { return; }
+            closeStatusMenu();
+        });
+
+        window.addEventListener('resize', () => closeStatusMenu());
+        window.addEventListener('scroll', () => closeStatusMenu(), true);
 
         // ── Delete subtask ────────────────────────────────────────────────────
         document.getElementById('subtasks-list')?.addEventListener('click', function (e) {
@@ -1907,7 +2054,8 @@
                 e.preventDefault();
                 const subtaskUrl = btn.dataset.subtaskUrl;
                 const updateUrl = btn.dataset.updateUrl;
-                const deleteUrl = btn.closest('.tf-subtasks__item')?.querySelector('.tf-subtasks__delete')?.dataset.deleteUrl;
+                const row = btn.closest('.tf-subtasks__item');
+                const deleteUrl = row?.dataset.deleteUrl;
                 openSubtaskModal(subtaskUrl, updateUrl, deleteUrl);
             }
         });
@@ -1957,12 +2105,6 @@
                     const li = document.getElementById(`subtask-${st.id}`);
                     if (li) {
                         li.classList.toggle('is-done', st.is_completed);
-                        const toggleBtn = li.querySelector('.tf-subtasks__toggle');
-                        if (toggleBtn) {
-                            const icon = toggleBtn.querySelector('i');
-                            if (icon) { icon.className = `bi ${st.is_completed ? 'bi-check-circle-fill' : 'bi-circle'}`; }
-                            toggleBtn.setAttribute('aria-pressed', String(st.is_completed));
-                        }
                         const titleEl = li.querySelector('.tf-subtasks__title');
                         if (titleEl) {
                             titleEl.textContent = st.title;
@@ -1976,6 +2118,12 @@
                     }
                     updateSubtaskBadge();
                     getModalInstance()?.hide();
+                    window.tfShowOperationComplete?.({
+                        kind: 'task',
+                        title: 'Subtask updated',
+                        message: 'Subtask details were updated successfully.',
+                    });
+                    window.setTimeout(() => window.location.reload(), 2200);
                 }
             })
             .catch(err => {
@@ -1990,7 +2138,7 @@
         deleteModalBtn?.addEventListener('click', function () {
             if (!activeSubtaskDeleteUrl && activeSubtaskId) {
                 const li = document.getElementById(`subtask-${activeSubtaskId}`);
-                activeSubtaskDeleteUrl = li?.querySelector('.tf-subtasks__delete')?.dataset.deleteUrl;
+                activeSubtaskDeleteUrl = li?.dataset.deleteUrl;
             }
             if (!activeSubtaskDeleteUrl) { return; }
             if (!confirm('Are you sure you want to delete this subtask?')) { return; }
@@ -2021,12 +2169,12 @@
                     targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     targetRow.classList.add('is-highlighted');
                     setTimeout(() => targetRow.classList.remove('is-highlighted'), 3000);
-                    const openBtn = targetRow.querySelector('.tf-subtasks__open-modal');
+                    const openBtn = targetRow.querySelector('.tf-subtask-status-trigger');
                     if (openBtn) {
                         openSubtaskModal(
                             openBtn.dataset.subtaskUrl,
                             openBtn.dataset.updateUrl,
-                            targetRow.querySelector('.tf-subtasks__delete')?.dataset.deleteUrl
+                            targetRow.dataset.deleteUrl
                         );
                     }
                 }
@@ -2036,5 +2184,4 @@
     </script>
 
     @include('tasks._reassign-modal')
-    @include('tasks._subtask-modal')
 @endsection
