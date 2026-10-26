@@ -74,13 +74,14 @@
         </article>
     </section>
 
-    {{-- Main Table Card --}}
+    {{-- Main Card --}}
     <section class="tf-card tf-user-management">
         <div class="tf-user-toolbar">
             <form method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
                 <input type="hidden" name="task_type" value="{{ request('task_type') }}">
                 <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 <input type="hidden" name="assigned_to" value="{{ request('assigned_to') }}">
+                <input type="hidden" name="sort" value="{{ $filters['sort'] ?? 'deadline_priority' }}" data-kanban-sort-value>
                 <label class="tf-user-search" for="taskSearch">
                     <i class="bi bi-search" aria-hidden="true"></i>
                     <input id="taskSearch" type="search" name="search" value="{{ request('search') }}" placeholder="Search by title, code, employee or department" autocomplete="off">
@@ -134,12 +135,38 @@
                     </label>
                 </div>
             </form>
-            @if (request()->hasAny(['search', 'company_id', 'department_id', 'assigned_to', 'status', 'condition', 'priority', 'task_type']))
-                <a href="{{ route('tasks.index') }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
-            @endif
+            <div class="tf-user-toolbar__end">
+                @if (request()->hasAny(['search', 'company_id', 'department_id', 'assigned_to', 'status', 'condition', 'priority', 'task_type']) || (request()->filled('sort') && request('sort') !== 'deadline_priority'))
+                    <a href="{{ route('tasks.index') }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
+                @endif
+                <label class="tf-user-toolbar__select tf-kanban-sort" for="taskKanbanSort">
+                    <span>Sort by</span>
+                    <select id="taskKanbanSort" aria-label="Sort Kanban tasks by">
+                        <option value="deadline_priority" @selected(($filters['sort'] ?? 'deadline_priority') === 'deadline_priority')>Deadline → Priority</option>
+                        <option value="priority_deadline" @selected(($filters['sort'] ?? '') === 'priority_deadline')>Priority → Deadline</option>
+                        <option value="nearest_deadline" @selected(($filters['sort'] ?? '') === 'nearest_deadline')>Nearest Deadline</option>
+                        <option value="oldest_deadline" @selected(($filters['sort'] ?? '') === 'oldest_deadline')>Oldest Deadline</option>
+                        <option value="recently_created" @selected(($filters['sort'] ?? '') === 'recently_created')>Recently Created</option>
+                        <option value="recently_updated" @selected(($filters['sort'] ?? '') === 'recently_updated')>Recently Updated</option>
+                    </select>
+                    <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                </label>
+                {{-- View toggle --}}
+                <div class="tf-view-toggle" role="group" aria-label="View mode">
+                    <button type="button" id="taskViewList" class="tf-view-toggle__btn is-active" data-view-toggle="list" aria-pressed="true">
+                        <i class="bi bi-list-task" aria-hidden="true"></i>
+                        List
+                    </button>
+                    <button type="button" id="taskViewKanban" class="tf-view-toggle__btn" data-view-toggle="kanban" aria-pressed="false">
+                        <i class="bi bi-kanban" aria-hidden="true"></i>
+                        Kanban
+                    </button>
+                </div>
+            </div>
         </div>
 
-        <div class="tf-table-wrap tf-user-table-wrap">
+        {{-- List view --}}
+        <div id="taskListView" class="tf-table-wrap tf-user-table-wrap">
             <table class="tf-table tf-user-table tf-task-table">
                 <thead>
                     <tr>
@@ -308,6 +335,7 @@
                                                         'priority' => $task->priority,
                                                         'task_type' => $task->task_type,
                                                         'original_deadline' => $task->original_deadline?->format('Y-m-d'),
+                                                        'due_date' => $task->due_date?->format('Y-m-d'),
                                                         'estimated_hours' => $task->estimated_hours,
                                                         'expected_output' => $task->expected_output,
                                                     ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}"
@@ -366,14 +394,139 @@
                     @endforelse
                 </tbody>
             </table>
-        </div>
+        </div>{{-- /.tf-table-wrap --}}
 
-        <footer class="tf-management__table-footer">
+        <footer id="taskListFooter" class="tf-management__table-footer">
             <span>
                 Showing {{ $tasks->firstItem() ?? 0 }}–{{ $tasks->lastItem() ?? 0 }} of {{ $tasks->total() }} tasks
             </span>
             {{ $tasks->links('pagination::bootstrap-5') }}
         </footer>
+
+        {{-- Kanban view --}}
+        @php
+            $kanbanStatuses = \App\Models\Task::STATUSES;
+            $statusLabels   = \App\Models\Task::STATUS_LABELS;
+        @endphp
+        <div id="taskKanbanView" class="tf-kanban" role="region" aria-label="Kanban board" data-today="{{ today()->toDateString() }}">
+            @foreach ($kanbanStatuses as $statusKey)
+                @php
+                    $colTasks = $kanbanTasks->get($statusKey, collect());
+                @endphp
+                <div class="tf-kanban-col tf-kanban-col--{{ $statusKey }}">
+                    <div class="tf-kanban-col__header">
+                        <div class="tf-kanban-col__header-left">
+                            <span class="tf-kanban-col__dot" aria-hidden="true"></span>
+                            <span class="tf-kanban-col__title">{{ $statusLabels[$statusKey] }}</span>
+                        </div>
+                        <span class="tf-kanban-col__count" aria-label="{{ $colTasks->count() }} tasks">
+                            {{ $colTasks->count() }}
+                        </span>
+                    </div>
+                    <div class="tf-kanban-col__body">
+                        @forelse ($colTasks as $kTask)
+                            @php
+                                $kPriority  = in_array($kTask->priority, ['critical', 'high', 'medium', 'low'], true) ? $kTask->priority : 'medium';
+                                $kOverdue   = $kTask->isOverdue();
+                                $kDeadline  = $kTask->due_date ?? $kTask->original_deadline;
+                                $kDeadlineState = $kOverdue
+                                    ? 'overdue'
+                                    : ($kDeadline?->toDateString() === today()->toDateString()
+                                        && ! in_array($kTask->status, ['completed', 'cancelled'], true)
+                                        ? 'today'
+                                        : ($kDeadline ? 'upcoming' : 'none'));
+                                $kAssignees = $kTask->activeAssignees;
+                                if ($kAssignees->isEmpty() && $kTask->assignee) {
+                                    $kAssignees = collect([$kTask->assignee]);
+                                }
+                                $kFirst     = $kAssignees->first();
+                                $kProgress  = (int) $kTask->progress_percentage;
+                            @endphp
+                            <a
+                                href="{{ route('tasks.show', $kTask) }}"
+                                class="tf-kanban-card"
+                                data-task-id="{{ $kTask->id }}"
+                                data-deadline="{{ $kDeadline?->format('Y-m-d') ?? '' }}"
+                                data-priority="{{ $kTask->priority ?? '' }}"
+                                data-created-at="{{ $kTask->created_at?->getTimestamp() ?? 0 }}"
+                                data-updated-at="{{ $kTask->updated_at?->getTimestamp() ?? 0 }}"
+                            >
+                                {{-- Code + Priority --}}
+                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                    <span class="tf-kanban-card__code">{{ $kTask->task_code }}</span>
+                                    <span class="tf-task-priority tf-task-priority--{{ $kPriority }}" style="font-size:10.5px;padding:2px 7px;">
+                                        <span class="tf-task-priority__dot" aria-hidden="true"></span>
+                                        {{ ucfirst($kPriority) }}
+                                    </span>
+                                </div>
+
+                                {{-- Title --}}
+                                <span class="tf-kanban-card__title">{{ $kTask->title }}</span>
+
+                                {{-- Department chip --}}
+                                @if ($kTask->department)
+                                    <span class="tf-kanban-card__meta">
+                                        <i class="bi bi-building" style="font-size:10px;color:#94a3b8;"></i>
+                                        <span style="font-size:11px;color:#64748b;">{{ $kTask->department->name }}</span>
+                                    </span>
+                                @endif
+
+                                {{-- Progress bar --}}
+                                <div class="tf-kanban-card__progress" aria-label="Progress: {{ $kProgress }}%" title="Progress: {{ $kProgress }}%">
+                                    <div class="tf-kanban-card__progress-bar
+                                        {{ $kProgress === 100 ? 'tf-kanban-card__progress-bar--success' : ($kOverdue ? 'tf-kanban-card__progress-bar--danger' : '') }}"
+                                        style="width:{{ $kProgress }}%"
+                                    ></div>
+                                </div>
+
+                                {{-- Footer: assignee + deadline --}}
+                                <div class="tf-kanban-card__footer">
+                                    @if ($kFirst)
+                                        <div class="tf-kanban-card__assignee">
+                                            <span class="tf-kanban-card__avatar" aria-hidden="true">
+                                                {{ strtoupper(substr($kFirst->name, 0, 2)) }}
+                                            </span>
+                                            <span class="tf-kanban-card__assignee-name" title="{{ $kAssignees->pluck('name')->implode(', ') }}">
+                                                {{ $kFirst->name }}
+                                                @if ($kAssignees->count() > 1)
+                                                    <em style="font-style:normal;color:#94a3b8;">+{{ $kAssignees->count() - 1 }}</em>
+                                                @endif
+                                            </span>
+                                        </div>
+                                    @else
+                                        <span class="tf-kanban-card__assignee-name" style="color:#94a3b8;">Unassigned</span>
+                                    @endif
+                                    <span
+                                        class="tf-kanban-card__deadline tf-kanban-card__deadline--{{ $kDeadlineState }} {{ $kOverdue ? 'is-overdue' : '' }}"
+                                        @if ($kDeadline) aria-label="{{ $kDeadlineState === 'overdue' ? 'Overdue deadline: ' : 'Deadline: ' }}{{ $kDeadline->format('F j, Y') }}" @else aria-label="No deadline" @endif
+                                    >
+                                        @if ($kDeadlineState === 'overdue')
+                                            <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
+                                            <span>Overdue</span>
+                                        @elseif ($kDeadlineState === 'today')
+                                            <i class="bi bi-calendar-day" aria-hidden="true"></i>
+                                            <span>Today</span>
+                                        @else
+                                            <i class="bi bi-calendar3" aria-hidden="true"></i>
+                                        @endif
+                                        @if ($kDeadline)
+                                            <time datetime="{{ $kDeadline->format('Y-m-d') }}">{{ $kDeadline->format('M d') }}</time>
+                                        @else
+                                            <span>No deadline</span>
+                                        @endif
+                                    </span>
+                                </div>
+                            </a>
+                        @empty
+                            <div class="tf-kanban-col__empty">
+                                <i class="bi bi-inbox" aria-hidden="true"></i>
+                                <span>No tasks</span>
+                            </div>
+                        @endforelse
+                    </div>
+                </div>
+            @endforeach
+        </div>
     </section>
 
     @include('tasks._reassign-modal')
@@ -382,6 +535,178 @@
 
     @push('scripts')
         <script>
+            /* ── View toggle (List / Kanban) ─────────────────────────── */
+            const STORAGE_KEY = 'tf_tasks_view';
+            const listView    = document.getElementById('taskListView');
+            const listFooter  = document.getElementById('taskListFooter');
+            const kanbanView  = document.getElementById('taskKanbanView');
+            const kanbanSort = document.getElementById('taskKanbanSort');
+            const kanbanSortValue = document.querySelector('[data-kanban-sort-value]');
+            const viewBtns    = document.querySelectorAll('[data-view-toggle]');
+
+            const applyView = (mode) => {
+                const isKanban = mode === 'kanban';
+                listView.hidden   = isKanban;
+                listFooter.hidden = isKanban;
+                kanbanView.classList.toggle('is-active', isKanban);
+                viewBtns.forEach((btn) => {
+                    const active = btn.dataset.viewToggle === mode;
+                    btn.classList.toggle('is-active', active);
+                    btn.setAttribute('aria-pressed', String(active));
+                });
+            };
+
+            applyView(localStorage.getItem(STORAGE_KEY) ?? 'list');
+
+            viewBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const mode = btn.dataset.viewToggle;
+                    localStorage.setItem(STORAGE_KEY, mode);
+                    applyView(mode);
+                });
+            });
+
+            const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+            const getDeadline = (card) => {
+                const deadline = card.dataset.deadline ?? '';
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
+                    return null;
+                }
+
+                const timestamp = Date.parse(`${deadline}T00:00:00Z`);
+                return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === deadline
+                    ? deadline
+                    : null;
+            };
+            const compareStable = (left, right) => {
+                const createdDifference = Number(left.dataset.createdAt || 0) - Number(right.dataset.createdAt || 0);
+                if (createdDifference !== 0) {
+                    return createdDifference;
+                }
+
+                return Number(left.dataset.taskId || 0) - Number(right.dataset.taskId || 0);
+            };
+            const compareDeadlines = (left, right) => {
+                const leftDeadline = getDeadline(left);
+                const rightDeadline = getDeadline(right);
+                if (leftDeadline === null || rightDeadline === null) {
+                    return leftDeadline === rightDeadline ? 0 : (leftDeadline === null ? 1 : -1);
+                }
+
+                return leftDeadline.localeCompare(rightDeadline);
+            };
+            const compareCards = (mode, left, right) => {
+                const leftPriority = priorityOrder[left.dataset.priority] ?? 4;
+                const rightPriority = priorityOrder[right.dataset.priority] ?? 4;
+                let comparison = 0;
+
+                if (mode === 'recently_created') {
+                    comparison = Number(right.dataset.createdAt || 0) - Number(left.dataset.createdAt || 0);
+                    return comparison || (Number(right.dataset.taskId || 0) - Number(left.dataset.taskId || 0));
+                }
+
+                if (mode === 'recently_updated') {
+                    comparison = Number(right.dataset.updatedAt || 0) - Number(left.dataset.updatedAt || 0);
+                    return comparison || (Number(right.dataset.taskId || 0) - Number(left.dataset.taskId || 0));
+                }
+
+                if (mode === 'priority_deadline') {
+                    comparison = leftPriority - rightPriority;
+                    if (comparison !== 0) {
+                        return comparison;
+                    }
+                }
+
+                if (mode === 'nearest_deadline') {
+                    const today = kanbanView.dataset.today;
+                    const leftDeadline = getDeadline(left);
+                    const rightDeadline = getDeadline(right);
+                    const getDistanceGroup = (deadline) => deadline === null ? 2 : (deadline < today ? 1 : 0);
+                    comparison = getDistanceGroup(leftDeadline) - getDistanceGroup(rightDeadline);
+                    if (comparison === 0) {
+                        comparison = compareDeadlines(left, right);
+                    }
+                } else {
+                    comparison = compareDeadlines(left, right);
+                }
+
+                if (comparison !== 0) {
+                    return comparison;
+                }
+
+                if (mode === 'deadline_priority') {
+                    comparison = leftPriority - rightPriority;
+                    if (comparison !== 0) {
+                        return comparison;
+                    }
+                }
+
+                return compareStable(left, right);
+            };
+            const sortKanbanBoard = (mode = kanbanSort?.value || 'deadline_priority') => {
+                kanbanView.querySelectorAll('.tf-kanban-col').forEach((column) => {
+                    const body = column.querySelector('.tf-kanban-col__body');
+                    const cards = [...body.children].filter((child) => child.matches('.tf-kanban-card'));
+                    const orderedCards = [...cards].sort((left, right) => compareCards(mode, left, right));
+
+                    if (cards.some((card, index) => card !== orderedCards[index])) {
+                        const fragment = document.createDocumentFragment();
+                        orderedCards.forEach((card) => fragment.append(card));
+                        body.append(fragment);
+                    }
+
+                    const count = orderedCards.length;
+                    const countElement = column.querySelector('.tf-kanban-col__count');
+                    const emptyState = body.querySelector('.tf-kanban-col__empty');
+                    if (countElement) {
+                        if (countElement.textContent !== String(count)) {
+                            countElement.textContent = String(count);
+                        }
+                        if (countElement.getAttribute('aria-label') !== `${count} tasks`) {
+                            countElement.setAttribute('aria-label', `${count} tasks`);
+                        }
+                    }
+                    if (emptyState && emptyState.hidden !== (count > 0)) {
+                        emptyState.hidden = count > 0;
+                    }
+                });
+            };
+
+            sortKanbanBoard();
+            kanbanSort?.addEventListener('change', () => {
+                const mode = kanbanSort.value;
+                kanbanSortValue.value = mode;
+                sortKanbanBoard(mode);
+
+                const url = new URL(window.location.href);
+                if (mode === 'deadline_priority') {
+                    url.searchParams.delete('sort');
+                } else {
+                    url.searchParams.set('sort', mode);
+                }
+                window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+            });
+
+            let kanbanSortScheduled = false;
+            const kanbanObserver = new MutationObserver(() => {
+                if (kanbanSortScheduled) {
+                    return;
+                }
+
+                kanbanSortScheduled = true;
+                window.requestAnimationFrame(() => {
+                    kanbanSortScheduled = false;
+                    sortKanbanBoard();
+                });
+            });
+            kanbanObserver.observe(kanbanView, {
+                attributes: true,
+                attributeFilter: ['data-deadline', 'data-priority', 'data-created-at', 'data-updated-at'],
+                childList: true,
+                subtree: true,
+            });
+            /* ─────────────────────────────────────────────────────────── */
+
             const taskFilterForm = document.querySelector('[data-task-filter-form]');
             const taskCompanyFilter = taskFilterForm?.querySelector('[data-task-company-filter]');
             const taskDepartmentFilter = taskFilterForm?.querySelector('[data-task-department-filter]');
@@ -411,10 +736,9 @@
                 select.addEventListener('change', () => taskFilterForm.requestSubmit());
             });
 
-            const selectAllTasks = document.querySelector('[data-task-select-all]');
-            const taskCheckboxes = [...document.querySelectorAll('[data-task-checkbox]')];
-
             const syncTaskSelection = () => {
+                const selectAllTasks = document.querySelector('[data-task-select-all]');
+                const taskCheckboxes = [...document.querySelectorAll('[data-task-checkbox]')];
                 if (!selectAllTasks) {
                     return;
                 }
@@ -424,15 +748,19 @@
                 selectAllTasks.indeterminate = selectedCount > 0 && selectedCount < taskCheckboxes.length;
             };
 
-            selectAllTasks?.addEventListener('change', () => {
-                taskCheckboxes.forEach((checkbox) => {
-                    checkbox.checked = selectAllTasks.checked;
-                });
-                syncTaskSelection();
-            });
+            document.addEventListener('change', (event) => {
+                if (!(event.target instanceof HTMLInputElement)) {
+                    return;
+                }
 
-            taskCheckboxes.forEach((checkbox) => {
-                checkbox.addEventListener('change', syncTaskSelection);
+                if (event.target.matches('[data-task-select-all]')) {
+                    document.querySelectorAll('[data-task-checkbox]').forEach((checkbox) => {
+                        checkbox.checked = event.target.checked;
+                    });
+                    syncTaskSelection();
+                } else if (event.target.matches('[data-task-checkbox]')) {
+                    syncTaskSelection();
+                }
             });
 
             const taskActionMenuOrigins = new WeakMap();
@@ -466,6 +794,137 @@
                 origin.placeholder.before(origin.menu);
                 origin.placeholder.remove();
                 taskActionMenuOrigins.delete(toggle);
+            });
+
+            const taskUpdateForm = document.getElementById('createTaskForm');
+            const taskUpdateModal = document.getElementById('createTaskModal');
+            const clearTaskUpdateErrors = () => {
+                taskUpdateForm.querySelectorAll('.invalid-feedback, [data-task-error-summary]').forEach((element) => element.remove());
+                taskUpdateForm.querySelectorAll('.is-invalid').forEach((element) => element.classList.remove('is-invalid'));
+            };
+            const showTaskUpdateErrors = (errors) => {
+                clearTaskUpdateErrors();
+                const messages = Object.values(errors ?? {}).flat().filter((message) => typeof message === 'string');
+                if (messages.length === 0) {
+                    messages.push('The task could not be updated. Review the task details and try again.');
+                }
+
+                const summary = document.createElement('div');
+                summary.className = 'tf-create-task__error-summary';
+                summary.setAttribute('role', 'alert');
+                summary.dataset.taskErrorSummary = '';
+                const heading = document.createElement('strong');
+                heading.textContent = 'Please review the task details.';
+                const list = document.createElement('ul');
+                messages.forEach((message) => {
+                    const item = document.createElement('li');
+                    item.textContent = message;
+                    list.append(item);
+                });
+                summary.append(heading, list);
+                taskUpdateForm.querySelector('.modal-body').prepend(summary);
+            };
+            const showTaskUpdateToast = (message) => {
+                let toast = document.getElementById('tfToast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.className = 'tf-toast tf-toast--success';
+                    toast.id = 'tfToast';
+                    toast.setAttribute('role', 'status');
+                    toast.setAttribute('aria-live', 'polite');
+                    const messageElement = document.createElement('span');
+                    messageElement.className = 'tf-toast__message';
+                    messageElement.dataset.tfToastMessage = '';
+                    toast.append(messageElement);
+                    document.body.append(toast);
+                }
+
+                toast.querySelector('[data-tf-toast-message]').textContent = message;
+                toast.hidden = false;
+                window.setTimeout(() => {
+                    toast.hidden = true;
+                }, 2600);
+            };
+            const refreshTaskViews = async () => {
+                const refreshUrl = new URL(window.location.href);
+                refreshUrl.searchParams.delete('edit');
+                const response = await fetch(refreshUrl, {
+                    headers: { Accept: 'text/html' },
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) {
+                    throw new Error(`The task was saved, but the board could not be refreshed (HTTP ${response.status}).`);
+                }
+
+                const refreshedDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
+                const refreshedKanban = refreshedDocument.getElementById('taskKanbanView');
+                const refreshedList = refreshedDocument.getElementById('taskListView');
+                const refreshedFooter = refreshedDocument.getElementById('taskListFooter');
+                const refreshedSummary = refreshedDocument.querySelector('.tf-user-summary');
+                if (!refreshedKanban || !refreshedList || !refreshedFooter || !refreshedSummary) {
+                    throw new Error('The task was saved, but the refreshed task views were incomplete.');
+                }
+
+                kanbanView.dataset.today = refreshedKanban.dataset.today;
+                kanbanView.replaceChildren(...[...refreshedKanban.childNodes].map((node) => document.importNode(node, true)));
+                listView.replaceChildren(...[...refreshedList.childNodes].map((node) => document.importNode(node, true)));
+                listFooter.replaceChildren(...[...refreshedFooter.childNodes].map((node) => document.importNode(node, true)));
+                document.querySelector('.tf-user-summary').replaceChildren(
+                    ...[...refreshedSummary.childNodes].map((node) => document.importNode(node, true)),
+                );
+                sortKanbanBoard();
+            };
+
+            taskUpdateForm?.addEventListener('submit', async (event) => {
+                if (event.defaultPrevented || taskUpdateModal.dataset.formMode !== 'edit'
+                    || !kanbanView.classList.contains('is-active')) {
+                    return;
+                }
+
+                event.preventDefault();
+                clearTaskUpdateErrors();
+                const submitButton = taskUpdateForm.querySelector('button[type="submit"]');
+                submitButton.disabled = true;
+                taskUpdateForm.setAttribute('aria-busy', 'true');
+                let taskSaved = false;
+
+                try {
+                    const response = await fetch(taskUpdateForm.action, {
+                        method: 'POST',
+                        body: new FormData(taskUpdateForm),
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        credentials: 'same-origin',
+                    });
+                    const payload = await response.json();
+                    if (response.status === 422) {
+                        showTaskUpdateErrors(payload.errors);
+                        return;
+                    }
+                    if (!response.ok) {
+                        throw new Error(payload.message || `The task could not be updated (HTTP ${response.status}).`);
+                    }
+
+                    taskSaved = true;
+                    await refreshTaskViews();
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('edit');
+                    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+                    window.bootstrap.Modal.getOrCreateInstance(taskUpdateModal).hide();
+                    showTaskUpdateToast(payload.message || 'Task updated successfully.');
+                } catch (error) {
+                    console.error(error);
+                    showTaskUpdateErrors({
+                        task: [taskSaved
+                            ? 'The task was saved, but its updated position could not be shown. Refresh the board to see the latest data.'
+                            : 'The task could not be updated. Check your connection and try again.'],
+                    });
+                } finally {
+                    submitButton.disabled = false;
+                    taskUpdateForm.removeAttribute('aria-busy');
+                }
             });
         </script>
     @endpush

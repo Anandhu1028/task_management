@@ -15,6 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -152,6 +153,249 @@ class TaskManagementTest extends TestCase
             ->assertDontSee('Non-matching toolbar filter task');
     }
 
+    public function test_task_can_be_created_without_a_deadline(): void
+    {
+        $poc = User::factory()->create([
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(route('tasks.store'), [
+            'title' => 'Task with no deadline',
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'poc_ids' => [$poc->id],
+            'task_type' => 'process',
+            'priority' => 'medium',
+            'estimated_hours' => 2,
+            'expected_output' => 'A task that can be planned later.',
+        ]);
+
+        $response->assertRedirect(route('tasks.index'))
+            ->assertSessionHas('success', 'Task created successfully.');
+        $this->assertDatabaseHas('tasks', [
+            'title' => 'Task with no deadline',
+            'due_date' => null,
+            'original_deadline' => null,
+        ]);
+
+        $this->get(route('tasks.index'))
+            ->assertSee('No deadline');
+    }
+
+    public function test_task_update_returns_json_for_kanban_edits(): void
+    {
+        $task = $this->createWorkflowTask([
+            'title' => 'Task edited from the Kanban board',
+            'status' => 'assigned',
+        ]);
+        $newDeadline = today()->addDays(2)->toDateString();
+
+        $response = $this->actingAs($this->admin)->putJson(route('tasks.update', $task), [
+            'title' => $task->title,
+            'company_id' => $task->company_id,
+            'department_id' => $task->department_id,
+            'task_type' => $task->task_type,
+            'priority' => 'critical',
+            'due_date' => $newDeadline,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Task updated successfully.');
+        $updatedTask = $task->fresh();
+        $this->assertSame('critical', $updatedTask->priority);
+        $this->assertSame($newDeadline, $updatedTask->due_date?->toDateString());
+    }
+
+    public function test_kanban_default_sort_uses_effective_deadline_then_priority_and_stable_order(): void
+    {
+        $oldestOverdue = $this->createWorkflowTask([
+            'title' => 'Oldest overdue Kanban task',
+            'status' => 'assigned',
+            'due_date' => null,
+            'original_deadline' => today()->subDays(4)->toDateString(),
+        ]);
+        $newerOverdue = $this->createWorkflowTask([
+            'title' => 'Newer overdue Kanban task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => null,
+            'original_deadline' => today()->subDay()->toDateString(),
+        ]);
+        $todayCritical = $this->createWorkflowTask([
+            'title' => 'Today critical Kanban task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $todayHigh = $this->createWorkflowTask([
+            'title' => 'Today high Kanban task',
+            'status' => 'assigned',
+            'priority' => 'high',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $todayMedium = $this->createWorkflowTask([
+            'title' => 'Today medium Kanban task',
+            'status' => 'assigned',
+            'priority' => 'medium',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $todayMediumSameCreationTime = $this->createWorkflowTask([
+            'title' => 'Today medium Kanban task with matching creation time',
+            'status' => 'assigned',
+            'priority' => 'medium',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $todayMediumOlderCreationTime = $this->createWorkflowTask([
+            'title' => 'Today medium Kanban task with older creation time',
+            'status' => 'assigned',
+            'priority' => 'medium',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $stableCreationTime = now()->subHours(2);
+        DB::table('tasks')->whereIn('id', [$todayMedium->id, $todayMediumSameCreationTime->id])
+            ->update(['created_at' => $stableCreationTime]);
+        DB::table('tasks')->where('id', $todayMediumOlderCreationTime->id)
+            ->update(['created_at' => now()->subHours(3)]);
+        $todayLow = $this->createWorkflowTask([
+            'title' => 'Today low Kanban task',
+            'status' => 'assigned',
+            'priority' => 'low',
+            'due_date' => today()->toDateString(),
+            'original_deadline' => today()->toDateString(),
+        ]);
+        $tomorrow = $this->createWorkflowTask([
+            'title' => 'Tomorrow Kanban task',
+            'status' => 'assigned',
+            'priority' => 'high',
+            'due_date' => today()->addDay()->toDateString(),
+            'original_deadline' => today()->addDay()->toDateString(),
+        ]);
+        $revisedDeadline = $this->createWorkflowTask([
+            'title' => 'Revised Kanban deadline task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => today()->addDays(5)->toDateString(),
+            'original_deadline' => today()->subDays(30)->toDateString(),
+        ]);
+        $noDeadline = $this->createWorkflowTask([
+            'title' => 'No deadline Kanban task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => null,
+            'original_deadline' => null,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.index'));
+
+        $response->assertOk()
+            ->assertSee('id="taskKanbanSort"', false)
+            ->assertSee('value="deadline_priority" selected', false)
+            ->assertSee('Overdue')
+            ->assertSee('Today')
+            ->assertSee('No deadline');
+
+        $this->assertKanbanOrder(
+            $response,
+            $oldestOverdue,
+            $newerOverdue,
+            $todayCritical,
+            $todayHigh,
+            $todayMediumOlderCreationTime,
+            $todayMedium,
+            $todayMediumSameCreationTime,
+            $todayLow,
+            $tomorrow,
+            $revisedDeadline,
+            $noDeadline,
+        );
+    }
+
+    public function test_kanban_sort_modes_respect_filters_and_keep_tasks_in_their_workflow_columns(): void
+    {
+        $olderCreated = $this->createWorkflowTask([
+            'title' => 'Older created Kanban task',
+            'status' => 'assigned',
+            'priority' => 'medium',
+            'due_date' => today()->addDays(10)->toDateString(),
+            'original_deadline' => today()->addDays(10)->toDateString(),
+        ]);
+        $newerCritical = $this->createWorkflowTask([
+            'title' => 'Newer critical Kanban task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => today()->addDay()->toDateString(),
+            'original_deadline' => today()->addDay()->toDateString(),
+        ]);
+        $overdueHigh = $this->createWorkflowTask([
+            'title' => 'Overdue high Kanban task',
+            'status' => 'assigned',
+            'priority' => 'high',
+            'due_date' => today()->subDays(4)->toDateString(),
+            'original_deadline' => today()->subDays(4)->toDateString(),
+        ]);
+        $otherStatus = $this->createWorkflowTask([
+            'title' => 'On hold Kanban task',
+            'status' => 'on_hold',
+            'priority' => 'critical',
+            'due_date' => today()->subDays(8)->toDateString(),
+            'original_deadline' => today()->subDays(8)->toDateString(),
+        ]);
+
+        DB::table('tasks')
+            ->where('id', $olderCreated->id)
+            ->update([
+                'title' => 'Recently updated Kanban task',
+                'updated_at' => now()->addMinute(),
+            ]);
+        $filterParameters = [
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'assigned',
+        ];
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.index', [
+            ...$filterParameters,
+            'sort' => 'priority_deadline',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('value="priority_deadline" selected', false);
+        $this->assertKanbanOrder($response, $newerCritical, $overdueHigh, $olderCreated);
+        $this->assertStringNotContainsString('data-task-id="'.$otherStatus->id.'"', $this->kanbanHtml($response));
+        $this->assertSame('on_hold', $otherStatus->fresh()->status);
+
+        $recentlyCreated = $this->actingAs($this->admin)->get(route('tasks.index', [
+            ...$filterParameters,
+            'sort' => 'recently_created',
+        ]));
+        $this->assertKanbanOrder($recentlyCreated, $overdueHigh, $newerCritical, $olderCreated);
+
+        $recentlyUpdated = $this->actingAs($this->admin)->get(route('tasks.index', [
+            ...$filterParameters,
+            'sort' => 'recently_updated',
+        ]));
+        $this->assertKanbanOrder($recentlyUpdated, $olderCreated, $overdueHigh, $newerCritical);
+
+        $nearestDeadline = $this->actingAs($this->admin)->get(route('tasks.index', [
+            ...$filterParameters,
+            'sort' => 'nearest_deadline',
+        ]));
+        $this->assertKanbanOrder($nearestDeadline, $newerCritical, $olderCreated, $overdueHigh);
+
+        $oldestDeadline = $this->actingAs($this->admin)->get(route('tasks.index', [
+            ...$filterParameters,
+            'sort' => 'oldest_deadline',
+        ]));
+        $this->assertKanbanOrder($oldestDeadline, $overdueHigh, $newerCritical, $olderCreated);
+    }
+
     public function test_editing_a_task_uses_the_prefilled_shared_task_modal(): void
     {
         $poc = User::factory()->create([
@@ -185,6 +429,8 @@ class TaskManagementTest extends TestCase
             ->assertSee('value="Existing task for edit"', false)
             ->assertSee('value="high" selected', false)
             ->assertSee('value="project" selected', false)
+            ->assertSee('id="createTaskDueDate"', false)
+            ->assertSee('name="due_date"', false)
             ->assertDontSee('id="createTaskStatus"', false)
             ->assertSee('Existing expected output')
             ->assertSee('action="'.route('tasks.update', $task).'"', false)
@@ -790,7 +1036,7 @@ class TaskManagementTest extends TestCase
         $this->assertDatabaseMissing('tasks', ['title' => 'Department-scoped assignee']);
     }
 
-    public function test_task_creation_requires_every_field_except_assignee(): void
+    public function test_task_creation_requires_estimated_effort_and_expected_output(): void
     {
         $poc = User::factory()->create([
             'company_id' => $this->company->id,
@@ -2276,5 +2522,29 @@ class TaskManagementTest extends TestCase
             'expected_output' => 'A completed workflow test deliverable.',
             'created_by' => $this->admin->id,
         ], $attributes));
+    }
+
+    private function assertKanbanOrder(TestResponse $response, Task ...$tasks): void
+    {
+        $boardHtml = $this->kanbanHtml($response);
+        $positions = array_map(
+            static fn (Task $task): int|false => strpos($boardHtml, 'data-task-id="'.$task->id.'"'),
+            $tasks,
+        );
+
+        $this->assertNotContains(false, $positions, true);
+        $sortedPositions = $positions;
+        sort($sortedPositions);
+        $this->assertSame($sortedPositions, $positions);
+    }
+
+    private function kanbanHtml(TestResponse $response): string
+    {
+        $html = $response->getContent();
+        $boardStart = strpos($html, '<div id="taskKanbanView"');
+
+        $this->assertNotFalse($boardStart);
+
+        return substr($html, $boardStart);
     }
 }

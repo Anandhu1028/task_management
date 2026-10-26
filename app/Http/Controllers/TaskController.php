@@ -49,6 +49,20 @@ class TaskController extends Controller
             ->paginate((int) ($filters['per_page'] ?? 15))
             ->appends($filters);
 
+        $kanbanTasks = $this->applyKanbanSort(
+            $this->filteredTasksQuery($filters, $request->user()),
+            $filters['sort'] ?? 'deadline_priority',
+        )
+            ->with([
+                'company:id,name',
+                'department:id,name',
+                'assignee:id,name,designation',
+                'activeAssignees:id,name,designation',
+                'pocs:id,name,designation',
+            ])
+            ->get()
+            ->groupBy('status');
+
         $counts = Task::query()
             ->visibleTo($request->user())
             ->selectRaw('COUNT(*) as total')
@@ -79,6 +93,7 @@ class TaskController extends Controller
 
         return view('tasks.index', compact(
             'tasks',
+            'kanbanTasks',
             'filters',
             'counts',
             'companies',
@@ -234,7 +249,7 @@ class TaskController extends Controller
         Task $task,
         TaskWorkflowService $workflow,
         SubtaskActivityService $subtaskActivity,
-    ): RedirectResponse {
+    ): RedirectResponse|JsonResponse {
         $this->authorize('update', $task);
 
         $validated = $request->validated();
@@ -248,23 +263,25 @@ class TaskController extends Controller
                 ->first();
 
             if (! $department) {
-                return back()->withErrors(['department_id' => 'Selected department does not belong to the selected company.'])->withInput();
+                return $this->taskUpdateFailure($request, [
+                    'department_id' => 'Selected department does not belong to the selected company.',
+                ]);
             }
         }
 
         $hasAssigneeUpdate = array_key_exists('assigned_to', $validated);
         $assigneeIds = $validated['assigned_to'] ?? [];
         if ($task->status === 'notified' && $assigneeIds !== []) {
-            return back()->withErrors([
+            return $this->taskUpdateFailure($request, [
                 'assigned_to' => 'The department point of contact must accept the task before employee assignment.',
-            ])->withInput();
+            ]);
         }
 
         if ($hasAssigneeUpdate && $assigneeIds === []
             && in_array($task->status, ['in_progress', 'on_hold', 'submitted_for_review', 'rework'], true)) {
-            return back()->withErrors([
+            return $this->taskUpdateFailure($request, [
                 'assigned_to' => 'An active task must remain assigned to an employee.',
-            ])->withInput();
+            ]);
         }
 
         if ($hasAssigneeUpdate && ! $this->assigneesBelongToDepartment(
@@ -272,7 +289,9 @@ class TaskController extends Controller
             $validated['company_id'],
             $validated['department_id'],
         )) {
-            return back()->withErrors(['assigned_to' => 'All assigned employees must be active in the selected department.'])->withInput();
+            return $this->taskUpdateFailure($request, [
+                'assigned_to' => 'All assigned employees must be active in the selected department.',
+            ]);
         }
 
         // Validate POCs
@@ -288,7 +307,9 @@ class TaskController extends Controller
                     ->count();
 
                 if ($validPocCount !== count($pocIds)) {
-                    return back()->withErrors(['poc_ids' => 'One or more selected POCs do not belong to the selected department.'])->withInput();
+                    return $this->taskUpdateFailure($request, [
+                        'poc_ids' => 'One or more selected POCs do not belong to the selected department.',
+                    ]);
                 }
             }
         }
@@ -349,8 +370,27 @@ class TaskController extends Controller
             throw $exception;
         }
 
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Task updated successfully.']);
+        }
+
         return redirect()->route('tasks.index')
             ->with('success', 'Task updated successfully.');
+    }
+
+    /**
+     * @param  array<string, string>  $errors
+     */
+    private function taskUpdateFailure(UpdateTaskRequest $request, array $errors): RedirectResponse|JsonResponse
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'The task could not be updated.',
+                'errors' => $errors,
+            ], 422);
+        }
+
+        return back()->withErrors($errors)->withInput();
     }
 
     public function downloadAttachment(Task $task, TaskAttachment $attachment): StreamedResponse
@@ -744,11 +784,61 @@ class TaskController extends Controller
             'condition' => ['nullable', Rule::in(Task::DEADLINE_CONDITIONS)],
             'priority' => ['nullable', Rule::in(Task::PRIORITIES)],
             'task_type' => ['nullable', Rule::in(Task::TYPES)],
+            'sort' => ['nullable', Rule::in([
+                'deadline_priority',
+                'priority_deadline',
+                'nearest_deadline',
+                'oldest_deadline',
+                'recently_created',
+                'recently_updated',
+            ])],
             'company_id' => ['nullable', 'integer', 'exists:companies,id'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'per_page' => ['nullable', Rule::in([10, 15, 25, 50, 100])],
         ]);
+    }
+
+    /**
+     * @param  Builder<Task>  $query
+     * @return Builder<Task>
+     */
+    private function applyKanbanSort(Builder $query, string $sort): Builder
+    {
+        $deadline = 'COALESCE(due_date, original_deadline)';
+        $priority = "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END";
+        $nullDeadline = "CASE WHEN {$deadline} IS NULL THEN 1 ELSE 0 END";
+
+        if ($sort === 'recently_created') {
+            return $query->orderByDesc('created_at')->orderByDesc('id');
+        }
+
+        if ($sort === 'recently_updated') {
+            return $query->orderByDesc('updated_at')->orderByDesc('id');
+        }
+
+        if ($sort === 'nearest_deadline') {
+            $today = today()->toDateString();
+
+            return $query
+                ->orderByRaw("CASE WHEN {$deadline} IS NULL THEN 2 WHEN {$deadline} < ? THEN 1 ELSE 0 END", [$today])
+                ->orderByRaw("{$deadline} ASC")
+                ->orderBy('created_at')
+                ->orderBy('id');
+        }
+
+        if ($sort === 'priority_deadline') {
+            $query->orderByRaw($priority);
+        }
+
+        $query->orderByRaw($nullDeadline)
+            ->orderByRaw("{$deadline} ASC");
+
+        if ($sort === 'deadline_priority') {
+            $query->orderByRaw($priority);
+        }
+
+        return $query->orderBy('created_at')->orderBy('id');
     }
 
     /**

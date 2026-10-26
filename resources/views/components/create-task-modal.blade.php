@@ -26,6 +26,7 @@
         'priority' => $editingTask->priority,
         'task_type' => $editingTask->task_type,
         'original_deadline' => $editingTask->original_deadline?->format('Y-m-d'),
+        'due_date' => $editingTask->due_date?->format('Y-m-d'),
         'estimated_hours' => $editingTask->estimated_hours,
         'expected_output' => $editingTask->expected_output,
     ] : null;
@@ -222,7 +223,7 @@
                         </div>
 
                         <div class="tf-create-task__field">
-                            <label for="createTaskDeadline">Original deadline <span id="createTaskDeadlineRequired" @if ($isEditingTask) hidden @endif>*</span></label>
+                            <label for="createTaskDeadline">Original deadline <span id="createTaskDeadlineRequired" class="tf-create-task__optional text-muted small" @if ($isEditingTask) hidden @endif>(optional)</span></label>
                             <input
                                 class="form-control @error('original_deadline') is-invalid @enderror"
                                 id="createTaskDeadline"
@@ -233,10 +234,22 @@
                                 data-create-min-date="{{ now()->toDateString() }}"
                                 @readonly($isEditingTask)
                                 @disabled($isEditingTask)
-                                @required(! $isEditingTask)
                             >
                             <small class="tf-create-task__hint" id="createTaskDeadlineHint" @if (! $isEditingTask) hidden @endif>Original deadline cannot be changed after creation.</small>
                             @error('original_deadline') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+
+                        <div class="tf-create-task__field" id="createTaskDueDateField" @if (! $isEditingTask) hidden @endif>
+                            <label for="createTaskDueDate">Current deadline</label>
+                            <input
+                                class="form-control @error('due_date') is-invalid @enderror"
+                                id="createTaskDueDate"
+                                name="{{ $isEditingTask ? 'due_date' : '' }}"
+                                type="date"
+                                value="{{ old('due_date', $isEditingTask ? ($editingTask->due_date ?? $editingTask->original_deadline)?->format('Y-m-d') : '') }}"
+                                @disabled(! $isEditingTask)
+                            >
+                            @error('due_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
                         <div class="tf-create-task__field">
@@ -338,6 +351,8 @@
     const prioritySelect = document.getElementById('createTaskPriority');
     const taskTypeSelect = document.getElementById('createTaskType');
     const deadlineInput = document.getElementById('createTaskDeadline');
+    const dueDateField = document.getElementById('createTaskDueDateField');
+    const dueDateInput = document.getElementById('createTaskDueDate');
     const deadlineHint = document.getElementById('createTaskDeadlineHint');
     const deadlineRequired = document.getElementById('createTaskDeadlineRequired');
     const estimatedHoursInput = document.getElementById('createTaskEffort');
@@ -858,8 +873,12 @@
         deadlineInput.name = 'original_deadline';
         deadlineInput.disabled = false;
         deadlineInput.readOnly = false;
-        deadlineInput.required = true;
+        deadlineInput.required = false;
         deadlineInput.min = deadlineInput.dataset.createMinDate;
+        dueDateInput.value = '';
+        dueDateInput.removeAttribute('name');
+        dueDateInput.disabled = true;
+        dueDateField.hidden = true;
         deadlineHint.hidden = true;
         deadlineRequired.hidden = false;
         estimatedHoursInput.value = '';
@@ -915,6 +934,10 @@
         deadlineInput.readOnly = true;
         deadlineInput.required = false;
         deadlineInput.min = '';
+        dueDateInput.value = task.due_date ?? task.original_deadline ?? '';
+        dueDateInput.name = 'due_date';
+        dueDateInput.disabled = false;
+        dueDateField.hidden = false;
         deadlineHint.hidden = false;
         deadlineRequired.hidden = true;
         estimatedHoursInput.value = task.estimated_hours ?? '';
