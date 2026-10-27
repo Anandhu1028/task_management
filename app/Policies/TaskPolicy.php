@@ -15,8 +15,59 @@ class TaskPolicy
 
     public function view(User $user, Task $task): bool
     {
-        return $user->can('tasks.view')
-            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists();
+        if (! $user->can('tasks.view')) {
+            return false;
+        }
+
+        return Task::query()->visibleTo($user)->whereKey($task->getKey())->exists();
+    }
+
+    public function requestDeadlineExtension(User $user, Task $task): bool
+    {
+        if (! $user->can('tasks.view')
+            || ! $user->can('tasks.change_status')
+            || ! $user->hasAssignedRole('Employee')
+            || in_array($task->status, ['completed', 'cancelled'], true)
+            || ! Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()) {
+            return false;
+        }
+
+        $isActiveAssignee = $task->relationLoaded('activeAssignees')
+            ? $task->activeAssignees->contains('id', $user->id)
+            : $task->assignments()
+                ->where('user_id', $user->id)
+                ->where('is_active', true)
+                ->whereNull('unassigned_at')
+                ->exists();
+
+        return $isActiveAssignee && ! ($task->has_pending_deadline_extension_request ?? false);
+    }
+
+    public function reviewDeadlineExtensions(User $user, Task $task): bool
+    {
+        if (! $user->can('tasks.view')) {
+            return false;
+        }
+
+        if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
+            return true;
+        }
+
+        if ($user->hasAssignedRole('Manager')) {
+            return $user->company_id === $task->company_id;
+        }
+
+        if ($user->hasAssignedRole('Team Leader')) {
+            return $user->company_id === $task->company_id
+                && $user->department_id !== null
+                && $user->department_id === $task->department_id;
+        }
+
+        return $user->company_id === $task->company_id
+            && $user->department_id === $task->department_id
+            && ($task->relationLoaded('pocs')
+                ? $task->pocs->contains('id', $user->id)
+                : $task->pocs()->whereKey($user->id)->exists());
     }
 
     public function create(User $user): bool
@@ -88,7 +139,7 @@ class TaskPolicy
         return $user->can('tasks.change_status')
             && $task->status === 'assigned'
             && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
-            && ($user->hasRole('Employee') || $user->role_id === 8)
+            && $user->hasAssignedRole('Employee')
             && $this->isActiveAssignee($user, $task);
     }
 
@@ -152,18 +203,17 @@ class TaskPolicy
             && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
             && (($user->can('tasks.cancel') && $this->canManage($user, $task))
                 || ($task->status === 'in_progress'
-                    && ($user->hasRole('Employee') || $user->role_id === 8)
+                    && $user->hasAssignedRole('Employee')
                     && $this->isActiveAssignee($user, $task)));
     }
 
     private function canManage(User $user, Task $task): bool
     {
-        if ($user->hasRole('Admin') || $user->role_id === 5
-            || $user->hasRole('CEO') || $user->role_id === 6) {
+        if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
             return true;
         }
 
-        return ($user->hasRole('Team Leader') || $user->role_id === 7)
+        return $user->hasAssignedRole('Team Leader')
             && $user->company_id === $task->company_id
             && $user->department_id !== null
             && $user->department_id === $task->department_id;

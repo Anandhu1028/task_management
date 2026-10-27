@@ -77,7 +77,7 @@
     {{-- Main Card --}}
     <section class="tf-card tf-user-management">
         <div class="tf-user-toolbar">
-            <form method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
+            <form id="taskFilterForm" method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
                 <input type="hidden" name="task_type" value="{{ request('task_type') }}">
                 <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 <input type="hidden" name="assigned_to" value="{{ request('assigned_to') }}">
@@ -88,7 +88,7 @@
                 </label>
                 <div class="tf-task-toolbar-filters">
                     <label class="tf-user-toolbar__select" for="taskCompanyFilter">
-                        <select id="taskCompanyFilter" name="company_id" aria-label="Filter by company" data-task-company-filter>
+                        <select id="taskCompanyFilter" name="company_id" aria-label="Filter by company" data-task-company-filter data-task-auto-submit>
                             <option value="">All companies</option>
                             @foreach ($companies as $company)
                                 <option value="{{ $company->id }}" @selected(request('company_id') == $company->id)>{{ $company->name }}</option>
@@ -97,7 +97,7 @@
                         <i class="bi bi-chevron-down" aria-hidden="true"></i>
                     </label>
                     <label class="tf-user-toolbar__select" for="taskDepartmentFilter">
-                        <select id="taskDepartmentFilter" name="department_id" aria-label="Filter by department" data-task-department-filter>
+                        <select id="taskDepartmentFilter" name="department_id" aria-label="Filter by department" data-task-department-filter data-task-auto-submit>
                             <option value="">All departments</option>
                             @foreach ($departments as $department)
                                 <option value="{{ $department->id }}" data-company-id="{{ $department->company_id }}" @selected(request('department_id') == $department->id)>{{ $department->name }}</option>
@@ -105,18 +105,8 @@
                         </select>
                         <i class="bi bi-chevron-down" aria-hidden="true"></i>
                     </label>
-                    <label class="tf-user-toolbar__select" for="taskPriorityFilter">
-                        <select id="taskPriorityFilter" name="priority" aria-label="Filter by priority">
-                            <option value="">All priorities</option>
-                            <option value="critical" @selected(request('priority') === 'critical')>Critical</option>
-                            <option value="high" @selected(request('priority') === 'high')>High</option>
-                            <option value="medium" @selected(request('priority') === 'medium')>Medium</option>
-                            <option value="low" @selected(request('priority') === 'low')>Low</option>
-                        </select>
-                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                    </label>
                     <label class="tf-user-toolbar__select" for="taskStatusFilter">
-                        <select id="taskStatusFilter" name="status" aria-label="Filter by task status">
+                        <select id="taskStatusFilter" name="status" aria-label="Filter by task status" data-task-auto-submit>
                             <option value="">All statuses</option>
                             @foreach (\App\Models\Task::STATUSES as $statusValue)
                                 <option value="{{ $statusValue }}" @selected(request('status') === $statusValue)>{{ \App\Models\Task::STATUS_LABELS[$statusValue] }}</option>
@@ -125,7 +115,7 @@
                         <i class="bi bi-chevron-down" aria-hidden="true"></i>
                     </label>
                     <label class="tf-user-toolbar__select" for="taskConditionFilter">
-                        <select id="taskConditionFilter" name="condition" aria-label="Filter by deadline condition">
+                        <select id="taskConditionFilter" name="condition" aria-label="Filter by deadline condition" data-task-auto-submit>
                             <option value="">All deadline conditions</option>
                             @foreach (\App\Models\Task::DEADLINE_CONDITIONS as $condition)
                                 <option value="{{ $condition }}" @selected(request('condition') === $condition)>{{ \App\Models\Task::DEADLINE_CONDITION_LABELS[$condition] }}</option>
@@ -136,30 +126,85 @@
                 </div>
             </form>
             <div class="tf-user-toolbar__end">
-                @if (request()->hasAny(['search', 'company_id', 'department_id', 'assigned_to', 'status', 'condition', 'priority', 'task_type']) || (request()->filled('sort') && request('sort') !== 'deadline_priority'))
+                @if (request()->hasAny(['search', 'company_id', 'department_id', 'assigned_to', 'status', 'condition', 'priority', 'due_date', 'task_type']) || (request()->filled('sort') && request('sort') !== 'deadline_priority'))
                     <a href="{{ route('tasks.index') }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
                 @endif
-                <label class="tf-user-toolbar__select tf-kanban-sort" for="taskKanbanSort">
-                    <span>Sort by</span>
-                    <select id="taskKanbanSort" aria-label="Sort Kanban tasks by">
-                        <option value="deadline_priority" @selected(($filters['sort'] ?? 'deadline_priority') === 'deadline_priority')>Deadline → Priority</option>
-                        <option value="priority_deadline" @selected(($filters['sort'] ?? '') === 'priority_deadline')>Priority → Deadline</option>
-                        <option value="nearest_deadline" @selected(($filters['sort'] ?? '') === 'nearest_deadline')>Nearest Deadline</option>
-                        <option value="oldest_deadline" @selected(($filters['sort'] ?? '') === 'oldest_deadline')>Oldest Deadline</option>
-                        <option value="recently_created" @selected(($filters['sort'] ?? '') === 'recently_created')>Recently Created</option>
-                        <option value="recently_updated" @selected(($filters['sort'] ?? '') === 'recently_updated')>Recently Updated</option>
-                    </select>
-                    <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                </label>
+                <div class="tf-task-sort-filter" data-task-sort-filter>
+                    <button
+                        type="button"
+                        class="tf-task-sort-filter__trigger"
+                        aria-label="Open task sorting and filters"
+                        aria-expanded="false"
+                        aria-controls="taskSortFilterPopover"
+                        data-task-sort-filter-toggle
+                    >
+                        <i class="bi bi-sliders" aria-hidden="true"></i>
+                        <span>Sort by</span>
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </button>
+                    <section
+                        id="taskSortFilterPopover"
+                        class="tf-task-sort-filter__popover"
+                        role="dialog"
+                        aria-labelledby="taskSortFilterTitle"
+                        hidden
+                        data-task-sort-filter-popover
+                    >
+                        <h2 id="taskSortFilterTitle">Sort and filter tasks</h2>
+                        <label class="tf-task-sort-filter__field" for="taskKanbanSort">
+                            <span>Sort tasks by</span>
+                            <select id="taskKanbanSort" aria-label="Sort tasks by" data-task-sort-filter-control>
+                                <option value="deadline_priority" @selected(($filters['sort'] ?? 'deadline_priority') === 'deadline_priority')>Deadline → Priority</option>
+                                <option value="priority_deadline" @selected(($filters['sort'] ?? '') === 'priority_deadline')>Priority → Deadline</option>
+                                <option value="nearest_deadline" @selected(($filters['sort'] ?? '') === 'nearest_deadline')>Nearest Deadline</option>
+                                <option value="oldest_deadline" @selected(($filters['sort'] ?? '') === 'oldest_deadline')>Oldest Deadline</option>
+                                <option value="recently_created" @selected(($filters['sort'] ?? '') === 'recently_created')>Recently Created</option>
+                                <option value="recently_updated" @selected(($filters['sort'] ?? '') === 'recently_updated')>Recently Updated</option>
+                            </select>
+                        </label>
+                        <label class="tf-task-sort-filter__field" for="taskDueDateFilter">
+                            <span>Deadline date</span>
+                            <input
+                                id="taskDueDateFilter"
+                                type="date"
+                                name="due_date"
+                                form="taskFilterForm"
+                                value="{{ $filters['due_date'] ?? '' }}"
+                                aria-label="Filter by deadline date"
+                                data-task-sort-filter-control
+                            >
+                        </label>
+                        <label class="tf-task-sort-filter__field" for="taskPriorityFilter">
+                            <span>Priority</span>
+                            <select
+                                id="taskPriorityFilter"
+                                name="priority"
+                                form="taskFilterForm"
+                                aria-label="Filter by priority"
+                                data-task-sort-filter-control
+                            >
+                                <option value="">All priorities</option>
+                                <option value="critical" @selected(request('priority') === 'critical')>Critical</option>
+                                <option value="high" @selected(request('priority') === 'high')>High</option>
+                                <option value="medium" @selected(request('priority') === 'medium')>Medium</option>
+                                <option value="low" @selected(request('priority') === 'low')>Low</option>
+                            </select>
+                        </label>
+                        <div class="tf-task-sort-filter__actions">
+                            <button type="button" class="tf-btn tf-btn--ghost" data-task-sort-filter-clear>Clear</button>
+                            <button type="button" class="tf-btn tf-btn--primary" data-task-sort-filter-apply>Apply</button>
+                        </div>
+                    </section>
+                </div>
                 {{-- View toggle --}}
                 <div class="tf-view-toggle" role="group" aria-label="View mode">
                     <button type="button" id="taskViewList" class="tf-view-toggle__btn is-active" data-view-toggle="list" aria-pressed="true">
                         <i class="bi bi-list-task" aria-hidden="true"></i>
-                        List
+
                     </button>
                     <button type="button" id="taskViewKanban" class="tf-view-toggle__btn" data-view-toggle="kanban" aria-pressed="false">
                         <i class="bi bi-kanban" aria-hidden="true"></i>
-                        Kanban
+
                     </button>
                 </div>
             </div>
@@ -319,6 +364,21 @@
                                                 <i class="bi bi-eye me-2 text-primary"></i> View Details
                                             </a>
                                         </li>
+                                        @can('requestDeadlineExtension', $task)
+                                            <li>
+                                                <button
+                                                    type="button"
+                                                    class="dropdown-item py-2"
+                                                    data-deadline-extension-trigger
+                                                    data-task-id="{{ $task->id }}"
+                                                    data-task-title="{{ $task->title }}"
+                                                    data-current-deadline="{{ ($task->due_date ?? $task->original_deadline)?->format('Y-m-d') ?? '' }}"
+                                                    data-action="{{ route('tasks.deadline-extension-requests.store', $task) }}"
+                                                >
+                                                    <i class="bi bi-calendar2-plus me-2 text-primary"></i> Request Deadline Extension
+                                                </button>
+                                            </li>
+                                        @endcan
                                         @can('tasks.update')
                                             <li>
                                                 <a
@@ -530,10 +590,111 @@
     </section>
 
     @include('tasks._reassign-modal')
-
-
+    <div class="modal fade" id="deadlineExtensionRequestModal" tabindex="-1" aria-labelledby="deadlineExtensionRequestTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content tf-modal">
+                <form
+                    method="POST"
+                    id="deadlineExtensionRequestForm"
+                    data-action-template="{{ route('tasks.deadline-extension-requests.store', ['task' => 'TASK_ID_PLACEHOLDER']) }}"
+                >
+                    @csrf
+                    <input type="hidden" name="task_id" id="deadlineExtensionTaskId" value="{{ old('task_id') }}">
+                    <input type="hidden" name="task_name" id="deadlineExtensionTaskNameValue" value="{{ old('task_name') }}">
+                    <input type="hidden" name="current_deadline" id="deadlineExtensionCurrentDeadlineValue" value="{{ old('current_deadline') }}">
+                    <div class="modal-header">
+                        <h2 class="modal-title" id="deadlineExtensionRequestTitle">Request deadline extension</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body d-grid gap-3">
+                        @if ($errors->has('requested_deadline') || $errors->has('reason') || $errors->has('deadline_extension'))
+                            <div class="alert alert-danger mb-0" role="alert">
+                                {{ $errors->first('requested_deadline') ?: $errors->first('reason') ?: $errors->first('deadline_extension') }}
+                            </div>
+                        @endif
+                        <label class="tf-label">
+                            Task name
+                            <input type="text" class="form-control tf-input" id="deadlineExtensionTaskName" value="{{ old('task_name') }}" readonly>
+                        </label>
+                        <label class="tf-label">
+                            Current deadline
+                            <input type="text" class="form-control tf-input" id="deadlineExtensionCurrentDeadline" value="{{ old('current_deadline') ?: 'No deadline set' }}" readonly>
+                        </label>
+                        <label class="tf-label">
+                            Requested deadline <span>*</span>
+                            <input
+                                type="date"
+                                class="form-control tf-input"
+                                name="requested_deadline"
+                                id="deadlineExtensionRequestedDeadline"
+                                value="{{ old('requested_deadline') }}"
+                                required
+                            >
+                        </label>
+                        <label class="tf-label">
+                            Reason for extension <span>*</span>
+                            <textarea class="form-control tf-input" name="reason" rows="4" maxlength="5000" required>{{ old('reason') }}</textarea>
+                        </label>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="tf-btn tf-btn--ghost" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="tf-btn tf-btn--primary">Submit request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     @push('scripts')
+        <script>
+            (() => {
+                const modalElement = document.getElementById('deadlineExtensionRequestModal');
+                const form = document.getElementById('deadlineExtensionRequestForm');
+                const taskId = document.getElementById('deadlineExtensionTaskId');
+                const taskNameValue = document.getElementById('deadlineExtensionTaskNameValue');
+                const currentDeadlineValue = document.getElementById('deadlineExtensionCurrentDeadlineValue');
+                const taskName = document.getElementById('deadlineExtensionTaskName');
+                const currentDeadline = document.getElementById('deadlineExtensionCurrentDeadline');
+                const requestedDeadline = document.getElementById('deadlineExtensionRequestedDeadline');
+                const modal = window.bootstrap?.Modal.getOrCreateInstance(modalElement);
+
+                const nextDate = (date) => {
+                    const [year, month, day] = date.split('-').map(Number);
+                    const next = new Date(year, month - 1, day + 1);
+                    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+                };
+
+                const openRequestModal = (values) => {
+                    taskId.value = values.id;
+                    taskNameValue.value = values.title;
+                    currentDeadlineValue.value = values.deadline;
+                    taskName.value = values.title;
+                    currentDeadline.value = values.deadline || 'No deadline set';
+                    form.action = values.action;
+                    requestedDeadline.min = nextDate(values.deadline || '{{ today()->toDateString() }}');
+                    modal?.show();
+                };
+
+                document.querySelectorAll('[data-deadline-extension-trigger]').forEach((button) => {
+                    button.addEventListener('click', () => openRequestModal({
+                        id: button.dataset.taskId,
+                        title: button.dataset.taskTitle,
+                        deadline: button.dataset.currentDeadline,
+                        action: button.dataset.action,
+                    }));
+                });
+
+                if (taskId.value) {
+                    const action = form.dataset.actionTemplate.replace('TASK_ID_PLACEHOLDER', encodeURIComponent(taskId.value));
+                    openRequestModal({
+                        id: taskId.value,
+                        title: taskNameValue.value,
+                        deadline: currentDeadlineValue.value,
+                        action,
+                    });
+                }
+            })();
+        </script>
         <script>
             /* ── View toggle (List / Kanban) ─────────────────────────── */
             const STORAGE_KEY = 'tf_tasks_view';
@@ -673,20 +834,6 @@
             };
 
             sortKanbanBoard();
-            kanbanSort?.addEventListener('change', () => {
-                const mode = kanbanSort.value;
-                kanbanSortValue.value = mode;
-                sortKanbanBoard(mode);
-
-                const url = new URL(window.location.href);
-                if (mode === 'deadline_priority') {
-                    url.searchParams.delete('sort');
-                } else {
-                    url.searchParams.set('sort', mode);
-                }
-                window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-            });
-
             let kanbanSortScheduled = false;
             const kanbanObserver = new MutationObserver(() => {
                 if (kanbanSortScheduled) {
@@ -710,7 +857,26 @@
             const taskFilterForm = document.querySelector('[data-task-filter-form]');
             const taskCompanyFilter = taskFilterForm?.querySelector('[data-task-company-filter]');
             const taskDepartmentFilter = taskFilterForm?.querySelector('[data-task-department-filter]');
-            const taskToolbarFilters = taskFilterForm?.querySelectorAll('select');
+            const taskToolbarFilters = taskFilterForm?.querySelectorAll('[data-task-auto-submit]');
+            const taskSortFilter = document.querySelector('[data-task-sort-filter]');
+            const taskSortFilterToggle = taskSortFilter?.querySelector('[data-task-sort-filter-toggle]');
+            const taskSortFilterPopover = taskSortFilter?.querySelector('[data-task-sort-filter-popover]');
+            const taskSortFilterApply = taskSortFilter?.querySelector('[data-task-sort-filter-apply]');
+            const taskSortFilterClear = taskSortFilter?.querySelector('[data-task-sort-filter-clear]');
+            const taskPriorityFilter = document.getElementById('taskPriorityFilter');
+            const taskDueDateFilter = document.getElementById('taskDueDateFilter');
+
+            const setTaskSortFilterOpen = (isOpen) => {
+                if (!taskSortFilterToggle || !taskSortFilterPopover) {
+                    return;
+                }
+
+                taskSortFilterPopover.hidden = !isOpen;
+                taskSortFilterToggle.setAttribute('aria-expanded', String(isOpen));
+                if (isOpen) {
+                    kanbanSort?.focus();
+                }
+            };
 
             const updateTaskDepartmentOptions = () => {
                 if (!taskCompanyFilter || !taskDepartmentFilter) {
@@ -734,6 +900,33 @@
             taskCompanyFilter?.addEventListener('change', updateTaskDepartmentOptions);
             taskToolbarFilters?.forEach((select) => {
                 select.addEventListener('change', () => taskFilterForm.requestSubmit());
+            });
+            taskSortFilterToggle?.addEventListener('click', () => {
+                setTaskSortFilterOpen(taskSortFilterPopover.hidden);
+            });
+            taskSortFilterApply?.addEventListener('click', () => {
+                kanbanSortValue.value = kanbanSort.value;
+                setTaskSortFilterOpen(false);
+                taskFilterForm.requestSubmit();
+            });
+            taskSortFilterClear?.addEventListener('click', () => {
+                kanbanSort.value = 'deadline_priority';
+                kanbanSortValue.value = 'deadline_priority';
+                taskPriorityFilter.value = '';
+                taskDueDateFilter.value = '';
+                setTaskSortFilterOpen(false);
+                taskFilterForm.requestSubmit();
+            });
+            document.addEventListener('click', (event) => {
+                if (taskSortFilter && !taskSortFilter.contains(event.target)) {
+                    setTaskSortFilterOpen(false);
+                }
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && taskSortFilterPopover && !taskSortFilterPopover.hidden) {
+                    setTaskSortFilterOpen(false);
+                    taskSortFilterToggle?.focus();
+                }
             });
 
             const syncTaskSelection = () => {

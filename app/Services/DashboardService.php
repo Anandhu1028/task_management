@@ -18,19 +18,19 @@ class DashboardService
      */
     public static function resolveUserRole(User $user): string
     {
-        if ($user->hasRole('Admin') || $user->role_id === 5) {
+        if ($user->hasAssignedRole('Admin')) {
             return 'Admin';
         }
 
-        if ($user->hasRole('CEO') || $user->role_id === 6) {
+        if ($user->hasAssignedRole('CEO')) {
             return 'CEO';
         }
 
-        if ($user->hasRole('Team Leader') || $user->role_id === 7) {
+        if ($user->hasAssignedRole('Team Leader')) {
             return 'Team Leader';
         }
 
-        if ($user->hasRole('Employee') || $user->role_id === 8) {
+        if ($user->hasAssignedRole('Employee')) {
             return 'Employee';
         }
 
@@ -304,8 +304,9 @@ class DashboardService
 
         $filterTeamLeaders = User::query()
             ->where('status', 'active')
-            ->where(function ($q) {
-                $q->where('role_id', 7)->orWhereHas('roles', fn ($rq) => $rq->where('name', 'Team Leader'));
+            ->where(function (Builder $query): void {
+                $query->whereHas('primaryRole', fn (Builder $roleQuery) => $roleQuery->where('name', 'Team Leader'))
+                    ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery->where('name', 'Team Leader'));
             });
         if ($companyId) {
             $filterTeamLeaders->where('company_id', $companyId);
@@ -317,8 +318,9 @@ class DashboardService
 
         $filterEmployees = User::query()
             ->where('status', 'active')
-            ->where(function ($q) {
-                $q->where('role_id', 8)->orWhereHas('roles', fn ($rq) => $rq->where('name', 'Employee'));
+            ->where(function (Builder $query): void {
+                $query->whereHas('primaryRole', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'))
+                    ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'));
             });
         if ($companyId) {
             $filterEmployees->where('company_id', $companyId);
@@ -1023,7 +1025,7 @@ class DashboardService
                 'users as employee_count' => function (Builder $query): void {
                     $query->where('users.status', 'active')
                         ->where(function (Builder $query): void {
-                            $query->where('users.role_id', 8)
+                            $query->whereHas('primaryRole', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'))
                                 ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'));
                         });
                 },
@@ -1049,9 +1051,9 @@ class DashboardService
 
         $query = User::query()
             ->where('users.status', 'active')
-            ->where(function ($q) {
-                $q->where('users.role_id', 7)
-                    ->orWhereHas('roles', fn ($rq) => $rq->where('name', 'Team Leader'));
+            ->where(function (Builder $query): void {
+                $query->whereHas('primaryRole', fn (Builder $roleQuery) => $roleQuery->where('name', 'Team Leader'))
+                    ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery->where('name', 'Team Leader'));
             })
             ->with(['company:id,name', 'department:id,name']);
 
@@ -1111,9 +1113,9 @@ class DashboardService
     {
         $query = User::query()
             ->where('users.status', 'active')
-            ->where(function ($q) {
-                $q->where('users.role_id', 8)
-                    ->orWhereHas('roles', fn ($rq) => $rq->where('name', 'Employee'));
+            ->where(function (Builder $query): void {
+                $query->whereHas('primaryRole', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'))
+                    ->orWhereHas('roles', fn (Builder $roleQuery) => $roleQuery->where('name', 'Employee'));
             })
             ->with(['company:id,name', 'department:id,name']);
 

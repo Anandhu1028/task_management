@@ -98,6 +98,7 @@
             <form method="GET" action="{{ route('departments.index') }}" class="tf-user-toolbar__search-form tf-department-toolbar__search-form" data-department-filter-form>
                 <input type="hidden" name="status" value="{{ request('status') }}">
                 <input type="hidden" name="per_page" value="{{ request('per_page') }}">
+                <input type="hidden" name="view" value="{{ request('view', 'list') }}">
                 <label class="tf-user-search" for="departmentSearch">
                     <i class="bi bi-search" aria-hidden="true"></i>
                     <input id="departmentSearch" type="search" name="search" value="{{ request('search') }}" placeholder="Search departments, company, designations, or descriptions" autocomplete="off">
@@ -148,11 +149,123 @@
                     </label>
                 </div>
             </form>
-            @if (request()->hasAny(['search', 'department_id', 'company_id', 'designation', 'users', 'tasks', 'status', 'per_page']))
-                <a href="{{ route('departments.index') }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
-            @endif
+            <div class="tf-department-toolbar__actions">
+                @if (request()->hasAny(['search', 'department_id', 'company_id', 'designation', 'users', 'tasks', 'status', 'per_page']))
+                    <a href="{{ route('departments.index', ['view' => request('view', 'list')]) }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
+                @endif
+                <div class="tf-view-toggle" role="group" aria-label="Department view">
+                    <a href="{{ route('departments.index', array_merge(request()->except('page'), ['view' => 'list'])) }}"
+                       class="tf-view-toggle__btn {{ request('view', 'list') === 'list' ? 'is-active' : '' }}"
+                       @if (request('view', 'list') === 'list') aria-current="page" @endif
+                       aria-label="List view">
+                        <i class="bi bi-list-ul" aria-hidden="true"></i>
+                    </a>
+                    <a href="{{ route('departments.index', array_merge(request()->except('page'), ['view' => 'kanban'])) }}"
+                       class="tf-view-toggle__btn {{ request('view') === 'kanban' ? 'is-active' : '' }}"
+                       @if (request('view') === 'kanban') aria-current="page" @endif
+                       aria-label="Kanban view">
+                        <i class="bi bi-kanban" aria-hidden="true"></i>
+                    </a>
+                </div>
+            </div>
         </div>
 
+        <div id="departmentKanbanView" class="tf-department-kanban" @if (request('view') !== 'kanban') hidden @endif>
+            @foreach ([
+                'active' => ['label' => 'Active', 'icon' => 'bi-check-circle'],
+                'inactive' => ['label' => 'Inactive', 'icon' => 'bi-pause-circle'],
+            ] as $statusKey => $column)
+                @php
+                    $columnDepartments = $kanbanDepartments->where('status', $statusKey);
+                @endphp
+                <section class="tf-department-kanban__column tf-department-kanban__column--{{ $statusKey }}" aria-label="{{ $column['label'] }} departments">
+                    <header class="tf-department-kanban__header">
+                        <span class="tf-department-kanban__title">
+                            <i class="bi {{ $column['icon'] }}" aria-hidden="true"></i>
+                            {{ $column['label'] }}
+                        </span>
+                        <span class="tf-department-kanban__count">{{ $columnDepartments->count() }}</span>
+                    </header>
+                    <div class="tf-department-kanban__cards">
+                        @forelse ($columnDepartments as $department)
+                            <article class="tf-department-kanban__card">
+                                <header class="tf-department-kanban__card-header">
+                                    @can('departments.delete')
+                                        <input class="tf-check" type="checkbox" value="{{ $department->id }}" aria-label="Select {{ $department->name }}" data-organization-checkbox
+                                               @disabled($department->has_any_users)
+                                               @if ($department->has_any_users) title="Departments with assigned users cannot be deleted" @endif>
+                                    @endcan
+                                    <span class="tf-user-row__avatar tf-user-row__avatar--department" aria-hidden="true"><i class="bi bi-diagram-3"></i></span>
+                                    <strong>{{ $department->name }}</strong>
+                                    <div class="dropdown tf-user-row__actions">
+                                        <button class="tf-icon-btn tf-icon-btn--sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for {{ $department->name }}">
+                                            <i class="bi bi-three-dots"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end tf-menu tf-user-action-menu">
+                                            <li class="tf-user-action-menu__header">
+                                                <strong>Department actions</strong>
+                                                <small>{{ $department->company?->name ?? 'No company' }}</small>
+                                            </li>
+                                            @can('departments.update')
+                                                <li><a class="dropdown-item" href="{{ route('departments.edit', $department) }}"><i class="bi bi-pencil-square"></i><span>Edit</span><i class="bi bi-arrow-up-right tf-user-action-menu__arrow"></i></a></li>
+                                            @endcan
+                                            @can('departments.change_status')
+                                                <li class="tf-user-action-menu__status">
+                                                    <form action="{{ route('departments.toggle-status', $department) }}" method="POST"
+                                                          data-tf-operation-form
+                                                          data-operation-kind="status"
+                                                          data-operation-user="{{ $department->name }}"
+                                                          data-operation-from="{{ $department->status }}"
+                                                          data-operation-to="{{ $department->status === 'active' ? 'inactive' : 'active' }}">
+                                                        @csrf
+                                                        <div class="tf-user-action-menu__status-copy">
+                                                            <span>Department status</span>
+                                                            <small>{{ ucfirst($department->status) }}</small>
+                                                        </div>
+                                                        <button type="submit" class="tf-user-status-toggle" role="switch"
+                                                                aria-checked="{{ $department->status === 'active' ? 'true' : 'false' }}"
+                                                                aria-label="{{ $department->status === 'active' ? 'Deactivate' : 'Activate' }} {{ $department->name }}">
+                                                            <span></span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            @endcan
+                                            @can('departments.delete')
+                                                <li class="tf-user-action-menu__divider"><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <form action="{{ route('departments.destroy', $department) }}" method="POST" onsubmit="return confirm('Delete this department?');">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="dropdown-item tf-user-action-menu__delete" @disabled($department->has_any_users)><i class="bi bi-trash3"></i><span>Delete</span></button>
+                                                    </form>
+                                                </li>
+                                            @endcan
+                                        </ul>
+                                    </div>
+                                </header>
+                                <p class="tf-department-kanban__company"><i class="bi bi-building" aria-hidden="true"></i>{{ $department->company?->name ?? 'No company' }}</p>
+                                <div class="tf-department-kanban__designations">
+                                    @forelse ($department->designations as $designation)
+                                        <span>{{ $designation->name }}</span>
+                                    @empty
+                                        <span>{{ $department->designation ?: 'No designations' }}</span>
+                                    @endforelse
+                                </div>
+                                <p class="tf-department-kanban__description">{{ $department->description ?: 'No description provided.' }}</p>
+                                <footer class="tf-department-kanban__stats">
+                                    <span><i class="bi bi-people" aria-hidden="true"></i>{{ number_format($department->users_count) }} users</span>
+                                    <a href="{{ route('tasks.index', ['department_id' => $department->id]) }}"><i class="bi bi-list-task" aria-hidden="true"></i>{{ number_format($department->tasks_count) }} tasks</a>
+                                </footer>
+                            </article>
+                        @empty
+                            <div class="tf-department-kanban__empty">No {{ strtolower($column['label']) }} departments.</div>
+                        @endforelse
+                    </div>
+                </section>
+            @endforeach
+        </div>
+
+        <div id="departmentListView" @if (request('view') === 'kanban') hidden @endif>
         <div class="tf-table-wrap tf-user-table-wrap">
             <table class="tf-table tf-user-table tf-organization-table">
                 <thead>
@@ -283,6 +396,7 @@
             <span>Showing {{ $departments->firstItem() ?? 0 }}–{{ $departments->lastItem() ?? 0 }} of {{ $departments->total() }} departments</span>
             {{ $departments->links('pagination::bootstrap-5') }}
         </footer>
+        </div>
     </section>
 
     @if (auth()->user()->can('departments.create') || auth()->user()->can('departments.update'))
@@ -345,9 +459,9 @@
                 select.addEventListener('change', () => departmentFilterForm.requestSubmit());
             });
 
-            const selectAll = document.querySelector('[data-organization-select-all]');
+            const selectAll = document.querySelector('#departmentListView:not([hidden]) [data-organization-select-all]');
             const checkboxes = [...document.querySelectorAll('[data-organization-checkbox]')];
-            const selectable = checkboxes.filter((checkbox) => !checkbox.disabled);
+            const selectable = checkboxes.filter((checkbox) => !checkbox.disabled && !checkbox.closest('[hidden]'));
             const form = document.querySelector('[data-organization-selection-form]');
             const count = document.querySelector('[data-organization-selection-count]');
             const inputs = document.querySelector('[data-organization-selection-inputs]');
@@ -383,7 +497,7 @@
 
             checkboxes.forEach((checkbox) => checkbox.addEventListener('change', syncSelection));
             form?.addEventListener('submit', (event) => {
-                const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+                const selectedCount = selectable.filter((checkbox) => checkbox.checked).length;
                 if (selectedCount === 0 || !window.confirm(`Delete ${selectedCount} selected department(s)? Departments with assigned users cannot be deleted.`)) {
                     event.preventDefault();
                 }

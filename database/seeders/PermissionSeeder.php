@@ -52,6 +52,7 @@ class PermissionSeeder extends Seeder
         $roles = [
             'Admin' => $permissions,
             'CEO' => $permissions,
+            'Manager' => ['tasks.view'],
             'Team Leader' => $permissions,
             'Employee' => $employeePermissions,
         ];

@@ -36,6 +36,16 @@ class DepartmentController extends Controller
             ->orderBy('name')
             ->paginate((int) ($filters['per_page'] ?? 10))
             ->appends($request->query());
+        $kanbanDepartments = ($filters['view'] ?? 'list') === 'kanban'
+            ? $this->filteredDepartmentsQuery($filters)
+                ->with(['company', 'designations.roles'])
+                ->withCount(['users', 'tasks'])
+                ->withExists([
+                    'users as has_any_users' => fn (Builder $query) => $query->withTrashed(),
+                ])
+                ->orderBy('name')
+                ->get()
+            : collect();
         $companies = Company::query()->orderBy('name')->get(['id', 'name']);
         $counts = Department::query()
             ->selectRaw("count(*) as all_count, sum(case when status = 'active' then 1 else 0 end) as active_count, sum(case when status = 'inactive' then 1 else 0 end) as inactive_count")
@@ -59,7 +69,7 @@ class DepartmentController extends Controller
             ->values();
         $availableRoles = Role::query()->where('guard_name', 'web')->orderBy('name')->get(['id', 'name']);
 
-        return view('departments.index', compact('departments', 'companies', 'departmentOptions', 'designationFilters', 'counts', 'activeRate', 'editingDepartment', 'allDesignations', 'availableRoles'));
+        return view('departments.index', compact('departments', 'kanbanDepartments', 'companies', 'departmentOptions', 'designationFilters', 'counts', 'activeRate', 'editingDepartment', 'allDesignations', 'availableRoles'));
     }
 
     public function export(Request $request): StreamedResponse
@@ -258,6 +268,7 @@ class DepartmentController extends Controller
             'users' => ['nullable', Rule::in(['with', 'without'])],
             'tasks' => ['nullable', Rule::in(['with', 'without'])],
             'status' => ['nullable', 'in:active,inactive'],
+            'view' => ['nullable', Rule::in(['list', 'kanban'])],
             'per_page' => ['nullable', 'in:10,25,50,100'],
         ]);
     }

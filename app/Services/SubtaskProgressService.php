@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Subtask;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 
 class SubtaskProgressService
 {
@@ -125,7 +126,7 @@ class SubtaskProgressService
         ];
     }
 
-    private function schedulePercentage(\Illuminate\Support\Carbon $start, \Illuminate\Support\Carbon $deadline, int $elapsedDays): int
+    private function schedulePercentage(Carbon $start, Carbon $deadline, int $elapsedDays): int
     {
         $plannedDays = max(1, (int) $start->diffInDays($deadline));
 

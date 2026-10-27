@@ -97,6 +97,7 @@
         <div class="tf-user-toolbar">
             <form method="GET" action="{{ route('companies.index') }}" class="tf-user-toolbar__search-form tf-company-toolbar__search-form" data-company-filter-form>
                 <input type="hidden" name="per_page" value="{{ request('per_page') }}">
+                <input type="hidden" name="view" value="{{ request('view', 'list') }}">
                 <label class="tf-user-search" for="companySearch">
                     <i class="bi bi-search" aria-hidden="true"></i>
                     <input id="companySearch" type="search" name="search" value="{{ request('search') }}" placeholder="Search companies or descriptions" autocomplete="off">
@@ -145,11 +146,117 @@
                     </label>
                 </div>
             </form>
-            @if (request()->hasAny(['search', 'company_id', 'departments', 'users', 'tasks', 'status', 'per_page']))
-                <a href="{{ route('companies.index') }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
-            @endif
+            <div class="tf-department-toolbar__actions">
+                @if (request()->hasAny(['search', 'company_id', 'departments', 'users', 'tasks', 'status', 'per_page']))
+                    <a href="{{ route('companies.index', ['view' => request('view', 'list')]) }}" class="tf-text-link tf-user-toolbar__reset">Reset</a>
+                @endif
+                <div class="tf-view-toggle" role="group" aria-label="Company view">
+                    <a href="{{ route('companies.index', array_merge(request()->except('page'), ['view' => 'list'])) }}"
+                       class="tf-view-toggle__btn {{ request('view', 'list') === 'list' ? 'is-active' : '' }}"
+                       @if (request('view', 'list') === 'list') aria-current="page" @endif
+                       aria-label="List view">
+                        <i class="bi bi-list-ul" aria-hidden="true"></i>
+                    </a>
+                    <a href="{{ route('companies.index', array_merge(request()->except('page'), ['view' => 'kanban'])) }}"
+                       class="tf-view-toggle__btn {{ request('view') === 'kanban' ? 'is-active' : '' }}"
+                       @if (request('view') === 'kanban') aria-current="page" @endif
+                       aria-label="Kanban view">
+                        <i class="bi bi-kanban" aria-hidden="true"></i>
+                    </a>
+                </div>
+            </div>
         </div>
 
+        <div id="companyKanbanView" class="tf-company-kanban" @if (request('view') !== 'kanban') hidden @endif>
+            @foreach ([
+                'active' => ['label' => 'Active', 'icon' => 'bi-building-check'],
+                'inactive' => ['label' => 'Inactive', 'icon' => 'bi-building-x'],
+            ] as $statusKey => $column)
+                @php
+                    $columnCompanies = $kanbanCompanies->where('status', $statusKey);
+                @endphp
+                <section class="tf-company-kanban__column tf-company-kanban__column--{{ $statusKey }}" aria-label="{{ $column['label'] }} companies">
+                    <header class="tf-company-kanban__header">
+                        <span class="tf-company-kanban__title">
+                            <i class="bi {{ $column['icon'] }}" aria-hidden="true"></i>
+                            {{ $column['label'] }}
+                        </span>
+                        <span class="tf-company-kanban__count">{{ $columnCompanies->count() }}</span>
+                    </header>
+                    <div class="tf-company-kanban__cards">
+                        @forelse ($columnCompanies as $company)
+                            <article class="tf-company-kanban__card">
+                                <header class="tf-company-kanban__card-header">
+                                    @can('companies.delete')
+                                        <input class="tf-check" type="checkbox" value="{{ $company->id }}" aria-label="Select {{ $company->name }}" data-organization-checkbox
+                                               @disabled($company->has_any_users || $company->has_any_departments)
+                                               @if ($company->has_any_users || $company->has_any_departments) title="Companies with users or departments cannot be deleted" @endif>
+                                    @endcan
+                                    <span class="tf-user-row__avatar" aria-hidden="true"><i class="bi bi-building"></i></span>
+                                    <strong>{{ $company->name }}</strong>
+                                    <div class="dropdown tf-user-row__actions">
+                                        <button class="tf-icon-btn tf-icon-btn--sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for {{ $company->name }}">
+                                            <i class="bi bi-three-dots"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end tf-menu tf-user-action-menu">
+                                            <li class="tf-user-action-menu__header">
+                                                <strong>Company actions</strong>
+                                                <small>{{ $company->name }}</small>
+                                            </li>
+                                            <li><a class="dropdown-item" href="{{ route('companies.show', $company) }}"><i class="bi bi-building"></i><span>View</span><i class="bi bi-arrow-up-right tf-user-action-menu__arrow"></i></a></li>
+                                            @can('update', $company)
+                                                <li><a class="dropdown-item" href="{{ route('companies.edit', $company) }}"><i class="bi bi-pencil-square"></i><span>Edit</span><i class="bi bi-arrow-up-right tf-user-action-menu__arrow"></i></a></li>
+                                            @endcan
+                                            @can('companies.change_status')
+                                                <li class="tf-user-action-menu__status">
+                                                    <form action="{{ route('companies.toggle-status', $company) }}" method="POST"
+                                                          data-tf-operation-form
+                                                          data-operation-kind="status"
+                                                          data-operation-user="{{ $company->name }}"
+                                                          data-operation-from="{{ $company->status }}"
+                                                          data-operation-to="{{ $company->status === 'active' ? 'inactive' : 'active' }}">
+                                                        @csrf
+                                                        <div class="tf-user-action-menu__status-copy">
+                                                            <span>Company status</span>
+                                                            <small>{{ ucfirst($company->status) }}</small>
+                                                        </div>
+                                                        <button type="submit" class="tf-user-status-toggle" role="switch"
+                                                                aria-checked="{{ $company->status === 'active' ? 'true' : 'false' }}"
+                                                                aria-label="{{ $company->status === 'active' ? 'Deactivate' : 'Activate' }} {{ $company->name }}">
+                                                            <span></span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            @endcan
+                                            @can('delete', $company)
+                                                <li class="tf-user-action-menu__divider"><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <form action="{{ route('companies.destroy', $company) }}" method="POST" onsubmit="return confirm('Delete this company?');">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="dropdown-item tf-user-action-menu__delete" @disabled($company->has_any_users || $company->has_any_departments)><i class="bi bi-trash3"></i><span>Delete</span></button>
+                                                    </form>
+                                                </li>
+                                            @endcan
+                                        </ul>
+                                    </div>
+                                </header>
+                                <p class="tf-company-kanban__description">{{ $company->description ?: 'No description provided.' }}</p>
+                                <footer class="tf-company-kanban__stats">
+                                    <span><i class="bi bi-diagram-3" aria-hidden="true"></i>{{ number_format($company->departments_count) }} departments</span>
+                                    <span><i class="bi bi-people" aria-hidden="true"></i>{{ number_format($company->users_count) }} users</span>
+                                    <a href="{{ route('tasks.index', ['company_id' => $company->id]) }}"><i class="bi bi-list-task" aria-hidden="true"></i>{{ number_format($company->tasks_count) }} tasks</a>
+                                </footer>
+                            </article>
+                        @empty
+                            <div class="tf-company-kanban__empty">No {{ strtolower($column['label']) }} companies.</div>
+                        @endforelse
+                    </div>
+                </section>
+            @endforeach
+        </div>
+
+        <div id="companyListView" @if (request('view') === 'kanban') hidden @endif>
         <div class="tf-table-wrap tf-user-table-wrap">
             <table class="tf-table tf-user-table tf-organization-table">
                 <thead>
@@ -264,6 +371,7 @@
             <span>Showing {{ $companies->firstItem() ?? 0 }}–{{ $companies->lastItem() ?? 0 }} of {{ $companies->total() }} companies</span>
             {{ $companies->links('pagination::bootstrap-5') }}
         </footer>
+        </div>
     </section>
 
     @if (auth()->user()->can('companies.create') || auth()->user()->can('companies.update'))
@@ -300,9 +408,9 @@
                 select.addEventListener('change', () => companyFilterForm.requestSubmit());
             });
 
-            const selectAll = document.querySelector('[data-organization-select-all]');
+            const selectAll = document.querySelector('#companyListView:not([hidden]) [data-organization-select-all]');
             const checkboxes = [...document.querySelectorAll('[data-organization-checkbox]')];
-            const selectable = checkboxes.filter((checkbox) => !checkbox.disabled);
+            const selectable = checkboxes.filter((checkbox) => !checkbox.disabled && !checkbox.closest('[hidden]'));
             const form = document.querySelector('[data-organization-selection-form]');
             const count = document.querySelector('[data-organization-selection-count]');
             const inputs = document.querySelector('[data-organization-selection-inputs]');
@@ -339,7 +447,7 @@
 
             checkboxes.forEach((checkbox) => checkbox.addEventListener('change', syncSelection));
             form?.addEventListener('submit', (event) => {
-                const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+                const selectedCount = selectable.filter((checkbox) => checkbox.checked).length;
                 if (selectedCount === 0 || !window.confirm(`Delete ${selectedCount} selected compan${selectedCount === 1 ? 'y' : 'ies'}? Companies with users or departments cannot be deleted.`)) {
                     event.preventDefault();
                 }

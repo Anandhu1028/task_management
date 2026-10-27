@@ -30,6 +30,16 @@ class CompanyController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate((int) ($filters['per_page'] ?? 10))
             ->appends($request->query());
+        $kanbanCompanies = ($filters['view'] ?? 'list') === 'kanban'
+            ? $this->filteredCompaniesQuery($filters)
+                ->withCount(['users', 'departments', 'tasks'])
+                ->withExists([
+                    'users as has_any_users' => fn (Builder $query) => $query->withTrashed(),
+                    'departments as has_any_departments' => fn (Builder $query) => $query->withTrashed(),
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get()
+            : collect();
         $companyOptions = Company::query()->orderBy('name')->get(['id', 'name']);
         $counts = Company::query()
             ->selectRaw("count(*) as all_count, sum(case when status = 'active' then 1 else 0 end) as active_count, sum(case when status = 'inactive' then 1 else 0 end) as inactive_count")
@@ -44,7 +54,7 @@ class CompanyController extends Controller
             $this->authorize('update', $editingCompany);
         }
 
-        return view('companies.index', compact('companies', 'companyOptions', 'counts', 'activeRate', 'editingCompany'));
+        return view('companies.index', compact('companies', 'kanbanCompanies', 'companyOptions', 'counts', 'activeRate', 'editingCompany'));
     }
 
     public function export(Request $request): StreamedResponse
@@ -186,6 +196,7 @@ class CompanyController extends Controller
             'departments' => ['nullable', Rule::in(['with', 'without'])],
             'users' => ['nullable', Rule::in(['with', 'without'])],
             'tasks' => ['nullable', Rule::in(['with', 'without'])],
+            'view' => ['nullable', Rule::in(['list', 'kanban'])],
             'per_page' => ['nullable', 'in:10,25,50,100'],
         ]);
     }

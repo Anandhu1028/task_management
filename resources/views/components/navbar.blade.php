@@ -12,6 +12,23 @@
 
     <div class="tf-navbar__actions">
 
+        @if (filled(config('desktop.download_url')))
+            <a
+                class="tf-desktop-download"
+                href="{{ config('desktop.download_url') }}"
+                title="Download the Windows desktop app"
+                aria-label="Download the Windows desktop app"
+            >
+                <span class="tf-desktop-download__icon" aria-hidden="true">
+                    <i class="bi bi-download"></i>
+                </span>
+                <span class="tf-desktop-download__copy">
+                    <span class="tf-desktop-download__title">Desktop app</span>
+                    <span class="tf-desktop-download__detail">Windows installer</span>
+                </span>
+            </a>
+        @endif
+
         {{-- Theme --}}
         <button class="tf-icon-btn tf-theme-toggle" type="button" data-tf-theme aria-label="Toggle theme">
             <i class="bi bi-brightness-high"></i>

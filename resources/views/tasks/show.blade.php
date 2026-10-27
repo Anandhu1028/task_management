@@ -82,6 +82,9 @@
                 'work_update' => 'added a work update',
                 'submission' => 'submitted the task for review',
                 'cancellation' => 'cancelled the task',
+                'deadline_extension_requested' => 'requested a deadline extension',
+                'deadline_extension_approved' => 'approved the deadline extension',
+                'deadline_extension_rejected' => 'rejected the deadline extension',
                 'subtask' => $history->remarks,
                 default => $oldStatus
                     ? 'changed status from '.$oldStatus.' to '.$newStatus
@@ -98,6 +101,9 @@
                         ? 'Risk Resolved'
                         : 'At Risk',
                     'subtask' => 'Subtask',
+                    'deadline_extension_requested' => 'Extension Requested',
+                    'deadline_extension_approved' => 'Extension Approved',
+                    'deadline_extension_rejected' => 'Extension Rejected',
                     default => $newStatus,
                 },
                 'attachments' => $task->attachments->where('status_history_id', $history->id),
@@ -772,10 +778,22 @@
                         <button
                             type="button"
                             class="tf-activity-tab-btn is-active"
+                            id="tab-timeline-btn"
+                            data-activity-tab="timeline"
+                            role="tab"
+                            aria-selected="true"
+                            aria-controls="panel-timeline"
+                        >
+                            <i class="bi bi-clock-history" aria-hidden="true"></i> Timeline
+                            <span class="tf-activity-tab-badge">{{ $activity->count() }}</span>
+                        </button>
+                        <button
+                            type="button"
+                            class="tf-activity-tab-btn"
                             id="tab-subtasks-btn"
                             data-activity-tab="subtasks"
                             role="tab"
-                            aria-selected="true"
+                            aria-selected="false"
                             aria-controls="panel-subtasks"
                         >
                             <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtask
@@ -784,20 +802,20 @@
                         <button
                             type="button"
                             class="tf-activity-tab-btn"
-                            id="tab-timeline-btn"
-                            data-activity-tab="timeline"
+                            id="tab-requests-btn"
+                            data-activity-tab="requests"
                             role="tab"
                             aria-selected="false"
-                            aria-controls="panel-timeline"
+                            aria-controls="panel-requests"
                         >
-                            <i class="bi bi-clock-history" aria-hidden="true"></i> Timeline
-                            <span class="tf-activity-tab-badge">{{ $activity->count() }}</span>
+                            <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Requests
+                            <span class="tf-activity-tab-badge">{{ $deadlineExtensionRequests->count() }}</span>
                         </button>
                     </nav>
                 </div>
 
-                    {{-- ── TAB 1: SUBTASKS VIEW (MATCHING USER SCREENSHOT) ── --}}
-                    <div class="tf-activity-tab-panel is-active" id="panel-subtasks" role="tabpanel" aria-labelledby="tab-subtasks-btn">
+                    {{-- ── TAB 2: SUBTASKS VIEW ── --}}
+                    <div class="tf-activity-tab-panel" id="panel-subtasks" role="tabpanel" aria-labelledby="tab-subtasks-btn" hidden>
                         @php
                             $subtaskTotal = $task->subtasks->count();
                             $subtaskDone  = $task->subtasks->where('is_completed', true)->count();
@@ -1206,8 +1224,8 @@
                             </div>
                     </div>
 
-                    {{-- ── TAB 2: TIMELINE VIEW ── --}}
-                    <div class="tf-activity-tab-panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline-btn" hidden>
+                    {{-- ── TAB 1: TIMELINE VIEW ── --}}
+                    <div class="tf-activity-tab-panel is-active" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline-btn">
                         <section class="tf-task-detail__card tf-task-detail__activity-card">
                             <header class="tf-task-detail__activity-header">
                             <div class="tf-task-detail__activity-heading">
@@ -1264,6 +1282,7 @@
                                                 'risk' => 'bi-exclamation-lg',
                                                 'work_update' => 'bi-chat-left-text',
                                                 'subtask' => 'bi-check2-square',
+                                                'deadline_extension_requested', 'deadline_extension_approved', 'deadline_extension_rejected' => 'bi-calendar2-plus',
                                                 default => 'bi-arrow-left-right',
                                             };
                                         @endphp
@@ -1321,6 +1340,104 @@
                                 </div>
                             @endif
                         </div>
+                        </section>
+                    </div>
+
+                    <div class="tf-activity-tab-panel" id="panel-requests" role="tabpanel" aria-labelledby="tab-requests-btn" hidden>
+                        <section class="tf-task-detail__card tf-deadline-requests">
+                            <header class="tf-deadline-requests__header">
+                                <span class="tf-deadline-requests__icon" aria-hidden="true">
+                                    <i class="bi bi-calendar2-plus"></i>
+                                </span>
+                                <div class="tf-deadline-requests__heading">
+                                    <h2>Deadline extension requests</h2>
+                                    <p>Review requested changes to this task’s deadline.</p>
+                                </div>
+                                <span class="tf-deadline-requests__count">
+                                    {{ $deadlineExtensionRequests->count() }} {{ $deadlineExtensionRequests->count() === 1 ? 'request' : 'requests' }}
+                                </span>
+                            </header>
+                            @if ($deadlineExtensionRequests->isNotEmpty())
+                                <div class="tf-deadline-requests__table-wrap">
+                                    <table class="tf-deadline-requests__table">
+                                        <thead>
+                                            <tr>
+                                                <th>Task</th>
+                                                <th>Current deadline</th>
+                                                <th>Requested deadline</th>
+                                                <th>Reason</th>
+                                                <th>Status</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($deadlineExtensionRequests as $extensionRequest)
+                                                <tr>
+                                                    <td class="tf-deadline-requests__task">
+                                                        <strong>{{ $extensionRequest->task_title }}</strong>
+                                                        <small>
+                                                            <i class="bi bi-person" aria-hidden="true"></i>
+                                                            {{ $extensionRequest->requester?->name ?? 'Former user' }}
+                                                        </small>
+                                                    </td>
+                                                    <td class="tf-deadline-requests__date">
+                                                        {{ $extensionRequest->current_deadline?->format('M d, Y') ?? 'No deadline' }}
+                                                    </td>
+                                                    <td class="tf-deadline-requests__date tf-deadline-requests__date--requested">
+                                                        {{ $extensionRequest->requested_deadline->format('M d, Y') }}
+                                                    </td>
+                                                    <td class="tf-deadline-requests__reason">{{ $extensionRequest->reason }}</td>
+                                                    <td class="tf-deadline-requests__status-cell">
+                                                        @php
+                                                            $requestStatusClass = match ($extensionRequest->status) {
+                                                                'approved' => 'tf-deadline-requests__status--approved',
+                                                                'rejected' => 'tf-deadline-requests__status--rejected',
+                                                                default => 'tf-deadline-requests__status--pending',
+                                                            };
+                                                        @endphp
+                                                        <span class="tf-deadline-requests__status {{ $requestStatusClass }}">
+                                                            <span aria-hidden="true"></span>
+                                                            {{ ucfirst($extensionRequest->status) }}
+                                                        </span>
+                                                        @if ($extensionRequest->review_note)
+                                                            <small class="tf-deadline-requests__review-note" title="{{ $extensionRequest->review_note }}">
+                                                                {{ $extensionRequest->review_note }}
+                                                            </small>
+                                                        @endif
+                                                    </td>
+                                                    <td class="tf-deadline-requests__actions">
+                                                        @can('review', $extensionRequest)
+                                                            <form
+                                                                method="POST"
+                                                                action="{{ route('tasks.deadline-extension-requests.review', [$task, $extensionRequest]) }}"
+                                                                class="tf-deadline-requests__review-form"
+                                                            >
+                                                                @csrf
+                                                                <div class="tf-deadline-requests__review-actions">
+                                                                    <button type="submit" name="decision" value="approve" class="tf-deadline-requests__button tf-deadline-requests__button--approve">
+                                                                        <i class="bi bi-check2" aria-hidden="true"></i> Approve
+                                                                    </button>
+                                                                    <button type="submit" name="decision" value="reject" class="tf-deadline-requests__button tf-deadline-requests__button--reject">
+                                                                        <i class="bi bi-x-lg" aria-hidden="true"></i> Reject
+                                                                    </button>
+                                                                </div>
+                                                            </form>
+                                                        @else
+                                                            <span class="tf-deadline-requests__no-action">No action needed</span>
+                                                        @endcan
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @else
+                                <div class="tf-deadline-requests__empty">
+                                    <span aria-hidden="true"><i class="bi bi-calendar2-check"></i></span>
+                                    <strong>No extension requests yet</strong>
+                                    <p>Submitted deadline extension requests will appear here.</p>
+                                </div>
+                            @endif
                         </section>
                     </div>
             </aside>

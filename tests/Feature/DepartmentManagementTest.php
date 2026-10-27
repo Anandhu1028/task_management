@@ -53,6 +53,38 @@ class DepartmentManagementTest extends TestCase
             ->assertSee('id="departmentFormModal"', false);
     }
 
+    public function test_department_management_kanban_groups_filtered_departments_by_status(): void
+    {
+        $company = Company::query()->where('name', 'Acme Workspace')->firstOrFail();
+        Department::create([
+            'company_id' => $company->id,
+            'name' => 'Kanban Active Department',
+            'designation' => 'Coordinator',
+            'status' => 'active',
+        ]);
+        Department::create([
+            'company_id' => $company->id,
+            'name' => 'Kanban Inactive Department',
+            'designation' => 'Coordinator',
+            'status' => 'inactive',
+        ]);
+
+        $this->get(route('departments.index', ['view' => 'kanban']))
+            ->assertOk()
+            ->assertSee('id="departmentKanbanView"', false)
+            ->assertSee('id="departmentListView"', false)
+            ->assertSee('hidden', false)
+            ->assertSee('tf-department-kanban__column--active', false)
+            ->assertSee('tf-department-kanban__column--inactive', false)
+            ->assertSee('Kanban Active Department')
+            ->assertSee('Kanban Inactive Department');
+
+        $this->get(route('departments.index', ['view' => 'kanban', 'status' => 'inactive']))
+            ->assertOk()
+            ->assertSee('Kanban Inactive Department')
+            ->assertDontSee('<strong>Kanban Active Department</strong>', false);
+    }
+
     public function test_department_toolbar_filters_by_department_company_designation_users_and_tasks(): void
     {
         $admin = User::query()->where('email', 'admin@example.com')->firstOrFail();

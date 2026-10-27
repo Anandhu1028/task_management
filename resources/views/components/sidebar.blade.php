@@ -97,6 +97,9 @@
             <a class="tf-nav__item {{ request()->routeIs('tasks.*') ? 'is-active' : '' }}" href="{{ route('tasks.index') }}">
                 <i class="bi bi-check2-square"></i><span>All Tasks</span>
             </a>
+            <a class="tf-nav__item {{ request()->routeIs('reports.*') ? 'is-active' : '' }}" href="{{ route('reports.index') }}">
+                <i class="bi bi-bar-chart-line"></i><span>Reports</span>
+            </a>
         @endif
     </nav>
 

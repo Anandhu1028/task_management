@@ -53,6 +53,11 @@ class TaskManagementTest extends TestCase
             ->assertSee('Filter by company')
             ->assertSee('Filter by department')
             ->assertSee('Filter by priority')
+            ->assertSee('data-task-sort-filter-toggle', false)
+            ->assertSee('id="taskSortFilterPopover"', false)
+            ->assertSee('role="dialog"', false)
+            ->assertSee('Filter by deadline date', false)
+            ->assertSee('data-task-sort-filter-apply', false)
             ->assertSee('data-task-select-all', false)
             ->assertDontSee('aria-label="Filter tasks by status"', false)
             ->assertSee('createTaskPocSearch')
@@ -65,6 +70,25 @@ class TaskManagementTest extends TestCase
         $this->assertSame(1, substr_count($response->getContent(), 'id="createTaskModal"'));
         $response->assertSee("input.name = 'poc_ids[]';", false)
             ->assertDontSee("checkbox.name = 'poc_ids[]';", false);
+    }
+
+    public function test_task_detail_shows_timeline_tab_before_subtasks_by_default(): void
+    {
+        $task = $this->createWorkflowTask();
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
+        $html = $response->getContent();
+
+        $response->assertOk();
+        $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-subtasks-btn")(?=[^>]*data-activity-tab="subtasks")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-timeline")(?=[^>]*class="[^"]*is-active")[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-subtasks")(?=[^>]*hidden)[^>]*>/s', $html));
+
+        $this->assertLessThan(
+            strpos($html, 'id="tab-subtasks-btn"'),
+            strpos($html, 'id="tab-timeline-btn"'),
+        );
     }
 
     public function test_notification_poll_returns_only_the_signed_in_users_latest_notifications(): void
@@ -151,6 +175,62 @@ class TaskManagementTest extends TestCase
             ->assertSee('tf-task-priority tf-task-priority--high', false)
             ->assertSee('aria-label="Priority: High"', false)
             ->assertDontSee('Non-matching toolbar filter task');
+    }
+
+    public function test_task_toolbar_filters_by_effective_deadline_and_sorts_the_list_by_priority(): void
+    {
+        $filterDate = today()->addDays(6)->toDateString();
+        $criticalTask = $this->createWorkflowTask([
+            'title' => 'Critical revised deadline task',
+            'status' => 'assigned',
+            'priority' => 'critical',
+            'due_date' => $filterDate,
+            'original_deadline' => today()->subDays(3)->toDateString(),
+        ]);
+        $highTask = $this->createWorkflowTask([
+            'title' => 'High revised deadline task',
+            'status' => 'assigned',
+            'priority' => 'high',
+            'due_date' => $filterDate,
+            'original_deadline' => today()->addDays(2)->toDateString(),
+        ]);
+        $otherDateTask = $this->createWorkflowTask([
+            'title' => 'Task outside selected deadline',
+            'status' => 'assigned',
+            'priority' => 'low',
+            'due_date' => today()->addDays(7)->toDateString(),
+            'original_deadline' => today()->addDays(7)->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.index', [
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'due_date' => $filterDate,
+            'sort' => 'priority_deadline',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('aria-label="Filter by deadline date"', false)
+            ->assertSee('value="'.$filterDate.'"', false)
+            ->assertSee($criticalTask->title)
+            ->assertSee($highTask->title)
+            ->assertDontSee($otherDateTask->title);
+
+        $html = $response->getContent();
+        $listStart = strpos($html, '<div id="taskListView"');
+        $tableBodyStart = strpos($html, '<tbody>', $listStart);
+        $tableBodyEnd = strpos($html, '</tbody>', $tableBodyStart);
+        $this->assertNotFalse($listStart);
+        $this->assertNotFalse($tableBodyStart);
+        $this->assertNotFalse($tableBodyEnd);
+        $tableBody = substr($html, $tableBodyStart, $tableBodyEnd - $tableBodyStart);
+        $taskPositions = [
+            strpos($tableBody, $criticalTask->title),
+            strpos($tableBody, $highTask->title),
+        ];
+
+        $this->assertNotContains(false, $taskPositions, true);
+        $this->assertLessThan($taskPositions[1], $taskPositions[0]);
     }
 
     public function test_task_can_be_created_without_a_deadline(): void

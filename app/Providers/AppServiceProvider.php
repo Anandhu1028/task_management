@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Models\Company;
+use App\Models\DeadlineExtensionRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Policies\CompanyPolicy;
+use App\Policies\DeadlineExtensionRequestPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Auth;
@@ -29,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Company::class, CompanyPolicy::class);
+        Gate::policy(DeadlineExtensionRequest::class, DeadlineExtensionRequestPolicy::class);
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
 

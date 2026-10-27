@@ -1,0 +1,60 @@
+{
+  "name": "task-management-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Windows desktop client for the Laravel task management application.",
+  "main": "src/main.js",
+  "author": "Task Management",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/api-client.js && node --check src/auth-store.js && node --check src/config.js && node --check renderer/app.js && node --check tests/config.test.js && npm run test:config && npm run check:config",
+    "test:config": "node --test tests/config.test.js",
+    "check:config": "node -e \"const config = require('./resources/api-config.json'); if (config.apiBaseUrl !== 'https://tracker-manage.focuzacademy.in/api') { console.error('Packaged API URL must be the production Laravel API URL.'); process.exit(1); }\"",
+    "prebuild:win": "npm run check",
+    "build:win": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "electron": "^37.7.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.taskmanagement.desktop",
+    "productName": "Task Management",
+    "directories": {
+      "output": "dist"
+    },
+    "artifactName": "task-management-setup-${version}.${ext}",
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/api-config.json",
+        "to": "api-config.json"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

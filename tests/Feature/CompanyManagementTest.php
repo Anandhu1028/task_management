@@ -45,6 +45,32 @@ class CompanyManagementTest extends TestCase
             ->assertSee('Acme Workspace');
     }
 
+    public function test_company_management_kanban_groups_filtered_companies_by_status(): void
+    {
+        Company::create([
+            'name' => 'Kanban Active Company',
+            'status' => 'active',
+        ]);
+        Company::create([
+            'name' => 'Kanban Inactive Company',
+            'status' => 'inactive',
+        ]);
+
+        $this->get(route('companies.index', ['view' => 'kanban']))
+            ->assertOk()
+            ->assertSee('id="companyKanbanView"', false)
+            ->assertSee('id="companyListView"', false)
+            ->assertSee('tf-company-kanban__column--active', false)
+            ->assertSee('tf-company-kanban__column--inactive', false)
+            ->assertSee('Kanban Active Company')
+            ->assertSee('Kanban Inactive Company');
+
+        $this->get(route('companies.index', ['view' => 'kanban', 'status' => 'inactive']))
+            ->assertOk()
+            ->assertSee('Kanban Inactive Company')
+            ->assertDontSee('<strong>Kanban Active Company</strong>', false);
+    }
+
     public function test_company_create_and_edit_routes_open_the_management_modal(): void
     {
         $admin = User::query()->where('email', 'admin@example.com')->firstOrFail();

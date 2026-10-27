@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\SubtaskController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
@@ -14,10 +16,16 @@ require __DIR__.'/auth.php';
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
+    Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');
 
+    // Task routes
     Route::get('/tasks/export', [TaskController::class, 'export'])->name('tasks.export');
     Route::get('/tasks/users-by-department/{department}', [TaskController::class, 'usersByDepartment'])->name('tasks.users-by-department');
     Route::post('/tasks/{task}/reassign', [TaskController::class, 'reassign'])->name('tasks.reassign');
+    Route::post('/tasks/{task}/deadline-extension-requests', [DeadlineExtensionRequestController::class, 'store'])
+        ->name('tasks.deadline-extension-requests.store');
+    Route::post('/tasks/{task}/deadline-extension-requests/{extensionRequest}/review', [DeadlineExtensionRequestController::class, 'review'])
+        ->name('tasks.deadline-extension-requests.review');
     Route::post('/tasks/{task}/accept', [TaskController::class, 'accept'])->name('tasks.accept');
     Route::post('/tasks/{task}/start', [TaskController::class, 'startWork'])->name('tasks.start');
     Route::post('/tasks/{task}/work-updates', [TaskController::class, 'addWorkUpdate'])->name('tasks.work-updates.store');
@@ -41,19 +49,24 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::delete('/tasks/{task}/subtasks/{subtask}', [SubtaskController::class, 'destroy'])->name('subtasks.destroy')->scopeBindings();
     Route::post('/tasks/{task}/subtasks/reorder', [SubtaskController::class, 'reorder'])->name('subtasks.reorder');
 
+    // Company routes
     Route::get('/companies/export', [CompanyController::class, 'export'])->name('companies.export');
     Route::post('/companies/bulk-delete', [CompanyController::class, 'bulkDestroy'])->name('companies.bulk-destroy');
     Route::resource('companies', CompanyController::class);
     Route::post('/companies/{company}/toggle-status', [CompanyController::class, 'toggleStatus'])->name('companies.toggle-status');
 
+    // Department routes
     Route::get('/departments/export', [DepartmentController::class, 'export'])->name('departments.export');
     Route::post('/departments/bulk-delete', [DepartmentController::class, 'bulkDestroy'])->name('departments.bulk-destroy');
     Route::get('/departments/company/{company}', [DepartmentController::class, 'byCompany'])->name('departments.by-company');
     Route::post('/departments/{department}/toggle-status', [DepartmentController::class, 'toggleStatus'])->name('departments.toggle-status');
     Route::resource('departments', DepartmentController::class)->except(['show']);
 
+    // User routes
     Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
     Route::post('/users/bulk-delete', [UserController::class, 'bulkDestroy'])->name('users.bulk-destroy');
     Route::post('/users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::resource('users', UserController::class);
 });
+
+require __DIR__.'/mcp.php';

@@ -187,6 +187,11 @@ class Task extends Model
         return $this->hasMany(TaskAttachment::class)->orderBy('created_at');
     }
 
+    public function deadlineExtensionRequests(): HasMany
+    {
+        return $this->hasMany(DeadlineExtensionRequest::class)->latest();
+    }
+
     public function statusHistory(): HasMany
     {
         return $this->hasMany(TaskStatusHistory::class)->orderBy('created_at');
@@ -291,12 +296,11 @@ class Task extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->hasRole('Admin') || $user->role_id === 5
-            || $user->hasRole('CEO') || $user->role_id === 6) {
+        if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
             return $query;
         }
 
-        if ($user->hasRole('Employee') || $user->role_id === 8) {
+        if ($user->hasAssignedRole('Employee')) {
             return $query->where(function (Builder $query) use ($user): void {
                 $query->assignedTo($user->id)
                     ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
@@ -306,7 +310,13 @@ class Task extends Model
             });
         }
 
-        if ($user->hasRole('Team Leader') || $user->role_id === 7) {
+        if ($user->hasAssignedRole('Manager')) {
+            return $user->company_id
+                ? $query->where('tasks.company_id', $user->company_id)
+                : $query->whereRaw('1 = 0');
+        }
+
+        if ($user->hasAssignedRole('Team Leader')) {
             return $user->department_id && $user->company_id
                 ? $query->where('tasks.department_id', $user->department_id)
                     ->where('tasks.company_id', $user->company_id)

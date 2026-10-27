@@ -37,7 +37,10 @@ class TaskController extends Controller
 
         $filters = $this->validatedFilters($request);
 
-        $tasks = $this->filteredTasksQuery($filters, $request->user())
+        $tasks = $this->applyKanbanSort(
+            $this->filteredTasksQuery($filters, $request->user()),
+            $filters['sort'] ?? 'deadline_priority',
+        )
             ->with([
                 'company:id,name',
                 'department:id,name',
@@ -45,7 +48,10 @@ class TaskController extends Controller
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
             ])
-            ->orderByDesc('created_at')
+            ->withExists([
+                'deadlineExtensionRequests as has_pending_deadline_extension_request' => fn (Builder $query) => $query
+                    ->where('status', 'pending'),
+            ])
             ->paginate((int) ($filters['per_page'] ?? 15))
             ->appends($filters);
 
@@ -217,6 +223,14 @@ class TaskController extends Controller
             ->sortByDesc('id')
             ->first()?->old_status;
         $resumeToReview = $lastHeldStatus === 'submitted_for_review';
+        $canReviewDeadlineExtensions = $request->user()->can('reviewDeadlineExtensions', $task);
+        $deadlineExtensionRequests = $task->deadlineExtensionRequests()
+            ->with(['requester:id,name', 'reviewer:id,name'])
+            ->when(
+                ! $canReviewDeadlineExtensions,
+                fn (Builder $query) => $query->where('requested_by', $request->user()->id),
+            )
+            ->get();
 
         return view('tasks.show', compact(
             'task',
@@ -234,6 +248,8 @@ class TaskController extends Controller
             'canUpdateSubtaskProgress',
             'taskProgress',
             'resumeToReview',
+            'canReviewDeadlineExtensions',
+            'deadlineExtensionRequests',
         ));
     }
 
@@ -688,9 +704,11 @@ class TaskController extends Controller
 
         $filters = $this->validatedFilters($request);
 
-        $tasks = $this->filteredTasksQuery($filters, $request->user())
-            ->with(['company', 'department', 'assignee', 'activeAssignees', 'pocs'])
-            ->orderByDesc('created_at');
+        $tasks = $this->applyKanbanSort(
+            $this->filteredTasksQuery($filters, $request->user()),
+            $filters['sort'] ?? 'deadline_priority',
+        )
+            ->with(['company', 'department', 'assignee', 'activeAssignees', 'pocs']);
 
         return response()->streamDownload(function () use ($tasks): void {
             $output = fopen('php://output', 'w');
@@ -783,6 +801,7 @@ class TaskController extends Controller
             'status' => ['nullable', Rule::in(Task::STATUSES)],
             'condition' => ['nullable', Rule::in(Task::DEADLINE_CONDITIONS)],
             'priority' => ['nullable', Rule::in(Task::PRIORITIES)],
+            'due_date' => ['nullable', 'date_format:Y-m-d'],
             'task_type' => ['nullable', Rule::in(Task::TYPES)],
             'sort' => ['nullable', Rule::in([
                 'deadline_priority',
@@ -876,6 +895,10 @@ class TaskController extends Controller
 
         if (! empty($filters['priority'])) {
             $query->where('priority', $filters['priority']);
+        }
+
+        if (! empty($filters['due_date'])) {
+            $query->whereRaw('DATE(COALESCE(due_date, original_deadline)) = ?', [$filters['due_date']]);
         }
 
         if (! empty($filters['task_type'])) {
