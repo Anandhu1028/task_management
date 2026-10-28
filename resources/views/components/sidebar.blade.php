@@ -43,6 +43,12 @@
             <i class="bi bi-grid"></i><span>Dashboard</span>
         </a>
 
+        @if ($canViewTasks)
+            <a class="tf-nav__item {{ request()->routeIs('tasks.*') ? 'is-active' : '' }}" href="{{ route('tasks.index') }}">
+                <i class="bi bi-check2-square"></i><span> Tasks</span>
+            </a>
+        @endif
+
         @if ($canViewUsers)
             <div class="tf-nav__group {{ $usersNavigationIsActive ? 'is-open' : '' }}">
                 <button
@@ -96,9 +102,6 @@
         @endif
 
         @if ($canViewTasks)
-            <a class="tf-nav__item {{ request()->routeIs('tasks.*') ? 'is-active' : '' }}" href="{{ route('tasks.index') }}">
-                <i class="bi bi-check2-square"></i><span>All Tasks</span>
-            </a>
             <a class="tf-nav__item {{ request()->routeIs('reports.*') ? 'is-active' : '' }}" href="{{ route('reports.index') }}">
                 <i class="bi bi-bar-chart-line"></i><span>Reports</span>
             </a>

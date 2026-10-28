@@ -506,6 +506,60 @@ body.tf-guest-body {
     line-height: 0;
 }
 
+.tf-login-quick {
+    display: grid;
+    gap: 9px;
+    margin-top: 17px;
+    padding-top: 15px;
+    border-top: 1px solid #e8edf5;
+}
+
+.tf-login-quick__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tf-login-quick__heading strong {
+    color: #334155;
+    font-size: 11.5px;
+    font-weight: 650;
+}
+
+.tf-login-quick__heading span {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.tf-login-quick__buttons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.tf-login-quick__buttons button {
+    min-height: 34px;
+    padding: 5px 7px;
+    border: 1px solid #dce4f0;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.tf-login-quick__buttons button:hover,
+.tf-login-quick__buttons button:focus-visible {
+    border-color: #93b4ff;
+    background: #f1f5ff;
+    color: #2456d9;
+    outline: none;
+}
+
 .tf-login-secure {
     display: flex;
     align-items: center;

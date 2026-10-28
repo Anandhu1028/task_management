@@ -52,6 +52,101 @@ class AuthManagementTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_local_login_page_offers_role_based_credential_fillers(): void
+    {
+        $environment = $this->app->environment();
+        $this->app['env'] = 'local';
+        config([
+            'app.debug' => true,
+            'demo-login.enabled' => true,
+            'demo-login.password' => 'local-demo-password',
+            'demo-login.accounts' => [
+                ['label' => 'Admin', 'email' => 'admin@example.test'],
+                ['label' => 'CEO', 'email' => 'ceo@example.test'],
+                ['label' => 'Team Leader', 'email' => 'leader@example.test'],
+            ],
+        ]);
+
+        try {
+            $response = $this->get(route('login'));
+        } finally {
+            $this->app['env'] = $environment;
+        }
+
+        $response
+            ->assertOk()
+            ->assertSee('data-email="admin@example.test" data-password="local-demo-password"', false)
+            ->assertSee('data-email="ceo@example.test" data-password="local-demo-password"', false)
+            ->assertSee('data-email="leader@example.test" data-password="local-demo-password"', false)
+            ->assertSee('Development only');
+    }
+
+    public function test_production_login_page_does_not_expose_quick_login_credentials(): void
+    {
+        $environment = $this->app->environment();
+        $this->app['env'] = 'production';
+        config([
+            'app.debug' => true,
+            'demo-login.enabled' => true,
+            'demo-login.password' => 'local-demo-password',
+            'demo-login.accounts' => [
+                ['label' => 'Admin', 'email' => 'admin@example.test'],
+                ['label' => 'CEO', 'email' => 'ceo@example.test'],
+                ['label' => 'Team Leader', 'email' => 'leader@example.test'],
+            ],
+        ]);
+
+        try {
+            $response = $this->get(route('login'));
+        } finally {
+            $this->app['env'] = $environment;
+        }
+
+        $response
+            ->assertOk()
+            ->assertDontSee('data-email="admin@example.test"', false)
+            ->assertDontSee('data-email="ceo@example.test"', false)
+            ->assertDontSee('data-email="leader@example.test"', false)
+            ->assertDontSee('local-demo-password', false);
+    }
+
+    public function test_local_login_page_hides_demo_accounts_when_disabled_or_debug_is_off(): void
+    {
+        $environment = $this->app->environment();
+        $this->app['env'] = 'local';
+        config([
+            'app.debug' => true,
+            'demo-login.enabled' => false,
+            'demo-login.password' => 'local-demo-password',
+            'demo-login.accounts' => [
+                ['label' => 'Admin', 'email' => 'admin@example.test'],
+            ],
+        ]);
+
+        try {
+            $disabledResponse = $this->get(route('login'));
+            config([
+                'app.debug' => false,
+                'demo-login.enabled' => true,
+            ]);
+            $debugDisabledResponse = $this->get(route('login'));
+        } finally {
+            $this->app['env'] = $environment;
+        }
+
+        $disabledResponse
+            ->assertOk()
+            ->assertDontSee('aria-label="Local testing quick login"', false)
+            ->assertDontSee('admin@example.test', false)
+            ->assertDontSee('local-demo-password', false);
+
+        $debugDisabledResponse
+            ->assertOk()
+            ->assertDontSee('aria-label="Local testing quick login"', false)
+            ->assertDontSee('admin@example.test', false)
+            ->assertDontSee('local-demo-password', false);
+    }
+
     public function test_registration_creates_an_inactive_employee_and_ignores_submitted_role(): void
     {
         $adminRole = Role::query()->where('name', 'Admin')->firstOrFail();

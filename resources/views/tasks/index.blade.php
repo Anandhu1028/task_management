@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', 'All Tasks')
+@section('title', 'Tasks')
 
 @section('content')
     <header class="tf-page-head">
         <div>
-            <h1>All Tasks</h1>
+            <h1>Tasks</h1>
             <p>Comprehensive register of tasks across companies, departments, and teams.</p>
         </div>
     </header>

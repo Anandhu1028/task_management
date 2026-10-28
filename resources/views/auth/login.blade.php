@@ -95,6 +95,20 @@
                 <button type="submit">Sign in <span aria-hidden="true">→</span></button>
             </form>
 
+            @if ($demoAccounts !== [])
+                <section class="tf-login-quick" aria-label="Local testing quick login">
+                    <div class="tf-login-quick__heading">
+                        <strong>Demo accounts</strong>
+                        <span>Development only</span>
+                    </div>
+                    <div class="tf-login-quick__buttons">
+                        @foreach ($demoAccounts as $account)
+                            <button type="button" data-quick-login data-email="{{ $account['email'] }}" data-password="{{ $account['password'] }}">{{ $account['label'] }}</button>
+                        @endforeach
+                    </div>
+                </section>
+            @endif
+
             <span class="tf-login-secure">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" aria-hidden="true">
                     <path d="M12 3 5 6v5c0 4.4 3 8.5 7 10 4-1.5 7-5.6 7-10V6l-7-3Z"></path>
@@ -106,6 +120,13 @@
     </main>
 
     <script>
+        document.querySelectorAll('[data-quick-login]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                document.getElementById('email').value = this.dataset.email;
+                document.getElementById('password').value = this.dataset.password;
+            });
+        });
+
         document.querySelector('[data-password-toggle]')?.addEventListener('click', function () {
             const passwordInput = document.getElementById(this.getAttribute('aria-controls'));
 
