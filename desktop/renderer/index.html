@@ -59,13 +59,13 @@
         </header>
 
         <main class="task-home">
-            <section class="home-intro" aria-labelledby="welcome-heading">
+            <section id="home-intro" class="home-intro" aria-labelledby="welcome-heading">
                 <h1 id="welcome-heading">Good morning</h1>
                 <p id="welcome-summary"></p>
             </section>
             <section id="stats" class="quick-filters" aria-label="Filter tasks" role="group"></section>
 
-            <section class="task-list-section" aria-label="Tasks">
+            <section id="task-list-section" class="task-list-section" aria-label="Tasks">
                 <div class="task-toolbar">
                     <label class="task-search" for="search">
                         <span aria-hidden="true">⌕</span>
@@ -160,6 +160,9 @@
                     <button type="button" id="next-page" class="ghost">Next</button>
                 </div>
                     </div>
+            </section>
+            <section id="task-detail-page" class="task-detail-page" aria-label="Task details" hidden>
+                <button type="button" id="back-to-tasks" class="back-to-tasks">‹ <span>Back to tasks</span></button>
                 <aside id="details" class="details" hidden></aside>
             </section>
         </main>
@@ -200,6 +203,22 @@
             <menu>
                 <button type="button" id="action-cancel" class="ghost">Cancel</button>
                 <button type="submit" id="action-submit" class="primary">Continue</button>
+            </menu>
+        </form>
+    </dialog>
+
+    <dialog id="extension-dialog" class="compact-dialog">
+        <form id="extension-form" method="dialog">
+            <h2>Request deadline extension</h2>
+            <p class="muted">Send a new requested deadline and reason for review.</p>
+            <div class="form-grid">
+                <label class="wide">Requested deadline <input id="extension-deadline" name="requested_deadline" type="date" required></label>
+                <label class="wide">Reason <textarea id="extension-reason" name="reason" maxlength="5000" required></textarea></label>
+            </div>
+            <p id="extension-form-error" class="form-error" role="alert" hidden></p>
+            <menu>
+                <button type="button" id="extension-cancel" class="ghost">Cancel</button>
+                <button type="submit" id="extension-submit" class="primary">Send request</button>
             </menu>
         </form>
     </dialog>

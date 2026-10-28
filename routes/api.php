@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DesktopMetaController;
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\SubtaskController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
     Route::post('/tasks/{task}/status', [TaskController::class, 'updateStatus']);
     Route::post('/tasks/{task}/risk', [TaskController::class, 'updateRisk']);
     Route::post('/tasks/{task}/review', [TaskController::class, 'review']);
+    Route::post('/tasks/{task}/deadline-extension-requests', [DeadlineExtensionRequestController::class, 'store']);
+    Route::post('/tasks/{task}/deadline-extension-requests/{extensionRequest}/review', [DeadlineExtensionRequestController::class, 'review']);
 
     Route::post('/tasks/{task}/subtasks', [SubtaskController::class, 'store']);
     Route::get('/tasks/{task}/subtasks/{subtask}', [SubtaskController::class, 'show'])->scopeBindings();

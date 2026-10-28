@@ -66,7 +66,7 @@
                 </div>
             </div>
 
-            <div class="d-flex align-items-center gap-2">
+            <div class="tf-personal-task-summary">
                 <span class="badge bg-light text-primary border">Total: {{ $personalCounts['total'] }}</span>
                 <span class="badge bg-light text-warning border">In Progress: {{ $personalCounts['in_progress'] }}</span>
                 <span class="badge bg-light text-success border">Completed: {{ $personalCounts['completed'] }}</span>
@@ -100,7 +100,7 @@
                                 </td>
                                 <td>
                                     <span class="tf-dot tf-dot--{{ $pTask->priority }}"></span>
-                                    <span class="small text-capitalize">{{ $pTask->priority }}</span>
+                                    <span class="tf-personal-task-priority tf-personal-task-priority--{{ $pTask->priority }}">{{ $pTask->priority }}</span>
                                 </td>
                                 <td>
                                     <div class="d-flex flex-column align-items-start gap-1">
@@ -115,7 +115,7 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="small {{ $pTask->isOverdue() ? 'text-danger fw-bold' : 'text-muted' }}">
+                                    <span class="tf-personal-task-due-date {{ $pTask->isOverdue() ? 'is-overdue' : '' }}">
                                         {{ $pTask->due_date ? $pTask->due_date->format('M d, Y') : '—' }}
                                     </span>
                                 </td>

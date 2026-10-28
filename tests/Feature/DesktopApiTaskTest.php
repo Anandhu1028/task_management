@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Company;
+use App\Models\DeadlineExtensionRequest;
 use App\Models\Department;
 use App\Models\Task;
 use App\Models\TaskAssignment;
@@ -203,6 +204,132 @@ class DesktopApiTaskTest extends TestCase
         ]);
     }
 
+    public function test_authorized_desktop_task_edit_reassigns_and_persists_assignees(): void
+    {
+        $previousAssignee = $this->createEmployee();
+        $newAssignee = $this->createEmployee();
+        $task = $this->createTask([
+            'status' => 'assigned',
+            'assigned_to' => $previousAssignee->id,
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $previousAssignee->id,
+            'assigned_by' => $this->admin->id,
+            'reason' => 'Initial assignment',
+            'assigned_at' => now(),
+            'is_active' => true,
+        ]);
+
+        $this->actingAsDesktop($this->admin)
+            ->putJson('/api/tasks/'.$task->id, [
+                'title' => $task->title,
+                'company_id' => $this->company->id,
+                'department_id' => $this->department->id,
+                'task_type' => 'process',
+                'priority' => 'medium',
+                'assigned_to' => [$newAssignee->id],
+                'poc_ids' => [],
+                'estimated_hours' => 2,
+                'expected_output' => 'A completed desktop workflow deliverable.',
+            ])
+            ->assertOk()
+            ->assertJsonPath('task.assignees.0.id', $newAssignee->id);
+
+        $this->assertDatabaseHas('tasks', [
+            'id' => $task->id,
+            'assigned_to' => $newAssignee->id,
+        ]);
+        $this->assertDatabaseHas('task_assignments', [
+            'task_id' => $task->id,
+            'user_id' => $previousAssignee->id,
+            'is_active' => false,
+        ]);
+        $this->assertDatabaseHas('task_assignments', [
+            'task_id' => $task->id,
+            'user_id' => $newAssignee->id,
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_desktop_assignee_can_request_deadline_extension_and_view_request(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createTask([
+            'status' => 'in_progress',
+            'assigned_to' => $employee->id,
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $employee->id,
+            'assigned_by' => $this->admin->id,
+            'reason' => 'Initial assignment',
+            'assigned_at' => now(),
+            'is_active' => true,
+        ]);
+        $requestedDeadline = now()->addDays(20)->toDateString();
+
+        $requestResponse = $this->actingAsDesktop($employee)
+            ->postJson('/api/tasks/'.$task->id.'/deadline-extension-requests', [
+                'requested_deadline' => $requestedDeadline,
+                'reason' => 'A required dependency is delayed.',
+            ]);
+
+        $requestResponse->assertCreated()
+            ->assertJsonPath('request.status', DeadlineExtensionRequest::STATUS_PENDING);
+        $requestId = $requestResponse->json('request.id');
+        $this->assertDatabaseHas('deadline_extension_requests', [
+            'id' => $requestId,
+            'task_id' => $task->id,
+            'requested_by' => $employee->id,
+            'status' => DeadlineExtensionRequest::STATUS_PENDING,
+        ]);
+        $this->actingAsDesktop($employee)
+            ->getJson('/api/tasks/'.$task->id)
+            ->assertOk()
+            ->assertJsonPath('task.deadline_extension_requests.0.id', $requestId)
+            ->assertJsonPath('task.permissions.request_deadline_extension', false);
+
+    }
+
+    public function test_desktop_admin_can_approve_deadline_extension_and_persist_new_deadline(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createTask([
+            'status' => 'in_progress',
+            'assigned_to' => $employee->id,
+        ]);
+        $requestedDeadline = now()->addDays(20)->toDateString();
+        $extensionRequest = $task->deadlineExtensionRequests()->create([
+            'requested_by' => $employee->id,
+            'task_title' => $task->title,
+            'current_deadline' => $task->due_date->toDateString(),
+            'requested_deadline' => $requestedDeadline,
+            'reason' => 'A required dependency is delayed.',
+            'status' => DeadlineExtensionRequest::STATUS_PENDING,
+        ]);
+
+        $this->actingAsDesktop($this->admin)
+            ->getJson('/api/tasks/'.$task->id)
+            ->assertOk()
+            ->assertJsonPath('task.permissions.review_deadline_extensions', true)
+            ->assertJsonPath('task.deadline_extension_requests.0.id', $extensionRequest->id);
+
+        $this->actingAsDesktop($this->admin)
+            ->postJson('/api/tasks/'.$task->id.'/deadline-extension-requests/'.$extensionRequest->id.'/review', [
+                'decision' => 'approve',
+            ])
+            ->assertOk()
+            ->assertJsonPath('request.status', DeadlineExtensionRequest::STATUS_APPROVED);
+
+        $this->assertDatabaseHas('deadline_extension_requests', [
+            'id' => $extensionRequest->id,
+            'reviewed_by' => $this->admin->id,
+            'status' => DeadlineExtensionRequest::STATUS_APPROVED,
+        ]);
+        $this->assertSame($requestedDeadline, $task->fresh()->due_date->toDateString());
+    }
+
     public function test_poc_can_accept_a_notified_task(): void
     {
         $poc = $this->createEmployee();
@@ -254,6 +381,27 @@ class DesktopApiTaskTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('ok', true)
             ->assertJsonPath('subtask.title', 'Desktop subtask');
+
+        $this->assertDatabaseHas('subtasks', [
+            'task_id' => $task->id,
+            'title' => 'Desktop subtask',
+            'priority' => 'medium',
+        ]);
+
+        $this->actingAsDesktop($employee)
+            ->postJson('/api/tasks/'.$task->id.'/work-updates', [
+                'note' => 'Progress note from desktop.',
+                'update_date' => now()->toDateString(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('task.id', $task->id);
+
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'changed_by' => $employee->id,
+            'event_type' => 'work_update',
+            'remarks' => 'Progress note from desktop.',
+        ]);
     }
 
     public function test_desktop_meta_returns_existing_status_and_priority_values(): void

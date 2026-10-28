@@ -6,6 +6,8 @@ use App\Models\DeadlineExtensionRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Notifications\TaskLifecycleNotification;
+use App\Support\DesktopApiPresenter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +15,7 @@ use Illuminate\Validation\ValidationException;
 
 class DeadlineExtensionRequestController extends Controller
 {
-    public function store(Request $request, Task $task): RedirectResponse
+    public function store(Request $request, Task $task): RedirectResponse|JsonResponse
     {
         $this->authorize('requestDeadlineExtension', $task);
 
@@ -64,6 +66,13 @@ class DeadlineExtensionRequestController extends Controller
 
         $this->notifyReviewers($task, $request->user(), $extensionRequest);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Deadline extension request submitted for review.',
+                'request' => DesktopApiPresenter::deadlineExtensionRequest($extensionRequest->load('requester:id,name', 'reviewer:id,name')),
+            ], 201);
+        }
+
         return back()->with('success', 'Deadline extension request submitted for review.');
     }
 
@@ -71,7 +80,7 @@ class DeadlineExtensionRequestController extends Controller
         Request $request,
         Task $task,
         DeadlineExtensionRequest $extensionRequest,
-    ): RedirectResponse {
+    ): RedirectResponse|JsonResponse {
         abort_if((int) $extensionRequest->task_id !== (int) $task->id, 404);
 
         $this->authorize('review', $extensionRequest);
@@ -150,12 +159,18 @@ class DeadlineExtensionRequestController extends Controller
             ),
         ));
 
-        return back()->with(
-            'success',
-            $extensionRequest->status === DeadlineExtensionRequest::STATUS_APPROVED
-                ? 'Deadline extension approved.'
-                : 'Deadline extension rejected.',
-        );
+        $message = $extensionRequest->status === DeadlineExtensionRequest::STATUS_APPROVED
+            ? 'Deadline extension approved.'
+            : 'Deadline extension rejected.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'request' => DesktopApiPresenter::deadlineExtensionRequest($extensionRequest->load('requester:id,name', 'reviewer:id,name')),
+            ]);
+        }
+
+        return back()->with('success', $message);
     }
 
     private function notifyReviewers(

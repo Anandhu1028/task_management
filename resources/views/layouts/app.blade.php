@@ -17,8 +17,29 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" >
     {{-- Bootstrap Icons --}}
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" >
-    {{-- Dashboard --}}
-    <link href="{{ asset('css/dashboard.css') }}?v={{ filemtime(public_path('css/dashboard.css')) }}" rel="stylesheet" >
+    {{-- Shared and route-specific styles --}}
+    <link href="{{ asset('css/shared.css') }}?v={{ filemtime(public_path('css/shared.css')) }}" rel="stylesheet" >
+    @if (request()->routeIs('dashboard', 'dashboard.*'))
+        <link href="{{ asset('css/dashboard.css') }}?v={{ filemtime(public_path('css/dashboard.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('tasks.*'))
+        <link href="{{ asset('css/tasks.css') }}?v={{ filemtime(public_path('css/tasks.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('users.*'))
+        <link href="{{ asset('css/users.css') }}?v={{ filemtime(public_path('css/users.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('companies.*'))
+        <link href="{{ asset('css/companies.css') }}?v={{ filemtime(public_path('css/companies.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('departments.*'))
+        <link href="{{ asset('css/departments.css') }}?v={{ filemtime(public_path('css/departments.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('reports.*'))
+        <link href="{{ asset('css/reports.css') }}?v={{ filemtime(public_path('css/reports.css')) }}" rel="stylesheet">
+    @endif
+    @if (request()->routeIs('roles.*'))
+        <link href="{{ asset('css/roles.css') }}?v={{ filemtime(public_path('css/roles.css')) }}" rel="stylesheet">
+    @endif
     
 </head>
 
@@ -40,6 +61,9 @@
     @if (auth()->user()->can('tasks.create') || auth()->user()->can('tasks.update'))
         @include('components.create-task-modal')
     @endif
+
+    {{-- ChatGPT Launcher Modal --}}
+    @include('components.chatgpt-modal')
 
 
     <div class="tf-operation" id="tfOperation" role="dialog" aria-modal="true" aria-labelledby="tfOperationTitle" aria-describedby="tfOperationMessage" hidden>

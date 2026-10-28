@@ -7,7 +7,6 @@
 <article class="tf-card">
     <div class="tf-card__head">
         <div class="tf-card__title">
-            <i class="bi bi-bar-chart tf-card__icon"></i>
             <div>
                 <h2>{{ $title }}</h2>
                 <p>{{ $subtitle }}</p>
@@ -15,8 +14,7 @@
         </div>
 
         <div class="d-flex align-items-center gap-2">
-            <span class="tf-status-pill tf-status-pill--completed">
-                <i class="bi bi-check-circle"></i>
+            <span class="tf-completion-badge">
                 <span id="completionChartTotal">{{ $completionChart['totalCompleted'] ?? 0 }}</span> completed
             </span>
         </div>

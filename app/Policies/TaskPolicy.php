@@ -40,7 +40,11 @@ class TaskPolicy
                 ->whereNull('unassigned_at')
                 ->exists();
 
-        return $isActiveAssignee && ! ($task->has_pending_deadline_extension_request ?? false);
+        $hasPendingRequest = $task->relationLoaded('deadlineExtensionRequests')
+            ? $task->deadlineExtensionRequests->contains('status', 'pending')
+            : $task->deadlineExtensionRequests()->where('status', 'pending')->exists();
+
+        return $isActiveAssignee && ! $hasPendingRequest;
     }
 
     public function reviewDeadlineExtensions(User $user, Task $task): bool

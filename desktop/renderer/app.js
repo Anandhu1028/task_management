@@ -13,6 +13,8 @@ const requiredDesktopMethods = [
   'taskAction',
   'saveSubtask',
   'toggleSubtask',
+  'requestDeadlineExtension',
+  'reviewDeadlineExtension',
 ];
 const elements = Object.fromEntries(
   [
@@ -28,6 +30,10 @@ const elements = Object.fromEntries(
     'app-view',
     'user-chip',
     'stats',
+    'home-intro',
+    'task-list-section',
+    'task-detail-page',
+    'back-to-tasks',
     'welcome-heading',
     'welcome-summary',
     'task-list-heading',
@@ -88,6 +94,13 @@ const elements = Object.fromEntries(
     'action-fields',
     'action-cancel',
     'action-submit',
+    'extension-dialog',
+    'extension-form',
+    'extension-deadline',
+    'extension-reason',
+    'extension-form-error',
+    'extension-submit',
+    'extension-cancel',
     'subtask-dialog',
     'subtask-form',
     'subtask-dialog-title',
@@ -135,10 +148,16 @@ const state = {
   taskActionPending: false,
   subtaskActionPending: false,
   actionResolver: null,
+  taskMenuTrigger: null,
+  taskMenuTask: null,
+  activeTaskTab: 'activity',
+  currentTask: null,
+  extensionReviewPending: false,
 };
 
 let taskLoadSequence = 0;
 let detailLoadSequence = 0;
+let taskMenuSequence = 0;
 
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -190,6 +209,8 @@ function clearSessionState() {
   state.meta = null;
   state.tasks = [];
   state.selectedTaskId = null;
+  state.currentTask = null;
+  state.activeTaskTab = 'activity';
   state.quickFilter = 'all';
   state.counts = null;
   state.editingSubtask = null;
@@ -223,8 +244,8 @@ function clearSessionState() {
   if (elements.task_dialog.open) elements.task_dialog.close();
   if (elements.action_dialog.open) finishActionDialog(null);
   if (elements.subtask_dialog.open) elements.subtask_dialog.close();
-  elements.details.hidden = true;
-  elements.details.parentElement.classList.remove('has-details');
+  closeTaskMenu();
+  showTaskDetailPage(false);
   elements.details.replaceChildren();
   elements.board.replaceChildren();
   elements.stats.replaceChildren();
@@ -323,19 +344,19 @@ function selectedValues(select) {
 
 function renderStats(counts) {
   const items = [
-    ['All tasks', counts.total, 'all'],
-    ['Overdue', counts.overdue_count, 'overdue'],
-    ['Awaiting assignment', counts.pending_assignment_count, 'awaiting_assignment'],
-    ['At risk', counts.at_risk_count, 'at_risk'],
-    ['In progress', counts.in_progress_count, 'in_progress'],
-    ['Completed', counts.completed_count, 'completed'],
+    ['All tasks', counts.total, 'all', '✓'],
+    ['Overdue', counts.overdue_count, 'overdue', '!'],
+    ['Awaiting assignment', counts.pending_assignment_count, 'awaiting_assignment', '↗'],
+    ['At risk', counts.at_risk_count, 'at_risk', '△'],
+    ['In progress', counts.in_progress_count, 'in_progress', '◷'],
+    ['Completed', counts.completed_count, 'completed', '✓'],
   ];
 
   state.counts = counts;
-  elements.stats.innerHTML = items.map(([label, count, filter]) => `
+  elements.stats.innerHTML = items.map(([label, count, filter, icon]) => `
     <button type="button" class="quick-filter ${filter} ${state.quickFilter === filter ? 'is-active' : ''}" data-quick-filter="${filter}" aria-pressed="${state.quickFilter === filter}">
-      <span class="quick-filter__dot" aria-hidden="true"></span>
-      <span>${escapeHtml(label)}</span>
+      <span class="quick-filter__icon" aria-hidden="true">${icon}</span>
+      <span class="quick-filter__label">${escapeHtml(label)}</span>
       <strong>${Number(count || 0).toLocaleString()}</strong>
     </button>
   `).join('');
@@ -372,12 +393,18 @@ function renderTasks() {
       <article class="task-row ${state.selectedTaskId === task.id ? 'selected' : ''}" data-task-id="${Number(task.id)}">
         <div class="task-row-main">
           <button type="button" class="task-row-title" data-task-intent="open">
-            <span class="task-code">${escapeHtml(task.task_code || `#${task.id}`)}</span>
-            <strong>${escapeHtml(task.title)}</strong>
-            <span class="task-context">${escapeHtml(task.company?.name || 'No company')} · ${escapeHtml(task.department?.name || 'No department')} · ${escapeHtml(task.assignees?.map((person) => person.name).join(', ') || 'Unassigned')}</span>
+            <span class="task-row-icon" aria-hidden="true">✓</span>
+            <span class="task-row-copy">
+              <span class="task-code">${escapeHtml(task.task_code || `#${task.id}`)}</span>
+              <strong>${escapeHtml(task.title)}</strong>
+              <span class="task-context">${escapeHtml(task.company?.name || 'No company')} · ${escapeHtml(task.department?.name || 'No department')} · ${escapeHtml(task.assignees?.map((person) => person.name).join(', ') || 'Unassigned')}</span>
+            </span>
           </button>
-          <div class="progress-track" role="progressbar" aria-label="Task progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, Number(task.progress_percentage || 0)))}">
-            <span data-progress="${Math.max(0, Math.min(100, Number(task.progress_percentage || 0)))}"></span>
+          <div class="task-row-progress">
+            <div class="progress-track" role="progressbar" aria-label="Task progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, Number(task.progress_percentage || 0)))}">
+              <span data-progress="${Math.max(0, Math.min(100, Number(task.progress_percentage || 0)))}"></span>
+            </div>
+            <span class="task-row-status">${Number(task.subtask_counts?.completed || 0)} of ${Number(task.subtask_counts?.total || 0)} subtasks complete · ${Number(task.progress_percentage || 0)}% progress</span>
           </div>
         </div>
         <div class="task-row-side">
@@ -388,9 +415,9 @@ function renderTasks() {
           </div>
           <div class="task-row-actions">
             <button type="button" class="primary" data-task-intent="open">Open</button>
+            <button type="button" class="task-row-menu-trigger" data-task-menu-trigger aria-label="More task options" aria-haspopup="menu" aria-expanded="false" title="More task options">···</button>
           </div>
         </div>
-        <span class="task-row-status">${Number(task.subtask_counts?.completed || 0)} of ${Number(task.subtask_counts?.total || 0)} subtasks complete · ${Number(task.progress_percentage || 0)}% progress</span>
       </article>
     `).join('');
     elements.board.querySelectorAll('[data-progress]').forEach((progress) => {
@@ -405,6 +432,7 @@ function renderTasks() {
 }
 
 async function loadTasks() {
+  if (state.taskMenuTrigger) closeTaskMenu();
   const sequence = ++taskLoadSequence;
   clearError();
   elements.loading.hidden = false;
@@ -443,9 +471,8 @@ async function loadTasks() {
     renderTasks();
 
     if (state.selectedTaskId && !state.tasks.some((task) => task.id === state.selectedTaskId)) {
-      elements.details.hidden = true;
-      elements.details.parentElement.classList.remove('has-details');
-      state.selectedTaskId = null;
+      showTaskDetailPage(false);
+      renderTasks();
     }
   } catch (error) {
     if (sequence === taskLoadSequence) {
@@ -461,15 +488,15 @@ async function loadTasks() {
 
 function renderSubtasks(task) {
   if (!task.subtasks?.length) {
-    return '<p class="muted">No subtasks yet.</p>';
+    return '<p class="task-empty-state">No subtasks have been added.</p>';
   }
 
   return `<div class="subtask-list">${task.subtasks.map((subtask) => `
     <article class="subtask">
       <div>
         <strong>${escapeHtml(subtask.title)}</strong>
-        <span>${escapeHtml(subtask.status_label)} · ${escapeHtml(subtask.priority || 'medium')} priority${subtask.due_date ? ` · Due ${escapeHtml(subtask.due_date)}` : ''}</span>
-        <span>${escapeHtml(subtask.assigned_to?.name || 'Unassigned')} · ${Number(subtask.progress_percentage || 0)}% complete</span>
+        <span>${escapeHtml(subtask.status_label)} · ${escapeHtml(subtask.assigned_to?.name || 'Unassigned')}${subtask.due_date ? ` · Due ${escapeHtml(formatDate(subtask.due_date))}` : ''}</span>
+        <div class="subtask-progress"><span><i style="width:${Math.max(0, Math.min(100, Number(subtask.progress_percentage || 0)))}%"></i></span><small>${Number(subtask.progress_percentage || 0)}%</small></div>
       </div>
       <div class="subtask-actions">
         ${task.permissions.update_subtask ? `<button class="small-button" data-edit-subtask="${Number(subtask.id)}" type="button">Edit</button>` : ''}
@@ -479,11 +506,59 @@ function renderSubtasks(task) {
   `).join('')}</div>`;
 }
 
+function formatDate(value, options = { year: 'numeric', month: 'short', day: 'numeric' }) {
+  if (!value) return '—';
+  const dateValue = /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? `${value}T00:00:00` : value;
+  const date = new Date(dateValue);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString(undefined, options);
+}
+
+function renderActivity(task) {
+  const composer = task.permissions.add_work_update ? `
+    <form class="activity-composer" data-activity-form>
+      <textarea name="note" maxlength="5000" placeholder="Add a comment or progress note..." aria-label="Activity note" required></textarea>
+      <button type="submit" class="primary" data-activity-submit>Send</button>
+    </form>
+  ` : '';
+  const history = task.history?.length
+    ? `<ol class="task-activity-list">${task.history.map((item) => `
+        <li class="task-activity-item">
+          <span class="task-activity-marker" aria-hidden="true">${item.event_type === 'work_update' ? '≡' : (item.event_type?.includes('deadline_extension') ? '↗' : '•')}</span>
+          <div><strong>${escapeHtml(item.remarks || item.event_type || 'Task updated')}</strong><span>${escapeHtml(item.changed_by || 'System')}</span></div>
+          <time>${escapeHtml(formatDate(item.created_at))}</time>
+        </li>
+      `).join('')}</ol>`
+    : '<p class="task-empty-state">No activity has been recorded yet.</p>';
+
+  return `${composer}${history}`;
+}
+
+function renderExtensionRequests(task) {
+  if (!task.deadline_extension_requests?.length) {
+    return '<p class="task-empty-state">No deadline extension requests.</p>';
+  }
+
+  return `<div class="extension-request-list">${task.deadline_extension_requests.map((request) => `
+    <article class="extension-request">
+      <div class="extension-request__header">
+        <strong>${escapeHtml(request.status.replaceAll('_', ' '))}</strong>
+        <span class="request-status ${escapeHtml(request.status)}">${escapeHtml(request.status)}</span>
+      </div>
+      <p>${escapeHtml(request.requested_by || 'Unknown')} requested ${escapeHtml(formatDate(request.requested_deadline))}${request.current_deadline ? ` from ${escapeHtml(formatDate(request.current_deadline))}` : ''}.</p>
+      <p>${escapeHtml(request.reason)}</p>
+      ${request.review_note ? `<p class="muted">Review note: ${escapeHtml(request.review_note)}</p>` : ''}
+      ${task.permissions.review_deadline_extensions && request.status === 'pending' ? `
+        <div class="extension-request__actions">
+          <button type="button" class="primary" data-extension-decision="approve" data-extension-request-id="${Number(request.id)}">Approve</button>
+          <button type="button" class="ghost" data-extension-decision="reject" data-extension-request-id="${Number(request.id)}">Reject</button>
+        </div>
+      ` : ''}
+    </article>
+  `).join('')}</div>`;
+}
+
 function renderHistory(task) {
-  if (!task.history?.length) return '<p class="muted">No task activity recorded.</p>';
-  return `<ol class="history-list">${task.history.map((event) => `
-    <li><strong>${escapeHtml(event.changed_by || 'System')}</strong> · ${escapeHtml(event.remarks || event.event_type)}<time>${escapeHtml(event.created_at || '')}</time></li>
-  `).join('')}</ol>`;
+  return renderActivity(task);
 }
 
 function allowedStatusOptions(task) {
@@ -494,45 +569,232 @@ function allowedStatusOptions(task) {
   });
 }
 
-function renderActions(task) {
-  const actions = [];
-  const add = (action, label, primary = false) => actions.push({ action, label, primary });
-  if (task.permissions.accept) add('accept', 'Accept task', true);
-  if (task.permissions.start_work) add('start', 'Start work', true);
-  if (task.permissions.submit_for_review) add('submit-review', 'Submit for review', true);
-  if (task.permissions.review) { add('approve', 'Approve & complete', true); add('rework', 'Request changes'); }
-  if (task.permissions.resume) add('resume', 'Resume work', true);
-  if (task.permissions.add_work_update) add('work-update', 'Add update');
-  if (task.permissions.flag_risk) add(task.risk_reason ? 'resolve-risk' : 'flag-risk', task.risk_reason ? 'Resolve risk' : 'Flag risk');
-  const primary = actions.find((item) => item.primary);
-  const visible = [primary, ...actions.filter((item) => item !== primary)].filter(Boolean).slice(0, 3);
-  const statusOptions = allowedStatusOptions(task);
-  const buttons = visible.map((item) => `<button type="button" class="tf-wf-action-btn ${item === primary ? 'tf-wf-action-btn--primary' : ''}" data-action="${item.action}">${escapeHtml(item.label)}</button>`);
-  if (statusOptions.length > 0) {
-    buttons.push(`<label class="status-action">More actions
-      <select data-status-select>
-        <option value="">Select status</option>
-        ${statusOptions.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('')}
-      </select>
-    </label>`);
+function taskMenuActions(task) {
+  const actions = [{ type: 'view', label: 'View task details' }];
+  const permissions = task.permissions;
+  const add = (action, label) => actions.push({ type: 'workflow', action, label });
+
+  if (permissions.update) actions.push({ type: 'edit', label: 'Edit task' });
+  if (permissions.accept) add('accept', 'Accept task');
+  if (permissions.start_work) add('start', 'Start work');
+  if (permissions.submit_for_review) add('submit-review', 'Submit for review');
+  if (permissions.review) {
+    add('approve', 'Approve & complete');
+    add('rework', 'Request changes');
+  }
+  if (permissions.resume) add('resume', 'Resume work');
+  if (permissions.add_work_update) add('work-update', 'Add work update');
+  if (permissions.flag_risk) {
+    add(task.risk_reason ? 'resolve-risk' : 'flag-risk', task.risk_reason ? 'Resolve risk' : 'Flag risk');
+  }
+  allowedStatusOptions(task).forEach(([status, label]) => {
+    actions.push({ type: 'status', status, label: `Change status: ${label}` });
+  });
+
+  return actions;
+}
+
+function positionTaskMenu(menu, trigger) {
+  const triggerRect = trigger.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const margin = 12;
+  const left = Math.max(margin, Math.min(
+    triggerRect.right - menuRect.width,
+    window.innerWidth - menuRect.width - margin,
+  ));
+  const belowTop = triggerRect.bottom + 6;
+  const top = belowTop + menuRect.height <= window.innerHeight - margin
+    ? belowTop
+    : Math.max(margin, triggerRect.top - menuRect.height - 6);
+
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function closeTaskMenu(restoreFocus = false) {
+  taskMenuSequence += 1;
+  document.querySelector('.task-action-menu')?.remove();
+  const trigger = state.taskMenuTrigger;
+  state.taskMenuTrigger = null;
+  state.taskMenuTask = null;
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger.focus();
+  }
+}
+
+function renderTaskMenu(menu, task, trigger) {
+  state.taskMenuTask = task;
+  const actions = taskMenuActions(task);
+  menu.innerHTML = `
+    <div class="task-action-menu__heading" role="presentation">${escapeHtml(task.title || 'Task actions')}</div>
+    ${actions.map((item) => `
+      <button type="button" role="menuitem" data-menu-type="${item.type}"${item.action ? ` data-menu-action="${escapeHtml(item.action)}"` : ''}${item.status ? ` data-menu-status="${escapeHtml(item.status)}"` : ''}>
+        ${escapeHtml(item.label)}
+      </button>
+    `).join('')}
+  `;
+  positionTaskMenu(menu, trigger);
+  menu.querySelector('[role="menuitem"]')?.focus();
+  menu.addEventListener('keydown', (event) => {
+    const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+    const currentIndex = items.indexOf(document.activeElement);
+    let nextIndex = currentIndex;
+
+    if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length;
+    else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = items.length - 1;
+    else return;
+
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  });
+}
+
+async function loadTaskMenu(menu, trigger, sequence) {
+  state.taskMenuTask = null;
+  menu.innerHTML = '<p class="task-action-menu__status" role="status">Loading task actions…</p>';
+  positionTaskMenu(menu, trigger);
+
+  try {
+    const response = await api.getTask(Number(trigger.closest('[data-task-id]')?.dataset.taskId));
+    if (sequence !== taskMenuSequence || state.taskMenuTrigger !== trigger) return;
+    if (!response.ok) {
+      if (handleUnauthorized(response)) {
+        closeTaskMenu();
+        return;
+      }
+      menu.innerHTML = `<p class="task-action-menu__error" role="alert">${escapeHtml(responseMessage(response))}</p><button type="button" role="menuitem" data-menu-retry>Retry</button>`;
+      positionTaskMenu(menu, trigger);
+      menu.querySelector('[data-menu-retry]')?.focus();
+      return;
+    }
+
+    const task = response.data?.task;
+    if (!task?.permissions || !task.status_options || !Number(task.id)) {
+      menu.innerHTML = '<p class="task-action-menu__error" role="alert">Laravel returned incomplete task details. Refresh and retry.</p><button type="button" role="menuitem" data-menu-retry>Retry</button>';
+      positionTaskMenu(menu, trigger);
+      menu.querySelector('[data-menu-retry]')?.focus();
+      return;
+    }
+
+    renderTaskMenu(menu, task, trigger);
+  } catch (error) {
+    if (sequence !== taskMenuSequence || state.taskMenuTrigger !== trigger) return;
+    menu.innerHTML = `<p class="task-action-menu__error" role="alert">Unable to load task actions. ${escapeHtml(error.message)}</p><button type="button" role="menuitem" data-menu-retry>Retry</button>`;
+    positionTaskMenu(menu, trigger);
+    menu.querySelector('[data-menu-retry]')?.focus();
+  }
+}
+
+function openTaskMenu(trigger) {
+  if (state.taskMenuTrigger === trigger) {
+    closeTaskMenu();
+    return;
   }
 
-  return buttons.join('') || '<span class="workflow-waiting">Waiting for the next workflow action.</span>';
+  closeTaskMenu();
+  state.taskMenuTrigger = trigger;
+  trigger.setAttribute('aria-expanded', 'true');
+  const menu = document.createElement('div');
+  menu.className = 'task-action-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Task actions');
+  document.body.append(menu);
+  const sequence = ++taskMenuSequence;
+  menu.addEventListener('click', (event) => {
+    const retry = event.target.closest('[data-menu-retry]');
+    if (retry && state.taskMenuTrigger === trigger && sequence === taskMenuSequence) {
+      loadTaskMenu(menu, trigger, sequence);
+      return;
+    }
+
+    const item = event.target.closest('[data-menu-type]');
+    const task = state.taskMenuTask;
+    if (!item || !task || state.taskMenuTrigger !== trigger || sequence !== taskMenuSequence) return;
+
+    closeTaskMenu();
+    if (item.dataset.menuType === 'view') {
+      openTask(task.id);
+    } else if (item.dataset.menuType === 'edit') {
+      openTaskDialog(task);
+    } else if (item.dataset.menuType === 'workflow') {
+      performAction(task, item.dataset.menuAction);
+    } else if (item.dataset.menuType === 'status') {
+      changeStatus(task, item.dataset.menuStatus);
+    }
+  });
+  loadTaskMenu(menu, trigger, sequence);
+}
+
+function primaryWorkflowAction(task) {
+  if (task.permissions.accept) return { action: 'accept', label: 'Accept task' };
+  if (task.permissions.start_work) return { action: 'start', label: 'Start work' };
+  if (task.permissions.resume) return { action: 'resume', label: 'Resume work' };
+  if (task.permissions.submit_for_review) return { action: 'submit-review', label: 'Submit for review' };
+  if (task.permissions.review) return { action: 'approve', label: 'Approve & complete' };
+  return null;
 }
 
 function renderWorkflow(task) {
-  const steps = [['notified', 'Notified'], ['unassigned', 'Unassigned'], ['assigned', 'Assigned'], ['in_progress', 'In progress'], ['submitted_for_review', 'Review'], ['completed', 'Completed']];
-  const current = steps.findIndex(([status]) => status === task.status);
-  const notice = task.status === 'on_hold' ? '<p class="workflow-banner">On hold — waiting to resume.</p>' : (task.status === 'cancelled' ? '<p class="workflow-banner is-cancelled">This task has been cancelled.</p>' : '');
-  return `<section class="workflow-card"><div class="workflow-card__head"><strong>Workflow</strong><div class="detail-actions">${renderActions(task)}</div></div>${notice}<ol class="workflow-stepper">${steps.map(([status, label], index) => `<li class="${index < current ? 'done' : ''} ${index === current ? 'current' : ''}"><i>${index < current ? '✓' : ''}</i><span>${label}</span></li>`).join('')}</ol></section>`;
+  const steps = [
+    ['notified', 'Notified'],
+    ['unassigned', 'Unassigned'],
+    ['assigned', 'Assigned'],
+    ['in_progress', task.status === 'rework' ? 'Re-work' : 'In progress'],
+    ['submitted_for_review', 'Review'],
+    ['completed', 'Completed'],
+  ];
+  const currentStatus = task.status === 'on_hold'
+    ? 'in_progress'
+    : (task.status === 'rework' ? 'in_progress' : task.status);
+  const current = steps.findIndex(([status]) => status === currentStatus);
+  const progress = Math.max(0, Math.min(100, Number(task.progress?.work_completion ?? task.progress_percentage ?? 0)));
+  const stages = steps.map(([status, label], index) => `
+    <li class="${index < current ? 'done' : ''} ${index === current ? 'current' : ''} ${task.status === 'cancelled' && status === 'completed' ? 'cancelled' : ''}">
+      <i>${index < current ? '✓' : ''}</i><span>${label}</span>
+    </li>
+  `).join('');
+  const progressUpdate = task.permissions.update_subtask || task.permissions.create_subtask
+    ? '<button type="button" class="progress-update" data-detail-tab-target="subtasks">Update</button>'
+    : '';
+
+  return `
+    <section class="task-workflow-card">
+      <ol class="task-workflow-steps">${stages}</ol>
+      ${task.status === 'on_hold' ? '<p class="task-workflow-notice">On hold — waiting to resume.</p>' : ''}
+      ${task.status === 'cancelled' ? '<p class="task-workflow-notice is-cancelled">This task was cancelled.</p>' : ''}
+      <div class="task-progress-row">
+        <strong>Progress</strong>
+        <div class="task-progress-track" role="progressbar" aria-label="Task progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
+        <span>${progress}%</span>
+        ${progressUpdate}
+      </div>
+    </section>
+  `;
+}
+
+function showTaskDetailPage(show) {
+  elements.home_intro.hidden = show;
+  elements.stats.hidden = show;
+  elements.task_list_section.hidden = show;
+  elements.task_detail_page.hidden = !show;
+  if (!show) {
+    elements.details.hidden = true;
+    state.currentTask = null;
+    state.selectedTaskId = null;
+  }
 }
 
 async function openTask(taskId, intent = 'open') {
   const sequence = ++detailLoadSequence;
   state.selectedTaskId = Number(taskId);
+  if (state.currentTask?.id !== state.selectedTaskId) state.activeTaskTab = 'activity';
+  state.currentTask = null;
+  showTaskDetailPage(true);
   renderTasks();
   elements.details.hidden = false;
-  elements.details.parentElement.classList.add('has-details');
   elements.details.innerHTML = '<div class="detail-loading">Loading task details…</div>';
 
   try {
@@ -554,6 +816,7 @@ async function openTask(taskId, intent = 'open') {
       return;
     }
 
+    state.currentTask = response.data.task;
     renderTaskDetail(response.data.task, intent);
   } catch (error) {
     if (sequence === detailLoadSequence) {
@@ -564,46 +827,116 @@ async function openTask(taskId, intent = 'open') {
 }
 
 function renderTaskDetail(task, intent = 'open') {
-  elements.details.innerHTML = `
-    <div class="detail-header">
-      <div><span class="task-code">${escapeHtml(task.task_code)}</span><h2>${escapeHtml(task.title)}</h2></div>
-      <button type="button" class="icon-button" data-close-details aria-label="Close task details">×</button>
-    </div>
-    <p class="detail-context">${escapeHtml(task.company?.name || '—')} · ${escapeHtml(task.department?.name || '—')}</p>
-    ${renderWorkflow(task)}
-    <div class="detail-grid">
-      <div><span>Status</span><strong>${escapeHtml(task.status_label)}</strong></div>
-      <div><span>Priority</span><strong class="priority ${escapeHtml(task.priority || 'medium')}">${escapeHtml(task.priority || 'Unspecified')}</strong></div>
-      <div><span>Company</span><strong>${escapeHtml(task.company?.name || '—')}</strong></div>
-      <div><span>Department</span><strong>${escapeHtml(task.department?.name || '—')}</strong></div>
-      <div><span>Deadline</span><strong>${deadlineMarkup(task)}</strong></div>
-      <div><span>Task type</span><strong>${escapeHtml(task.task_type || '—')}</strong></div>
-      <div><span>Estimated effort</span><strong>${task.estimated_hours ? `${escapeHtml(task.estimated_hours)} hours` : '—'}</strong></div>
-      <div><span>Started</span><strong>${escapeHtml(task.start_date || '—')}</strong></div>
-      <div><span>Points of contact</span><strong>${escapeHtml(task.pocs?.map((person) => person.name).join(', ') || '—')}</strong></div>
-      <div><span>Assignees</span><strong>${escapeHtml(task.assignees?.map((person) => person.name).join(', ') || 'Unassigned')}</strong></div>
-      <div><span>Progress</span><strong>${Number(task.progress_percentage || 0)}%</strong></div>
-      <div><span>Subtasks complete</span><strong>${Number(task.subtask_counts?.completed || 0)} / ${Number(task.subtask_counts?.total || 0)}</strong></div>
-    </div>
-    <div class="detail-actions">${task.permissions.update ? '<button type="button" class="ghost" data-edit-task>Edit task</button>' : ''}</div>
-    <section class="detail-section"><h3>Description</h3><p class="detail-description">${escapeHtml(task.description || 'No description provided.')}</p></section>
-    <section class="detail-section">
-      <div class="section-heading"><h3>Subtasks</h3>${task.permissions.create_subtask ? '<button type="button" class="small-button" data-add-subtask>Add subtask</button>' : ''}</div>
+  const primaryAction = primaryWorkflowAction(task);
+  const statusOptions = allowedStatusOptions(task).filter(([status]) => !(
+    (primaryAction?.action === 'submit-review' && status === 'submitted_for_review')
+    || (primaryAction?.action === 'accept' && status === 'unassigned')
+  ));
+  const additionalActions = [];
+  if (task.permissions.update) {
+    additionalActions.push('<button type="button" data-detail-edit>Edit task / reassign</button>');
+  }
+  if (task.permissions.review && primaryAction?.action === 'approve') {
+    additionalActions.push('<button type="button" data-detail-action="rework">Request changes</button>');
+  }
+  if (task.permissions.flag_risk) {
+    additionalActions.push(`<button type="button" data-detail-action="${task.risk_reason ? 'resolve-risk' : 'flag-risk'}">${task.risk_reason ? 'Resolve risk' : 'Flag risk'}</button>`);
+  }
+  statusOptions.forEach(([status, label]) => {
+    additionalActions.push(`<button type="button" data-detail-status="${escapeHtml(status)}">${escapeHtml(label)}</button>`);
+  });
+  const extensionRequests = task.deadline_extension_requests || [];
+  const tabs = [
+    ['activity', 'Activity', task.history?.length || 0],
+    ['subtasks', 'Subtasks', task.subtasks?.length || 0],
+    ['requests', 'Requests', extensionRequests.length],
+  ];
+  const activeTab = tabs.some(([tab]) => tab === state.activeTaskTab) ? state.activeTaskTab : 'activity';
+  const activeTabContent = activeTab === 'subtasks'
+    ? `
+      ${task.permissions.create_subtask ? '<button type="button" class="primary add-subtask" data-add-subtask>Add subtask</button>' : ''}
       ${renderSubtasks(task)}
-    </section>
-    <section class="detail-section"><h3>Expected output</h3><p>${escapeHtml(task.expected_output || '—')}</p></section>
-    ${task.hold_reason ? `<section class="detail-section"><h3>Hold reason</h3><p>${escapeHtml(task.hold_reason)}</p></section>` : ''}
-    ${task.risk_reason ? `<section class="detail-section"><h3>Risk note</h3><p>${escapeHtml(task.risk_reason)}</p></section>` : ''}
-    <section class="detail-section"><h3>Recent activity</h3>${renderHistory(task)}</section>
+    `
+    : (activeTab === 'requests' ? renderExtensionRequests(task) : renderHistory(task));
+  const statusLabel = task.status_label || task.status;
+  const deadlineLabel = effectiveDeadline(task);
+
+  elements.details.innerHTML = `
+    <article class="task-detail-summary">
+      <header class="task-detail-header">
+        <div class="task-detail-heading">
+          <span class="task-code">${escapeHtml(task.task_code || `#${task.id}`)}</span>
+          <h1>${escapeHtml(task.title)}</h1>
+          <p>${escapeHtml(task.company?.name || '—')} · ${escapeHtml(task.department?.name || '—')}</p>
+          <div class="task-detail-badges">
+            <span class="status">${escapeHtml(statusLabel)}</span>
+            <span class="priority ${escapeHtml(task.priority || 'medium')}">${escapeHtml(task.priority || 'Unspecified')}</span>
+            ${task.is_overdue ? `<span class="deadline overdue">Overdue${deadlineLabel ? ` · ${Math.abs(Number(task.progress?.remaining_days || 0))} days` : ''}</span>` : ''}
+          </div>
+        </div>
+        <div class="task-detail-actions">
+          ${task.permissions.request_deadline_extension ? '<button type="button" class="ghost" data-request-extension>Request extension</button>' : ''}
+          ${primaryAction ? `<button type="button" class="primary" data-primary-workflow="${escapeHtml(primaryAction.action)}">${escapeHtml(primaryAction.label)}</button>` : ''}
+          ${additionalActions.length ? `
+            <details class="task-detail-more">
+              <summary aria-label="More task options" title="More task options">···</summary>
+              <div>${additionalActions.join('')}</div>
+            </details>
+          ` : ''}
+        </div>
+      </header>
+      ${renderWorkflow(task)}
+    </article>
+    <div class="task-detail-columns">
+      <section class="task-detail-main">
+        <nav class="task-detail-tabs" aria-label="Task sections">
+          ${tabs.map(([tab, label, count]) => `
+            <button type="button" class="${activeTab === tab ? 'is-active' : ''}" data-detail-tab="${tab}" aria-selected="${activeTab === tab}">
+              ${label}<span>${Number(count || 0)}</span>
+            </button>
+          `).join('')}
+        </nav>
+        <section class="task-detail-tab-panel" aria-live="polite">
+          ${activeTabContent}
+        </section>
+      </section>
+      <aside class="task-detail-info">
+        <h2>Details</h2>
+        <dl>
+          <div><dt>Assignee</dt><dd>${escapeHtml(task.assignees?.map((person) => person.name).join(', ') || 'Unassigned')}</dd></div>
+          <div><dt>Due date</dt><dd>${escapeHtml(formatDate(deadlineLabel))}</dd></div>
+          <div><dt>Priority</dt><dd>${escapeHtml(task.priority || 'Unspecified')}</dd></div>
+          <div><dt>Task type</dt><dd>${escapeHtml(task.task_type || '—')}</dd></div>
+          <div><dt>Company</dt><dd>${escapeHtml(task.company?.name || '—')}</dd></div>
+          <div><dt>Department</dt><dd>${escapeHtml(task.department?.name || '—')}</dd></div>
+          <div><dt>Estimated effort</dt><dd>${task.estimated_hours ? `${escapeHtml(task.estimated_hours)} hours` : '—'}</dd></div>
+          <div><dt>Created</dt><dd>${escapeHtml(formatDate(task.created_at))}</dd></div>
+        </dl>
+        ${task.description ? `<section class="task-detail-description"><h3>Description</h3><p>${escapeHtml(task.description)}</p></section>` : ''}
+        ${task.expected_output ? `<section class="task-detail-description"><h3>Expected output</h3><p>${escapeHtml(task.expected_output)}</p></section>` : ''}
+      </aside>
+    </div>
   `;
 
-  elements.details.querySelector('[data-close-details]')?.addEventListener('click', () => {
-    elements.details.hidden = true;
-    elements.details.parentElement.classList.remove('has-details');
-    state.selectedTaskId = null;
-    renderTasks();
+  elements.details.querySelectorAll('[data-detail-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.activeTaskTab = button.dataset.detailTab;
+      renderTaskDetail(task, intent);
+    });
   });
-  elements.details.querySelector('[data-edit-task]')?.addEventListener('click', () => openTaskDialog(task));
+  elements.details.querySelector('[data-detail-tab-target]')?.addEventListener('click', () => {
+    state.activeTaskTab = 'subtasks';
+    renderTaskDetail(task, intent);
+    elements.details.querySelector('.task-detail-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  elements.details.querySelector('[data-primary-workflow]')?.addEventListener('click', (event) => {
+    performAction(task, event.currentTarget.dataset.primaryWorkflow);
+  });
+  elements.details.querySelector('[data-request-extension]')?.addEventListener('click', () => openExtensionDialog(task));
+  elements.details.querySelector('[data-detail-edit]')?.addEventListener('click', (event) => {
+    event.currentTarget.closest('.task-detail-more')?.removeAttribute('open');
+    openTaskDialog(task);
+  });
   elements.details.querySelector('[data-add-subtask]')?.addEventListener('click', () => createSubtask(task));
   elements.details.querySelectorAll('[data-toggle-subtask]').forEach((button) => {
     button.addEventListener('click', () => toggleSubtask(task, Number(button.dataset.toggleSubtask)));
@@ -611,14 +944,24 @@ function renderTaskDetail(task, intent = 'open') {
   elements.details.querySelectorAll('[data-edit-subtask]').forEach((button) => {
     button.addEventListener('click', () => editSubtask(task, Number(button.dataset.editSubtask)));
   });
-  elements.details.querySelectorAll('[data-edit-subtask]').forEach((button) => {
-    button.addEventListener('click', () => editSubtask(task, Number(button.dataset.editSubtask)));
+  elements.details.querySelectorAll('[data-detail-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      button.closest('.task-detail-more')?.removeAttribute('open');
+      performAction(task, button.dataset.detailAction);
+    });
   });
-  elements.details.querySelectorAll('[data-action]').forEach((button) => {
-    button.addEventListener('click', () => performAction(task, button.dataset.action));
+  elements.details.querySelectorAll('[data-detail-status]').forEach((button) => {
+    button.addEventListener('click', () => {
+      button.closest('.task-detail-more')?.removeAttribute('open');
+      changeStatus(task, button.dataset.detailStatus);
+    });
   });
-  elements.details.querySelector('[data-status-select]')?.addEventListener('change', (event) => {
-    if (event.target.value) changeStatus(task, event.target.value);
+  elements.details.querySelectorAll('[data-extension-decision]').forEach((button) => {
+    button.addEventListener('click', () => reviewDeadlineExtension(
+      task,
+      Number(button.dataset.extensionRequestId),
+      button.dataset.extensionDecision,
+    ));
   });
 
   if (intent === 'reassign') {
@@ -626,14 +969,6 @@ function renderTaskDetail(task, intent = 'open') {
       openTaskDialog(task);
     } else {
       showToast('You do not have permission to re-assign this task.', true);
-    }
-  } else if (intent === 'status') {
-    const statusSelect = elements.details.querySelector('[data-status-select]');
-    if (statusSelect) {
-      statusSelect.focus();
-      statusSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      showToast('There are no status changes available for this task.', true);
     }
   }
 }
@@ -673,6 +1008,9 @@ function actionFields(action, task, status = '') {
   if (action === 'approve' || action === 'rework') {
     return field('comment', 'Review comment (optional)', 'textarea', false, '', 2000);
   }
+  if (action === 'extension-review') {
+    return field('review_note', 'Review note (optional)', 'textarea', false, '', 2000);
+  }
   if (action === 'status') {
     const fields = [];
     if (['on_hold', 'cancelled', 'submitted_for_review'].includes(status)) {
@@ -688,6 +1026,7 @@ function actionFields(action, task, status = '') {
 
 function requestActionDetails(action, task, status = '') {
   const labels = {
+    accept: ['Accept task', 'Confirm that you want to accept this task.'],
     start: ['Start work', 'Record the note and date for starting this task.'],
     'work-update': ['Add work update', 'Add a dated progress update to this task.'],
     resume: ['Resume work', 'Optionally add a note before resuming this task.'],
@@ -696,6 +1035,7 @@ function requestActionDetails(action, task, status = '') {
     'submit-review': ['Submit for review', 'Add a submission note and date.'],
     approve: ['Approve task', 'Confirm the review decision.'],
     rework: ['Return for re-work', 'Optionally add a note explaining the rework.'],
+    'extension-review': ['Review deadline extension', 'Add an optional note for the requester.'],
     status: [task.status_options[status] || 'Change task status', 'Confirm this workflow transition.'],
   };
   return labels[action] || ['Update task', 'Confirm this task update.'];
@@ -706,7 +1046,9 @@ function showActionDialog(action, task, status = '') {
   elements.action_title.textContent = title;
   elements.action_description.textContent = description;
   elements.action_fields.innerHTML = actionFields(action, task, status);
-  elements.action_submit.textContent = action === 'approve' ? 'Approve task' : 'Continue';
+  elements.action_submit.textContent = action === 'approve'
+    ? 'Approve task'
+    : (action === 'accept' ? 'Accept task' : 'Continue');
   return new Promise((resolve) => {
     state.actionResolver = resolve;
     elements.action_dialog.showModal();
@@ -755,7 +1097,7 @@ async function changeStatus(task, status) {
 async function runTaskAction(taskId, action, body) {
   if (state.taskActionPending) return;
   state.taskActionPending = true;
-  elements.details.querySelectorAll('[data-action], [data-status-select], [data-edit-task]').forEach((button) => {
+  elements.details.querySelectorAll('button').forEach((button) => {
     button.disabled = true;
   });
 
@@ -780,6 +1122,135 @@ async function runTaskAction(taskId, action, body) {
     showToast(`Could not contact Laravel. ${error.message}`, true);
   } finally {
     state.taskActionPending = false;
+  }
+}
+
+async function submitActivity(event) {
+  event.preventDefault();
+  const form = event.target.closest('[data-activity-form]');
+  const note = new FormData(form).get('note')?.toString().trim();
+  if (!note || !state.currentTask?.permissions.add_work_update) return;
+  const taskId = Number(state.currentTask.id);
+
+  const submitButton = form.querySelector('[data-activity-submit]');
+  submitButton.disabled = true;
+  try {
+    const response = await api.taskAction({
+      taskId,
+      action: 'work-updates',
+      body: { note, update_date: localDateString() },
+    });
+    if (!response.ok) {
+      if (handleUnauthorized(response)) return;
+      showToast(responseMessage(response), true);
+      return;
+    }
+    if (!response.data?.task || Number(response.data.task.id) !== Number(state.currentTask.id)) {
+      showToast('Laravel did not confirm the activity update. Refresh the task before retrying.', true);
+      return;
+    }
+    showToast(response.data.message || 'Activity added.');
+    await loadTasks();
+    await openTask(taskId);
+  } catch (error) {
+    showToast(`Could not save the activity update. ${error.message}`, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function openExtensionDialog(task) {
+  const currentDate = effectiveDeadline(task) || localDateString();
+  const minimumDate = new Date(`${currentDate}T00:00:00`);
+  minimumDate.setDate(minimumDate.getDate() + 1);
+  const year = minimumDate.getFullYear();
+  const month = String(minimumDate.getMonth() + 1).padStart(2, '0');
+  const day = String(minimumDate.getDate()).padStart(2, '0');
+  elements.extension_deadline.min = `${year}-${month}-${day}`;
+  elements.extension_deadline.value = elements.extension_deadline.min;
+  elements.extension_reason.value = '';
+  elements.extension_form_error.hidden = true;
+  elements.extension_submit.disabled = false;
+  elements.extension_dialog.showModal();
+  elements.extension_deadline.focus();
+}
+
+async function submitExtensionRequest(event) {
+  event.preventDefault();
+  const task = state.currentTask;
+  if (!task?.permissions.request_deadline_extension) {
+    elements.extension_form_error.textContent = 'You no longer have permission to request a deadline extension.';
+    elements.extension_form_error.hidden = false;
+    return;
+  }
+
+  elements.extension_submit.disabled = true;
+  elements.extension_form_error.hidden = true;
+  try {
+    const response = await api.requestDeadlineExtension({
+      taskId: task.id,
+      body: {
+        requested_deadline: elements.extension_deadline.value,
+        reason: elements.extension_reason.value.trim(),
+      },
+    });
+    if (!response.ok) {
+      if (handleUnauthorized(response)) return;
+      elements.extension_form_error.textContent = responseMessage(response);
+      elements.extension_form_error.hidden = false;
+      return;
+    }
+    if (!response.data?.request?.id) {
+      elements.extension_form_error.textContent = 'Laravel did not confirm the extension request. Refresh the task before retrying.';
+      elements.extension_form_error.hidden = false;
+      return;
+    }
+
+    elements.extension_dialog.close();
+    showToast(response.data.message || 'Deadline extension request submitted.');
+    await loadTasks();
+    await openTask(task.id);
+    state.activeTaskTab = 'requests';
+    if (state.currentTask) renderTaskDetail(state.currentTask);
+  } catch (error) {
+    elements.extension_form_error.textContent = `Could not submit the request. ${error.message}`;
+    elements.extension_form_error.hidden = false;
+  } finally {
+    elements.extension_submit.disabled = false;
+  }
+}
+
+async function reviewDeadlineExtension(task, requestId, decision) {
+  if (state.extensionReviewPending || !['approve', 'reject'].includes(decision)) return;
+  const values = await showActionDialog('extension-review', task);
+  if (!values) return;
+
+  state.extensionReviewPending = true;
+  try {
+    const response = await api.reviewDeadlineExtension({
+      taskId: task.id,
+      requestId,
+      body: { decision, ...values },
+    });
+    if (!response.ok) {
+      if (handleUnauthorized(response)) return;
+      showToast(responseMessage(response), true);
+      return;
+    }
+    if (!response.data?.request?.id) {
+      showToast('Laravel did not confirm the extension review. Refresh the task before retrying.', true);
+      return;
+    }
+
+    showToast(response.data.message || `Deadline extension ${decision}d.`);
+    await loadTasks();
+    await openTask(task.id);
+    state.activeTaskTab = 'requests';
+    if (state.currentTask) renderTaskDetail(state.currentTask);
+  } catch (error) {
+    showToast(`Could not review the deadline extension. ${error.message}`, true);
+  } finally {
+    state.extensionReviewPending = false;
   }
 }
 
@@ -974,6 +1445,24 @@ async function saveTask(event) {
 }
 
 function bindEvents() {
+  document.addEventListener('pointerdown', (event) => {
+    if (!state.taskMenuTrigger) return;
+    const menu = document.querySelector('.task-action-menu');
+    if (menu?.contains(event.target) || state.taskMenuTrigger.contains(event.target)) return;
+    closeTaskMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.taskMenuTrigger) {
+      event.preventDefault();
+      closeTaskMenu(true);
+    }
+  });
+  window.addEventListener('resize', () => closeTaskMenu());
+  window.addEventListener('scroll', (event) => {
+    if (document.querySelector('.task-action-menu')?.contains(event.target)) return;
+    closeTaskMenu();
+  }, true);
+
   const passwordToggle = document.querySelector('[data-password-toggle]');
   passwordToggle?.addEventListener('click', () => {
     const reveal = elements.login_password.type === 'password';
@@ -1115,6 +1604,19 @@ function bindEvents() {
     event.preventDefault();
     finishActionDialog(null);
   });
+  elements.extension_form.addEventListener('submit', submitExtensionRequest);
+  elements.extension_cancel.addEventListener('click', () => elements.extension_dialog.close());
+  elements.extension_dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    elements.extension_dialog.close();
+  });
+  elements.details.addEventListener('submit', (event) => {
+    if (event.target.closest('[data-activity-form]')) submitActivity(event);
+  });
+  elements.back_to_tasks.addEventListener('click', () => {
+    showTaskDetailPage(false);
+    renderTasks();
+  });
   elements.subtask_form.addEventListener('submit', saveSubtask);
   elements.subtask_cancel.addEventListener('click', () => elements.subtask_dialog.close());
   elements.subtask_dialog.addEventListener('close', () => {
@@ -1122,10 +1624,19 @@ function bindEvents() {
     state.subtaskTaskId = null;
   });
   elements.board.addEventListener('click', (event) => {
+    const menuTrigger = event.target.closest('[data-task-menu-trigger]');
+    if (menuTrigger) {
+      openTaskMenu(menuTrigger);
+      return;
+    }
+
     const action = event.target.closest('[data-task-intent]');
     if (action) {
       const card = action.closest('[data-task-id]');
-      if (card) openTask(Number(card.dataset.taskId), action.dataset.taskIntent);
+      if (card) {
+        action.closest('.task-row-menu')?.removeAttribute('open');
+        openTask(Number(card.dataset.taskId), action.dataset.taskIntent);
+      }
     }
   });
   elements.previous_page.addEventListener('click', () => {

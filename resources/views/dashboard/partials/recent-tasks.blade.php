@@ -5,7 +5,7 @@
     'showOrganization' => true,
 ])
 
-<article class="tf-card">
+<article class="tf-card tf-recent-tasks-card">
     <div class="tf-card__head tf-card__head--tabs">
         <div class="tf-card__title-group">
             <div class="tf-card__title">
@@ -86,8 +86,10 @@
                             @endif
                         </td>
                         <td>
-                            <span class="tf-dot tf-dot--{{ $task->priority }}"></span>
-                            <span class="small text-capitalize">{{ $task->priority }}</span>
+                            <span class="tf-recent-tasks__priority tf-recent-tasks__priority--{{ $task->priority }}">
+                                <span class="tf-dot" aria-hidden="true"></span>
+                                <span>{{ $task->priority }}</span>
+                            </span>
                         </td>
                         <td>
                             <div class="d-flex flex-column align-items-start gap-1">
@@ -103,7 +105,7 @@
                         </td>
                         <td>
                             @if ($task->due_date)
-                                <span class="small @if($isOverdue) text-danger fw-bold @else text-muted @endif">
+                                <span class="tf-recent-tasks__due-date {{ $isOverdue ? 'is-overdue' : '' }}">
                                     {{ $task->due_date->format('M d, Y') }}
                                 </span>
                             @else

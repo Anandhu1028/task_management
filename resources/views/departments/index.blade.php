@@ -3,7 +3,7 @@
 @section('title', 'Department Management')
 
 @section('content')
-    <header class="tf-page-head">
+    <header class="tf-page-head tf-user-page-head">
         <div>
             <h1>Department Management</h1>
             <p>Manage each department, its designation, company, and status.</p>
@@ -19,18 +19,6 @@
                         <span class="tf-user-bulk-delete-count" data-organization-selection-count>0</span>
                     </button>
                 </form>
-            @endcan
-            @can('departments.view')
-                <a href="{{ route('departments.export', request()->except(['page', 'per_page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
-                    <i class="bi bi-download"></i>
-                    Export
-                </a>
-            @endcan
-            @can('departments.create')
-                <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-bs-toggle="modal" data-bs-target="#departmentFormModal">
-                    <i class="bi bi-diagram-3"></i>
-                    Add Department
-                </button>
             @endcan
         </div>
     </header>
@@ -78,21 +66,37 @@
         </article>
     </section>
 
-    <section class="tf-card tf-user-management">
-        <nav class="tf-user-tabs" aria-label="Filter departments by status">
-            @foreach ([
-                'all' => ['label' => 'All departments', 'count' => $counts->all_count],
-                'active' => ['label' => 'Active', 'count' => $counts->active_count],
-                'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
-            ] as $key => $item)
-                <a href="{{ route('departments.index', array_merge(request()->except(['status', 'page']), $key === 'all' ? [] : ['status' => $key])) }}"
-                   class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) ? 'is-active' : '' }}"
-                   @if (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) aria-current="page" @endif>
-                    {{ $item['label'] }}
-                    <span class="tf-user-tabs__count">{{ $item['count'] ?? 0 }}</span>
-                </a>
-            @endforeach
-        </nav>
+    <section class="tf-card tf-user-management tf-department-management">
+        <div class="tf-user-management__top">
+            <nav class="tf-user-tabs" aria-label="Filter departments by status">
+                @foreach ([
+                    'all' => ['label' => 'All departments', 'count' => $counts->all_count],
+                    'active' => ['label' => 'Active', 'count' => $counts->active_count],
+                    'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
+                ] as $key => $item)
+                    <a href="{{ route('departments.index', array_merge(request()->except(['status', 'page']), $key === 'all' ? [] : ['status' => $key])) }}"
+                       class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) ? 'is-active' : '' }}"
+                       @if (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) aria-current="page" @endif>
+                        {{ $item['label'] }}
+                        <span class="tf-user-tabs__count">{{ $item['count'] ?? 0 }}</span>
+                    </a>
+                @endforeach
+            </nav>
+            <div class="tf-user-page-actions tf-user-management__actions tf-department-management__actions">
+                @can('departments.view')
+                    <a href="{{ route('departments.export', request()->except(['page', 'per_page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
+                        <i class="bi bi-download"></i>
+                        Export
+                    </a>
+                @endcan
+                @can('departments.create')
+                    <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-bs-toggle="modal" data-bs-target="#departmentFormModal">
+                        <i class="bi bi-diagram-3"></i>
+                        Add Department
+                    </button>
+                @endcan
+            </div>
+        </div>
 
         <div class="tf-user-toolbar">
             <form method="GET" action="{{ route('departments.index') }}" class="tf-user-toolbar__search-form tf-department-toolbar__search-form" data-department-filter-form>
@@ -267,7 +271,7 @@
 
         <div id="departmentListView" @if (request('view') === 'kanban') hidden @endif>
         <div class="tf-table-wrap tf-user-table-wrap">
-            <table class="tf-table tf-user-table tf-organization-table">
+            <table class="tf-table tf-user-table tf-organization-table tf-department-table">
                 <thead>
                     <tr>
                         @can('departments.delete')
@@ -275,14 +279,14 @@
                                 <input class="tf-check" type="checkbox" aria-label="Select all departments" data-organization-select-all>
                             </th>
                         @endcan
-                        <th>Department</th>
-                        <th>Company</th>
-                        <th>Designations</th>
-                        <th>Users</th>
-                        <th>Tasks</th>
-                        <th>Description</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th class="tf-department-table__name-heading">Department</th>
+                        <th class="tf-department-table__company-heading">Company</th>
+                        <th class="tf-department-table__designation-heading">Designations</th>
+                        <th class="tf-department-table__users-heading">Users</th>
+                        <th class="tf-department-table__tasks-heading">Tasks</th>
+                        <th class="tf-department-table__description-heading">Description</th>
+                        <th class="tf-department-table__status-heading">Status</th>
+                        <th class="tf-department-table__actions-heading">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -295,15 +299,15 @@
                                            @if ($department->has_any_users) title="Departments with assigned users cannot be deleted" @endif>
                                 </td>
                             @endcan
-                            <td>
+                            <td class="tf-department-table__name">
                                 <span class="tf-user-row">
                                     <span class="tf-user-row__avatar tf-user-row__avatar--department" aria-hidden="true"><i class="bi bi-diagram-3"></i></span>
                                     <span class="tf-user-row__identity"><strong>{{ $department->name }}</strong></span>
                                 </span>
                             </td>
-                            <td>{{ $department->company?->name ?? '—' }}</td>
-                            <td>
-                                <div class="d-flex flex-wrap gap-1">
+                            <td class="tf-department-table__company">{{ $department->company?->name ?? '—' }}</td>
+                            <td class="tf-department-table__designation-cell">
+                                <div class="tf-department-table__designations">
                                     @if ($department->designations->isNotEmpty())
                                         @foreach ($department->designations as $desig)
                                             <span class="tf-department-designation-summary">
@@ -318,18 +322,17 @@
                                     @endif
                                 </div>
                             </td>
-                            <td><span class="tf-user-row__employee-id">{{ number_format($department->users_count) }}</span></td>
-                            <td>
+                            <td class="tf-department-table__metric"><span class="tf-user-row__employee-id">{{ number_format($department->users_count) }}</span></td>
+                            <td class="tf-department-table__metric">
                                 <a href="{{ route('tasks.index', ['department_id' => $department->id]) }}" class="text-decoration-none">
-                                    <span class="badge {{ $department->tasks_count > 0 ? 'bg-primary-subtle text-primary border border-primary-subtle' : 'bg-light text-secondary border' }} fw-medium px-2 py-1">
-                                        <i class="bi bi-list-task me-1"></i>
+                                    <span class="tf-department-count-badge">
                                         {{ number_format($department->tasks_count) }}
                                     </span>
                                 </a>
                             </td>
-                            <td><span class="tf-user-row__designation">{{ $department->description ?: '—' }}</span></td>
-                            <td><span class="tf-management__status tf-management__status--{{ $department->status }}">{{ ucfirst($department->status) }}</span></td>
-                            <td>
+                            <td class="tf-department-table__description" title="{{ $department->description ?: '—' }}"><span>{{ $department->description ?: '—' }}</span></td>
+                            <td class="tf-department-table__status"><span class="tf-management__status tf-management__status--{{ $department->status }}">{{ ucfirst($department->status) }}</span></td>
+                            <td class="tf-department-table__actions">
                                 <div class="dropdown tf-user-row__actions">
                                     <button class="tf-icon-btn tf-icon-btn--sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for {{ $department->name }}">
                                         <i class="bi bi-three-dots"></i>

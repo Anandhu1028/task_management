@@ -12,7 +12,6 @@
 <article class="tf-card">
     <div class="tf-card__head">
         <div class="tf-card__title">
-            <i class="bi bi-pie-chart tf-card__icon"></i>
             <div>
                 <h2>{{ $title }}</h2>
                 <p>Status distribution within scope</p>

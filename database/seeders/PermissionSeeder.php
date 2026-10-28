@@ -40,7 +40,9 @@ class PermissionSeeder extends Seeder
             'tasks.cancel',
         ];
 
-        foreach ($permissions as $permission) {
+        $roleManagementPermissions = config('role-management.management_permissions', []);
+
+        foreach (array_merge($permissions, $roleManagementPermissions) as $permission) {
             Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
         }
 
@@ -50,17 +52,12 @@ class PermissionSeeder extends Seeder
         ]));
 
         $roles = [
-            'Admin' => $permissions,
+            'Admin' => array_merge($permissions, $roleManagementPermissions),
             'CEO' => $permissions,
             'Manager' => ['tasks.view'],
             'Team Leader' => $permissions,
             'Employee' => $employeePermissions,
         ];
-
-        Role::query()
-            ->where('guard_name', 'web')
-            ->whereNotIn('name', array_keys($roles))
-            ->delete();
 
         foreach ($roles as $roleName => $rolePermissions) {
             $role = Role::firstOrCreate(['name' => $roleName, 'guard_name' => 'web']);

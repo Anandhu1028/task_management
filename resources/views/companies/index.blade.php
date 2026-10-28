@@ -3,7 +3,8 @@
 @section('title', 'Company Management')
 
 @section('content')
-    <header class="tf-page-head">
+    <div class="tf-company-page">
+    <header class="tf-page-head tf-user-page-head">
         <div>
             <h1>Company Management</h1>
             <p>Manage registered companies and their operational status.</p>
@@ -19,18 +20,6 @@
                         <span class="tf-user-bulk-delete-count" data-organization-selection-count>0</span>
                     </button>
                 </form>
-            @endcan
-            @can('companies.view')
-                <a href="{{ route('companies.export', request()->except(['page', 'per_page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
-                    <i class="bi bi-download"></i>
-                    Export
-                </a>
-            @endcan
-            @can('companies.create')
-                <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-bs-toggle="modal" data-bs-target="#companyFormModal">
-                    <i class="bi bi-building-add"></i>
-                    Add Company
-                </button>
             @endcan
         </div>
     </header>
@@ -78,21 +67,37 @@
         </article>
     </section>
 
-    <section class="tf-card tf-user-management">
-        <nav class="tf-user-tabs" aria-label="Filter companies by status">
-            @foreach ([
-                'all' => ['label' => 'All companies', 'count' => $counts->all_count],
-                'active' => ['label' => 'Active', 'count' => $counts->active_count],
-                'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
-            ] as $key => $item)
-                <a href="{{ route('companies.index', array_merge(request()->except(['status', 'page']), $key === 'all' ? [] : ['status' => $key])) }}"
-                   class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) ? 'is-active' : '' }}"
-                   @if (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) aria-current="page" @endif>
-                    {{ $item['label'] }}
-                    <span class="tf-user-tabs__count">{{ $item['count'] ?? 0 }}</span>
-                </a>
-            @endforeach
-        </nav>
+    <section class="tf-card tf-user-management tf-company-management">
+        <div class="tf-user-management__top">
+            <nav class="tf-user-tabs" aria-label="Filter companies by status">
+                @foreach ([
+                    'all' => ['label' => 'All companies', 'count' => $counts->all_count],
+                    'active' => ['label' => 'Active', 'count' => $counts->active_count],
+                    'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
+                ] as $key => $item)
+                    <a href="{{ route('companies.index', array_merge(request()->except(['status', 'page']), $key === 'all' ? [] : ['status' => $key])) }}"
+                       class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) ? 'is-active' : '' }}"
+                       @if (request('status', 'all') === $key || ($key === 'all' && ! request('status'))) aria-current="page" @endif>
+                        {{ $item['label'] }}
+                        <span class="tf-user-tabs__count">{{ $item['count'] ?? 0 }}</span>
+                    </a>
+                @endforeach
+            </nav>
+            <div class="tf-user-page-actions tf-user-management__actions">
+                @can('companies.view')
+                    <a href="{{ route('companies.export', request()->except(['page', 'per_page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
+                        <i class="bi bi-download"></i>
+                        Export
+                    </a>
+                @endcan
+                @can('companies.create')
+                    <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-bs-toggle="modal" data-bs-target="#companyFormModal">
+                        <i class="bi bi-building-add"></i>
+                        Add Company
+                    </button>
+                @endcan
+            </div>
+        </div>
 
         <div class="tf-user-toolbar">
             <form method="GET" action="{{ route('companies.index') }}" class="tf-user-toolbar__search-form tf-company-toolbar__search-form" data-company-filter-form>
@@ -285,25 +290,26 @@
                                            @if ($company->has_any_users || $company->has_any_departments) title="Companies with users or departments cannot be deleted" @endif>
                                 </td>
                             @endcan
-                            <td>
+                            <td class="tf-company-table__name">
                                 <a href="{{ route('companies.show', $company) }}" class="tf-user-row">
                                     <span class="tf-user-row__avatar" aria-hidden="true"><i class="bi bi-building"></i></span>
                                     <span class="tf-user-row__identity"><strong>{{ $company->name }}</strong></span>
                                 </a>
                             </td>
-                            <td><span class="tf-user-row__employee-id">{{ number_format($company->departments_count) }}</span></td>
-                            <td><span class="tf-user-row__employee-id">{{ number_format($company->users_count) }}</span></td>
-                            <td>
+                            <td class="tf-company-table__metric"><span class="tf-user-row__employee-id">{{ number_format($company->departments_count) }}</span></td>
+                            <td class="tf-company-table__metric"><span class="tf-user-row__employee-id">{{ number_format($company->users_count) }}</span></td>
+                            <td class="tf-company-table__metric">
                                 <a href="{{ route('tasks.index', ['company_id' => $company->id]) }}" class="text-decoration-none">
-                                    <span class="badge {{ $company->tasks_count > 0 ? 'bg-primary-subtle text-primary border border-primary-subtle' : 'bg-light text-secondary border' }} fw-medium px-2 py-1">
-                                        <i class="bi bi-list-task me-1"></i>
+                                    <span class="tf-company-count-badge">
                                         {{ number_format($company->tasks_count) }}
                                     </span>
                                 </a>
                             </td>
-                            <td><span class="tf-user-row__designation">{{ $company->description ?: '—' }}</span></td>
-                            <td><span class="tf-management__status tf-management__status--{{ $company->status }}">{{ ucfirst($company->status) }}</span></td>
-                            <td>
+                            <td class="tf-company-table__description" title="{{ $company->description ?: '—' }}">
+                                <span>{{ $company->description ?: '—' }}</span>
+                            </td>
+                            <td class="tf-company-table__status"><span class="tf-management__status tf-management__status--{{ $company->status }}">{{ ucfirst($company->status) }}</span></td>
+                            <td class="tf-company-table__actions">
                                 <div class="dropdown tf-user-row__actions">
                                     <button class="tf-icon-btn tf-icon-btn--sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for {{ $company->name }}">
                                         <i class="bi bi-three-dots"></i>
@@ -373,6 +379,7 @@
         </footer>
         </div>
     </section>
+    </div>
 
     @if (auth()->user()->can('companies.create') || auth()->user()->can('companies.update'))
         <div class="modal fade tf-user-modal" tabindex="-1" id="companyFormModal" aria-labelledby="companyFormModalTitle" aria-hidden="true">

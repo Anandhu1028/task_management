@@ -80,6 +80,11 @@ class TaskManagementTest extends TestCase
         $html = $response->getContent();
 
         $response->assertOk();
+        $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge tf-task-detail__summary-badge--(?:workflow|start|deadline|effort)"/', $html));
+        $this->assertSame(1, preg_match('/<div class="tf-task-detail__heading">.*?<h1>.*?<\\/h1>.*?<div class="tf-task-detail__summary-badges"[^>]*>.*?tf-task-detail__summary-badge--workflow.*?tf-task-detail__summary-badge--start.*?tf-task-detail__summary-badge--deadline.*?tf-task-detail__summary-badge--effort/s', $html));
+        $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge-label"><i class="bi bi-(?:arrow-repeat|calendar2-check|alarm|hourglass-split)"/', $html));
+        $this->assertStringNotContainsString('tf-task-detail__summary-item--progress', $html);
+        $this->assertSame(1, preg_match('/<section class="tf-task-detail__summary"[^>]*>.*?<section class="tf-task-detail__workflow-progress"[^>]*>.*?<ol class="tf-task-workflow__steps"[^>]*aria-label="Workflow progress"/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-subtasks-btn")(?=[^>]*data-activity-tab="subtasks")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-timeline")(?=[^>]*class="[^"]*is-active")[^>]*>/s', $html));

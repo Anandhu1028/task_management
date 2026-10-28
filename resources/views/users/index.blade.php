@@ -3,7 +3,7 @@
 @section('title', 'User Management')
 
 @section('content')
-    <header class="tf-page-head">
+    <header class="tf-page-head tf-user-page-head">
         <div>
             <h1>User Management</h1>
             <p>Manage employees, user accounts, departments, and access status.</p>
@@ -19,18 +19,6 @@
                         <span class="tf-user-bulk-delete-count" data-user-selection-count>0</span>
                     </button>
                 </form>
-            @endcan
-            @can('users.view')
-                <a href="{{ route('users.export', request()->except(['page', 'per_page', 'create', 'edit'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
-                    <i class="bi bi-download"></i>
-                    Export
-                </a>
-            @endcan
-            @can('users.create')
-                <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-tf-add-user data-bs-toggle="modal" data-bs-target="#addUserPanel" aria-controls="addUserPanel">
-                    <i class="bi bi-person-plus"></i>
-                    Add User
-                </button>
             @endcan
         </div>
     </header>
@@ -80,20 +68,36 @@
     </section>
 
     <section class="tf-card tf-user-management">
-        <nav class="tf-user-tabs" aria-label="Filter users by status">
-            @foreach ([
-                'all' => ['label' => 'All users', 'count' => $counts->all_count],
-                'active' => ['label' => 'Active', 'count' => $counts->active_count],
-                'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
-            ] as $key => $item)
-                <a href="{{ route('users.index', array_merge(request()->except(['tab', 'page', 'status']), ['tab' => $key])) }}"
-                   class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ $tab === $key ? 'is-active' : '' }}"
-                   @if ($tab === $key) aria-current="page" @endif>
-                    {{ $item['label'] }}
-                    <span class="tf-user-tabs__count">{{ $item['count'] }}</span>
-                </a>
-            @endforeach
-        </nav>
+        <div class="tf-user-management__top">
+            <nav class="tf-user-tabs" aria-label="Filter users by status">
+                @foreach ([
+                    'all' => ['label' => 'All users', 'count' => $counts->all_count],
+                    'active' => ['label' => 'Active', 'count' => $counts->active_count],
+                    'inactive' => ['label' => 'Inactive', 'count' => $counts->inactive_count],
+                ] as $key => $item)
+                    <a href="{{ route('users.index', array_merge(request()->except(['tab', 'page', 'status']), ['tab' => $key])) }}"
+                       class="tf-user-tabs__item tf-user-tabs__item--{{ $key }} {{ $tab === $key ? 'is-active' : '' }}"
+                       @if ($tab === $key) aria-current="page" @endif>
+                        {{ $item['label'] }}
+                        <span class="tf-user-tabs__count">{{ $item['count'] }}</span>
+                    </a>
+                @endforeach
+            </nav>
+            <div class="tf-user-page-actions tf-user-management__actions">
+                @can('users.view')
+                    <a href="{{ route('users.export', request()->except(['page', 'per_page', 'create', 'edit'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
+                        <i class="bi bi-download"></i>
+                        Export
+                    </a>
+                @endcan
+                @can('users.create')
+                    <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-tf-add-user data-bs-toggle="modal" data-bs-target="#addUserPanel" aria-controls="addUserPanel">
+                        <i class="bi bi-person-plus"></i>
+                        Add User
+                    </button>
+                @endcan
+            </div>
+        </div>
 
         <div class="tf-user-toolbar">
             <form method="GET" action="{{ route('users.index') }}" class="tf-user-toolbar__search-form tf-user-directory__search-form" data-user-filter-form>
@@ -165,13 +169,10 @@
                             <input class="tf-check" type="checkbox" aria-label="Select all users" data-select-all>
                         </th>
                         <th>User</th>
-                        <th>Employee ID</th>
-                        <th>Company</th>
-                        <th>Department</th>
+                        <th>Company / Department</th>
                         <th>Designation</th>
                         <th>Tasks</th>
-                        <th>Phone</th>
-                        <th>Email</th>
+                        <th>Contact</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -196,46 +197,46 @@
                                     <span class="tf-user-row__avatar" aria-hidden="true">{{ $initials }}</span>
                                     <span class="tf-user-row__identity">
                                         <strong>{{ $user->name }}</strong>
+                                        <small>{{ $user->employee_id ?: '—' }}</small>
                                     </span>
                                 </a>
                             </td>
-                            <td><span class="tf-user-row__employee-id">{{ $user->employee_id ?: '—' }}</span></td>
                             <td>
-                                @if ($user->company)
-                                    <span class="tf-user-row__company" title="{{ $user->company->name }}">
-                                        {{ $user->company->name }}
-                                    </span>
-                                @else
-                                    <span class="tf-management__secondary">—</span>
-                                @endif
-                            </td>
-                            <td>
-                                @if ($user->department)
-                                    <span class="tf-user-row__department">{{ $user->department->name }}</span>
-                                @else
-                                    <span class="tf-management__secondary">—</span>
-                                @endif
+                                <div class="tf-user-organization">
+                                    @if ($user->company)
+                                        <span class="tf-user-row__company" title="{{ $user->company->name }}">
+                                            {{ $user->company->name }}
+                                        </span>
+                                    @else
+                                        <span class="tf-management__secondary">—</span>
+                                    @endif
+                                    @if ($user->department)
+                                        <span class="tf-user-row__department">{{ $user->department->name }}</span>
+                                    @else
+                                        <span class="tf-management__secondary">—</span>
+                                    @endif
+                                </div>
                             </td>
                             <td>
                                 <span class="tf-user-row__designation">{{ $user->designation ?: '—' }}</span>
                             </td>
                             <td>
                                 <a href="{{ route('tasks.index', ['search' => $user->name]) }}" class="text-decoration-none">
-                                    <span class="badge {{ $user->assigned_tasks_count > 0 ? 'bg-primary-subtle text-primary border border-primary-subtle' : 'bg-light text-secondary border' }} fw-medium px-2 py-1">
-                                        <i class="bi bi-list-task me-1"></i>
+                                    <span class="tf-user-task-count">
                                         {{ number_format($user->assigned_tasks_count) }}
                                     </span>
                                 </a>
                             </td>
-                            <td class="tf-user-row__phone">
-                                @if ($user->phone)
-                                    <i class="bi bi-telephone" aria-hidden="true"></i>
-                                    {{ $user->phone }}
-                                @else
-                                    —
-                                @endif
+                            <td>
+                                <div class="tf-user-contact">
+                                    @if ($user->phone)
+                                        <span class="tf-user-row__phone">{{ $user->phone }}</span>
+                                    @else
+                                        <span class="tf-user-row__phone">—</span>
+                                    @endif
+                                    <span class="tf-user-contact__email">{{ $user->email }}</span>
+                                </div>
                             </td>
-                            <td>{{ $user->email }}</td>
                             <td><span class="tf-management__status tf-management__status--{{ $user->status }}">{{ ucfirst($user->status) }}</span></td>
                             <td>
                                 <div class="dropdown tf-user-row__actions">
@@ -306,7 +307,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="11">
+                            <td colspan="8">
                                 @include('components.empty-state', [
                                     'icon' => 'bi-people',
                                     'title' => 'No users found',

@@ -13,6 +13,8 @@ const ALLOWED_CHANNELS = new Set([
   'desktop:task-action',
   'desktop:save-subtask',
   'desktop:toggle-subtask',
+  'desktop:request-deadline-extension',
+  'desktop:review-deadline-extension',
 ]);
 
 function invoke(channel, payload) {
@@ -36,4 +38,6 @@ contextBridge.exposeInMainWorld('desktopApi', {
   taskAction: (payload) => invoke('desktop:task-action', payload),
   saveSubtask: (payload) => invoke('desktop:save-subtask', payload),
   toggleSubtask: (payload) => invoke('desktop:toggle-subtask', payload),
+  requestDeadlineExtension: (payload) => invoke('desktop:request-deadline-extension', payload),
+  reviewDeadlineExtension: (payload) => invoke('desktop:review-deadline-extension', payload),
 });

@@ -31,6 +31,7 @@ class RoleBasedDashboardTest extends TestCase
     {
         $admin = User::query()->where('email', 'admin@example.com')->firstOrFail();
         $dashboard = app(DashboardService::class)->getDashboardData($admin, 'Admin');
+        $statusColors = array_column($dashboard['statusDistribution']['items'], 'color', 'key');
         $department = $dashboard['departmentAnalytics'][0];
         $departmentStatuses = array_values(array_filter(
             array_keys($department),
@@ -39,6 +40,11 @@ class RoleBasedDashboardTest extends TestCase
 
         $this->assertSame(Task::STATUSES, array_column($dashboard['statusDistribution']['items'], 'key'));
         $this->assertSame(Task::query()->count(), $dashboard['statusDistribution']['total']);
+        $this->assertSame('#1e3a8a', $statusColors['in_progress']);
+        $this->assertSame('#2563eb', $statusColors['completed']);
+        $this->assertSame('#f0f5ff', $statusColors['assigned']);
+        $this->assertSame('#94a3b8', $statusColors['notified']);
+        $this->assertSame('#cbd5e1', $statusColors['cancelled']);
         $this->assertSame(Task::STATUSES, $departmentStatuses);
         $this->assertArrayNotHasKey('todo', $department);
         $this->assertArrayNotHasKey('in_review', $department);

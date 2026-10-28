@@ -8,23 +8,6 @@
             <h1>All Tasks</h1>
             <p>Comprehensive register of tasks across companies, departments, and teams.</p>
         </div>
-        <div class="tf-page-head__actions tf-user-page-actions">
-            {{-- Export Report Button --}}
-            @can('tasks.view')
-                <a href="{{ route('tasks.export', request()->except(['page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
-                    <i class="bi bi-download"></i>
-                    Export Report
-                </a>
-            @endcan
-
-            {{-- Create Task Button --}}
-            @can('tasks.create')
-                <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-task-create-trigger>
-                    <i class="bi bi-plus-lg"></i>
-                    Create Task
-                </button>
-            @endcan
-        </div>
     </header>
 
     @if (session('error'))
@@ -32,7 +15,7 @@
     @endif
 
     {{-- Summary Cards --}}
-    <section class="tf-user-summary" aria-label="Task summary statistics">
+    <section class="tf-user-summary tf-task-summary" aria-label="Task summary statistics">
         <article class="tf-user-summary__card tf-user-summary__card--total">
             <span class="tf-user-summary__icon"><i class="bi bi-check2-square"></i></span>
             <div class="tf-user-summary__content">
@@ -75,7 +58,27 @@
     </section>
 
     {{-- Main Card --}}
-    <section class="tf-card tf-user-management">
+    <section class="tf-card tf-user-management tf-task-management">
+        @if (auth()->user()->can('tasks.view') || auth()->user()->can('tasks.create'))
+            <div class="tf-user-management__top tf-task-management__top">
+                <div class="tf-user-page-actions tf-user-management__actions tf-task-management__actions">
+                    @can('tasks.view')
+                        <a href="{{ route('tasks.export', request()->except(['page'])) }}" class="tf-btn tf-btn--ghost tf-user-action-btn tf-user-action-btn--export">
+                            <i class="bi bi-download"></i>
+                            Export
+                        </a>
+                    @endcan
+
+                    @can('tasks.create')
+                        <button type="button" class="tf-btn tf-btn--primary tf-user-action-btn tf-user-action-btn--add" data-task-create-trigger>
+                            <i class="bi bi-plus-lg"></i>
+                            Create Task
+                        </button>
+                    @endcan
+                </div>
+            </div>
+        @endif
+
         <div class="tf-user-toolbar">
             <form id="taskFilterForm" method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
                 <input type="hidden" name="task_type" value="{{ request('task_type') }}">
@@ -341,7 +344,7 @@
                                         <span>{{ (int) $task->progress_percentage }}%</span>
                                     </div>
                                     <div class="progress tf-task-progress__track">
-                                        <div class="progress-bar {{ $task->progress_percentage == 100 ? 'bg-success' : ($isOverdue ? 'bg-danger' : 'bg-primary') }}"
+                                        <div class="progress-bar tf-task-progress__fill {{ $status === 'completed' ? 'tf-task-progress__fill--completed' : ($deadlineCondition === 'at_risk' ? 'tf-task-progress__fill--at-risk' : ($isOverdue ? 'tf-task-progress__fill--overdue' : 'tf-task-progress__fill--default')) }}"
                                              role="progressbar"
                                              style="width: {{ $task->progress_percentage }}%;"
                                              aria-valuenow="{{ $task->progress_percentage }}"

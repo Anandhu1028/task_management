@@ -1,0 +1,938 @@
+/* Department management styles */
+
+.tf-department-toolbar__search-form {
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+}
+
+.tf-department-toolbar__filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.tf-department-toolbar__filters .tf-user-toolbar__select select {
+    max-width: 140px;
+}
+
+@media (max-width: 767.98px) {
+
+    .tf-department-toolbar__search-form {
+        flex-wrap: wrap;
+    }
+
+    .tf-department-toolbar__search-form .tf-user-search {
+        flex: 1 1 100%;
+    }
+
+    .tf-department-toolbar__filters {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+        margin-left: 0;
+    }
+
+    .tf-department-toolbar__filters .tf-user-toolbar__select {
+        flex: 1 1 120px;
+    }
+
+    .tf-department-toolbar__filters .tf-user-toolbar__select select {
+        width: 100%;
+        max-width: none;
+    }
+}
+
+    .tf-department-designations {
+        overflow: hidden;
+        min-height: 46px;
+        border: 1px solid #e1e7ef;
+        border-radius: 9px;
+        background: #fff;
+    }
+
+    .tf-department-designation {
+        position: relative;
+        border-bottom: 1px solid #edf0f4;
+    }
+
+    .tf-department-designation:last-of-type {
+        border-bottom: 0;
+    }
+
+    .tf-department-designation__main {
+        display: flex;
+        min-height: 46px;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+    }
+
+    .tf-department-designation__main > strong {
+        min-width: 100px;
+        color: #27364b;
+        font-size: 11px;
+        font-weight: 650;
+    }
+
+    .tf-department-designation__roles {
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .tf-department-role {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: #4b5a70;
+        font-size: 9.5px;
+        line-height: 1.2;
+    }
+
+    .tf-department-role button {
+        display: inline-grid;
+        width: 17px;
+        height: 17px;
+        flex: 0 0 17px;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: #7c899a;
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .tf-department-role button:hover {
+        background: #e8edf4;
+        color: #334155;
+    }
+
+    .tf-department-designation__add-role {
+        padding: 2px 4px;
+        border: 0;
+        background: transparent;
+        color: #2563eb;
+        font-size: 9.5px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .tf-department-designation__role-editor {
+        display: flex;
+        gap: 7px;
+        padding: 0 12px 9px;
+    }
+
+    .tf-department-designation__role-editor[hidden] {
+        display: none;
+    }
+
+    .tf-department-designation__role-editor .form-control {
+        min-height: 31px;
+        font-size: 11px;
+    }
+
+    .tf-department-designation__role-editor .tf-btn {
+        min-height: 31px;
+        padding: 0 10px;
+        font-size: 10px;
+        white-space: nowrap;
+    }
+
+    .tf-department-designation__cancel-role {
+        padding: 0 7px;
+        border: 0;
+        background: transparent;
+        color: #718096;
+        font-size: 10px;
+    }
+
+    .tf-department-designations__empty {
+        margin: 0;
+        padding: 13px;
+        color: #8791a0;
+        font-size: 10px;
+        font-style: italic;
+    }
+
+    .tf-department-designation-summary {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        margin: 2px 4px 2px 0;
+        padding: 4px 6px;
+        border: 1px solid #e5eaf0;
+        border-radius: 6px;
+        background: #fff;
+    }
+
+    .tf-department-designation-summary strong {
+        color: #475569;
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    .tf-department-designation-summary small {
+        padding: 2px 5px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: #617087;
+        font-size: 8.5px;
+    }
+
+    @media (max-width: 575px) {
+        .tf-department-designation__main {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 7px;
+        }
+
+        .tf-department-designation__main > strong {
+            flex-basis: calc(100% - 30px);
+        }
+
+        .tf-department-designation__roles {
+            flex-basis: 100%;
+        }
+
+        .tf-department-designation__role-editor {
+            flex-wrap: wrap;
+        }
+    }
+
+.tf-department-toolbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.tf-department-kanban {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding: 2px 2px 14px;
+    scrollbar-width: thin;
+}
+
+.tf-department-kanban[hidden], #departmentListView[hidden] {
+    display: none !important;
+}
+
+.tf-department-kanban__column {
+    display: flex;
+    flex: 0 0 min(360px, 86vw);
+    min-width: 0;
+    max-height: min(72vh, 820px);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-top: 3px solid #22c55e;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.tf-department-kanban__column--inactive {
+    border-top-color: #94a3b8;
+}
+
+.tf-department-kanban__header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 13px 14px;
+    border-bottom: 1px solid #e8edf4;
+    background: #fff;
+}
+
+.tf-department-kanban__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.tf-department-kanban__column--active .tf-department-kanban__title > i {
+    color: #16a34a;
+}
+
+.tf-department-kanban__column--inactive .tf-department-kanban__title > i {
+    color: #64748b;
+}
+
+.tf-department-kanban__count {
+    display: inline-grid;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 6px;
+    place-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.tf-department-kanban__cards {
+    display: flex;
+    min-height: 140px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.tf-department-kanban__card {
+    min-width: 0;
+    padding: 13px;
+    border: 1px solid #e5eaf1;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, .035);
+}
+
+.tf-department-kanban__card-header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.tf-department-kanban__card-header > strong {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tf-department-kanban__card-header .tf-user-row__avatar {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+}
+
+.tf-department-kanban__card-header .tf-user-row__actions {
+    flex: 0 0 auto;
+}
+
+.tf-department-kanban__company, .tf-department-kanban__description {
+    margin: 10px 0 0;
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.tf-department-kanban__company {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #52627a;
+    font-weight: 600;
+}
+
+.tf-department-kanban__designations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+}
+
+.tf-department-kanban__designations > span {
+    padding: 4px 7px;
+    border: 1px solid #e5eaf1;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #52627a;
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.tf-department-kanban__stats {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #f0f3f7;
+    color: #64748b;
+    font-size: 10px;
+}
+
+.tf-department-kanban__stats > span, .tf-department-kanban__stats > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.tf-department-kanban__stats > a {
+    color: #2563eb;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.tf-department-kanban__stats > a:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
+.tf-department-kanban__empty {
+    display: grid;
+    min-height: 110px;
+    place-items: center;
+    padding: 15px;
+    color: #94a3b8;
+    font-size: 11px;
+    text-align: center;
+}
+
+@media (max-width: 700px) {
+    .tf-department-toolbar__actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .tf-department-kanban__column {
+        flex-basis: min(330px, 88vw);
+    }
+}
+
+.tf-department-management__actions {
+    gap: 8px;
+}
+
+.tf-department-management__actions .tf-user-action-btn {
+    min-height: 35px;
+    height: 35px;
+    padding: 0 16px;
+    font-size: 12.5px;
+}
+
+.tf-department-management .tf-user-toolbar {
+    min-height: 0;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 0 16px 12px;
+    border: 0;
+}
+
+.tf-department-management .tf-department-toolbar__search-form {
+    flex: 1 1 auto;
+    width: 0;
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+.tf-department-management .tf-user-search {
+    flex: 0 1 220px;
+    width: 220px;
+    min-width: 150px;
+    height: 36px;
+    border-color: #e5eaf3;
+    border-radius: 999px;
+}
+
+.tf-department-management .tf-user-search input {
+    font-size: 11px;
+}
+
+.tf-department-management .tf-department-toolbar__filters {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    gap: 5px;
+    margin-left: auto;
+}
+
+.tf-department-management .tf-department-toolbar__filters .tf-user-toolbar__select {
+    flex: 0 1 112px;
+    min-width: 86px;
+    height: 36px;
+    border-color: #e5eaf3;
+    border-radius: 999px;
+}
+
+.tf-department-management .tf-department-toolbar__filters .tf-user-toolbar__select select {
+    width: 100%;
+    max-width: none;
+    padding-left: 9px;
+    font-size: 10.5px;
+}
+
+.tf-department-management .tf-department-toolbar__filters .tf-user-toolbar__select > i {
+    right: 8px;
+    font-size: 8px;
+}
+
+.tf-department-management .tf-department-toolbar__actions {
+    flex: 0 0 auto;
+    gap: 7px;
+    margin-left: 0;
+}
+
+.tf-department-management .tf-view-toggle {
+    gap: 2px;
+    padding: 3px;
+    border: 0;
+    border-radius: 999px;
+    background: #f0f5ff;
+}
+
+.tf-department-management .tf-view-toggle__btn {
+    width: 30px;
+    height: 30px;
+    justify-content: center;
+    padding: 0;
+    border-radius: 50%;
+    color: #71809a;
+}
+
+.tf-department-management .tf-view-toggle__btn:hover {
+    background: #e4ecfc;
+    color: #2456d9;
+}
+
+.tf-department-management .tf-view-toggle__btn.is-active {
+    background: #fff;
+    color: #2456d9;
+    box-shadow: 0 1px 4px rgba(24, 55, 110, 0.14);
+}
+
+.tf-department-management .tf-view-toggle__btn i {
+    font-size: 13px;
+}
+
+#departmentListView .tf-table-wrap {
+    padding: 0 8px;
+}
+
+#departmentListView .tf-department-table {
+    width: calc(100% - 12px);
+    min-width: 1080px;
+    margin-inline: 6px;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+}
+
+#departmentListView .tf-department-table thead th {
+    padding: 9px 8px;
+    border: 0;
+    background: #f0f5ff;
+    color: #526b9a;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.055em;
+    white-space: nowrap;
+}
+
+#departmentListView .tf-department-table thead th:first-child {
+    border-radius: 9px 0 0 9px;
+}
+
+#departmentListView .tf-department-table thead th:last-child {
+    border-radius: 0 9px 9px 0;
+}
+
+#departmentListView .tf-department-table__name-heading {
+    width: 145px;
+}
+
+#departmentListView .tf-department-table__company-heading {
+    width: 130px;
+}
+
+#departmentListView .tf-department-table__designation-heading {
+    width: 245px;
+}
+
+#departmentListView .tf-department-table__users-heading, #departmentListView .tf-department-table__tasks-heading {
+    width: 62px;
+    text-align: center;
+}
+
+#departmentListView .tf-department-table__description-heading {
+    width: 150px;
+}
+
+#departmentListView .tf-department-table__status-heading {
+    width: 90px;
+}
+
+#departmentListView .tf-department-table__actions-heading {
+    width: 58px;
+    text-align: center;
+}
+
+#departmentListView .tf-department-table tbody td {
+    padding: 12px 8px;
+    border: 0;
+    border-bottom: 1px solid #edf1f7;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+    transition: background-color 150ms ease;
+}
+
+#departmentListView .tf-department-table tbody tr:hover td {
+    background: #f8faff;
+}
+
+#departmentListView .tf-department-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+#departmentListView .tf-department-table .tf-department-table__name {
+    white-space: normal;
+}
+
+#departmentListView .tf-department-table .tf-user-row {
+    min-width: 0;
+    gap: 8px;
+}
+
+#departmentListView .tf-department-table .tf-user-row__avatar {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+}
+
+#departmentListView .tf-department-table .tf-user-row__identity strong {
+    overflow: hidden;
+    color: #132849;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#departmentListView .tf-department-table .tf-department-table__company {
+    color: #132849;
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: normal;
+}
+
+#departmentListView .tf-department-table__designations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+
+#departmentListView .tf-department-designation-summary {
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 3px 5px;
+    border-color: #e6ecf5;
+    border-radius: 999px;
+    background: #fff;
+}
+
+#departmentListView .tf-department-designation-summary strong {
+    color: #334155;
+    font-size: 10.5px;
+    font-weight: 500;
+}
+
+#departmentListView .tf-department-designation-summary small {
+    padding: 2px 5px;
+    background: #eaf1ff;
+    color: #2857c5;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+#departmentListView .tf-department-table__designation-cell .tf-user-row__designation {
+    color: #334155;
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+#departmentListView .tf-department-table .tf-department-table__metric {
+    text-align: center;
+}
+
+#departmentListView .tf-department-table .tf-user-row__employee-id, #departmentListView .tf-department-table .tf-department-count-badge {
+    display: inline-flex;
+    min-width: 24px;
+    justify-content: center;
+    padding: 3px 7px;
+    border: 0;
+    border-radius: 999px;
+    background: #f1f4f9;
+    color: #48566f;
+    font-size: 10.5px;
+    font-weight: 600;
+}
+
+#departmentListView .tf-department-table .tf-department-count-badge {
+    background: #eaf1ff;
+    color: #2857c5;
+}
+
+#departmentListView .tf-department-table__description span {
+    display: block;
+    overflow: hidden;
+    color: #132849;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#departmentListView .tf-department-table .tf-management__status {
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 9.5px;
+    font-weight: 600;
+}
+
+#departmentListView .tf-department-table .tf-management__status::before {
+    width: 5px;
+    height: 5px;
+}
+
+#departmentListView .tf-department-table__actions {
+    text-align: center;
+}
+
+#departmentListView .tf-department-table__actions .tf-icon-btn {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    background: transparent;
+}
+
+.tf-department-management .tf-management__table-footer {
+    min-height: 48px;
+    flex-wrap: wrap;
+    padding: 9px 16px;
+    border-top: 1px solid #edf1f7;
+    color: #73819a;
+    font-size: 10.5px;
+}
+
+.tf-department-management .tf-management__table-footer .pagination {
+    gap: 4px;
+}
+
+.tf-department-management .tf-management__table-footer .page-link {
+    display: inline-flex;
+    min-width: 29px;
+    min-height: 29px;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 7px;
+    border: 1px solid #dfe5ef;
+    border-radius: 8px !important;
+    background: #fff;
+    color: #34425b;
+    font-size: 10.5px;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.tf-department-management .tf-management__table-footer .page-link:hover, .tf-department-management .tf-management__table-footer .page-link:focus {
+    border-color: #9db8f7;
+    background: #f5f8ff;
+    color: #2456d9;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.tf-department-management .tf-management__table-footer .page-item.active .page-link {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.tf-department-management .tf-management__table-footer .page-item.disabled .page-link {
+    border-color: #dfe5ef;
+    background: #fff;
+    color: #9aa6b8;
+    box-shadow: none;
+}
+
+.tf-department-management .tf-management__table-footer .page-item.disabled:not([aria-label]) .page-link {
+    color: #53627c;
+}
+
+@media (max-width: 900px) {
+    .tf-department-management .tf-user-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .tf-department-management .tf-department-toolbar__search-form {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .tf-department-management .tf-department-toolbar__filters {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+        margin-left: 0;
+    }
+
+    .tf-department-management .tf-department-toolbar__actions {
+        margin-left: auto;
+    }
+}
+
+@media (max-width: 700px) {
+    .tf-department-management .tf-user-management__top {
+        flex-wrap: wrap;
+        gap: 0;
+        padding: 0 14px 10px;
+    }
+
+    .tf-department-management .tf-user-management__actions {
+        margin-left: auto;
+    }
+
+    .tf-department-management .tf-user-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .tf-department-management .tf-department-toolbar__search-form {
+        flex: 1 1 100%;
+    }
+
+    .tf-department-management .tf-user-search {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+
+    .tf-department-management .tf-department-toolbar__filters {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
+    }
+
+    .tf-department-management .tf-department-toolbar__filters .tf-user-toolbar__select {
+        flex: 1 1 120px;
+    }
+
+    .tf-department-management .tf-department-toolbar__filters .tf-user-toolbar__select select {
+        font-size: 10.5px;
+    }
+
+    .tf-department-management .tf-department-toolbar__actions {
+        justify-content: flex-end;
+        margin-left: auto;
+    }
+
+
+}
+
+@media (max-width: 480px) {
+
+    .tf-department-management .tf-user-toolbar {
+        padding: 0 12px 12px;
+    }
+
+    .tf-department-management .tf-user-management__actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .tf-department-management .tf-department-toolbar__actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .tf-department-management .tf-management__table-footer {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    #departmentListView .tf-department-table tbody td {
+        font-size: 11px;
+    }
+
+    #departmentListView .tf-department-table .tf-user-row__identity strong, #departmentListView .tf-department-table__designation-cell .tf-user-row__designation, #departmentListView .tf-department-table__description span {
+        font-size: 10.5px;
+    }
+}
+
+/* Departments tab overrides */
+
+.tf-department-management .tf-user-tabs {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 0;
+    max-width: calc(100% - 32px);
+    align-items: center;
+    gap: 3px;
+    margin: 16px 16px 12px;
+    padding: 5px;
+    overflow-x: auto;
+    border: 0;
+    border-radius: 999px;
+    background: #f0f5ff;
+}
+
+.tf-department-management .tf-user-tabs__item {
+    min-height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    color: #63718a;
+    font-size: 11.5px;
+}
+
+.tf-department-management .tf-user-tabs__item:hover, .tf-department-management .tf-user-tabs__item.is-active {
+    color: #2456d9;
+}
+
+.tf-department-management .tf-user-tabs__item.is-active {
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(24, 55, 110, 0.12);
+}
+
+.tf-department-management .tf-user-tabs__item.is-active::after {
+    display: none;
+}
+
+.tf-department-management .tf-user-tabs__count {
+    min-width: 20px;
+    padding: 2px 5px;
+    background: #e5edff;
+    color: #2456d9;
+    font-size: 10.5px;
+}
+
+@media (max-width: 700px) {
+
+    .tf-department-management .tf-user-tabs {
+        margin: 12px 0 8px;
+    }
+
+
+}
+
+@media (max-width: 480px) {
+    .tf-department-management .tf-user-tabs {
+        margin: 12px 12px 10px;
+    }
+}

@@ -12,27 +12,17 @@
 
     <div class="tf-navbar__actions">
 
-        @if (filled(config('desktop.download_url')))
-            <a
-                class="tf-desktop-download"
-                href="{{ config('desktop.download_url') }}"
-                title="Download the Windows desktop app"
-                aria-label="Download the Windows desktop app"
-            >
-                <span class="tf-desktop-download__icon" aria-hidden="true">
-                    <i class="bi bi-download"></i>
-                </span>
-                <span class="tf-desktop-download__copy">
-                    <span class="tf-desktop-download__title">Desktop app</span>
-                    <span class="tf-desktop-download__detail">Windows installer</span>
-                </span>
-            </a>
-        @endif
+        <a
+            class="tf-desktop-pill-btn"
+            href="{{ config('desktop.download_url') ?: '#' }}"
+            title="Download Desktop app"
+            aria-label="Download Desktop app"
+        >
+            <i class="bi bi-arrow-down"></i>
+            <span>Desktop app</span>
+        </a>
 
-        {{-- Theme --}}
-        <button class="tf-icon-btn tf-theme-toggle" type="button" data-tf-theme aria-label="Toggle theme">
-            <i class="bi bi-brightness-high"></i>
-        </button>
+       
 
         {{-- Notifications --}}
         <div class="dropdown" data-tf-notification-poll="{{ route('notifications.poll') }}">
@@ -96,7 +86,6 @@
                 <span class="tf-account-menu__avatar" aria-hidden="true">
                     {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
                 </span>
-                <i class="bi bi-chevron-down tf-account-menu__chevron" aria-hidden="true"></i>
             </button>
 
             <div class="dropdown-menu dropdown-menu-end tf-account-menu__menu">

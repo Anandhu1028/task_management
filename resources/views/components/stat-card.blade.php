@@ -36,22 +36,16 @@
 
         <div class="tf-kpi__value-row">
             <p class="tf-kpi__value @if($tone === 'danger') is-danger @endif">{{ $value }}</p>
+        </div>
 
+        <div class="tf-kpi__bottom">
+            <p class="tf-kpi__meta">
+                <span>{{ $meta }}</span>
+            </p>
             <div class="tf-kpi__spark">
                 <canvas data-spark='@json($spark)' data-color="{{ $sparkColor }}"></canvas>
             </div>
         </div>
-
-        <p class="tf-kpi__meta">
-            @if ($meta_type === 'up')
-                <span class="tf-kpi__arrow">▲</span>
-            @elseif ($meta_type === 'dot-danger')
-                <span class="tf-dot tf-dot--danger"></span>
-            @elseif ($meta_type === 'dot-orange')
-                <span class="tf-dot tf-dot--warning"></span>
-            @endif
-            <span>{{ $meta }}</span>
-        </p>
     </div>
 
 @if ($href)

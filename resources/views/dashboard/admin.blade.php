@@ -4,13 +4,12 @@
 
 @section('content')
 
+<div class="tf-admin-dashboard">
     {{-- PAGE HEADER --}}
     <div class="tf-page-head">
         <div>
             <h1>
                 <span>{{ $greeting }}, {{ $user->name }}</span>
-                <span class="tf-wave">👋</span>
-               
             </h1>
             <p>Complete organization-wide operational overview across all companies, departments, teams, and tasks.</p>
         </div>
@@ -18,7 +17,7 @@
 
    
 
-    {{-- 6 PRIMARY SUMMARY CARDS --}}
+    {{-- PRIMARY SUMMARY CARDS --}}
     <section class="tf-kpi-row--6">
         @foreach ($kpis as $kpi)
             @include('components.stat-card', $kpi)
@@ -58,5 +57,6 @@
         'viewAllRoute' => route('tasks.index'),
         'showOrganization' => true,
     ])
+</div>
 
 @endsection

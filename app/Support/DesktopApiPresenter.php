@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\DeadlineExtensionRequest;
 use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\User;
@@ -75,6 +76,7 @@ class DesktopApiPresenter
             'due_date' => $task->due_date?->format('Y-m-d'),
             'original_deadline' => $task->original_deadline?->format('Y-m-d'),
             'estimated_hours' => $task->estimated_hours,
+            'created_at' => $task->created_at?->toIso8601String(),
             'company' => $task->company ? [
                 'id' => $task->company->id,
                 'name' => $task->company->name,
@@ -125,6 +127,8 @@ class DesktopApiPresenter
             'subtasks.creator:id,name,designation',
             'subtasks.assignee:id,name,designation',
             'subtasks.completedBy:id,name,designation',
+            'deadlineExtensionRequests.requester:id,name',
+            'deadlineExtensionRequests.reviewer:id,name',
             'statusHistory.changedBy:id,name',
         ]);
 
@@ -156,8 +160,14 @@ class DesktopApiPresenter
                 'cancel' => $actor->can('cancel', $task),
                 'create_subtask' => $actor->can('createSubtask', $task),
                 'update_subtask' => $actor->can('updateSubtask', $task),
+                'request_deadline_extension' => $actor->can('requestDeadlineExtension', $task),
+                'review_deadline_extensions' => $actor->can('reviewDeadlineExtensions', $task),
             ],
             'subtasks' => $task->subtasks->map(fn (Subtask $subtask): array => self::subtask($subtask))->values()->all(),
+            'deadline_extension_requests' => $task->deadlineExtensionRequests
+                ->map(fn (DeadlineExtensionRequest $request): array => self::deadlineExtensionRequest($request))
+                ->values()
+                ->all(),
             'history' => $task->statusHistory
                 ->sortByDesc('id')
                 ->take(20)
@@ -204,6 +214,24 @@ class DesktopApiPresenter
                 'id' => $subtask->assignee?->id,
                 'name' => $subtask->assignee?->name ?? 'Unassigned',
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function deadlineExtensionRequest(DeadlineExtensionRequest $request): array
+    {
+        return [
+            'id' => $request->id,
+            'status' => $request->status,
+            'current_deadline' => $request->current_deadline?->format('Y-m-d'),
+            'requested_deadline' => $request->requested_deadline?->format('Y-m-d'),
+            'reason' => $request->reason,
+            'review_note' => $request->review_note,
+            'requested_by' => $request->requester?->name,
+            'reviewed_by' => $request->reviewer?->name,
+            'created_at' => $request->created_at?->toIso8601String(),
         ];
     }
 

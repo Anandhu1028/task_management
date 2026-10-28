@@ -194,8 +194,8 @@ class DashboardService
                 'tone' => 'default',
                 'meta_type' => 'default',
                 'spark' => $this->getStaticTrendPoints($totalDepartmentsCount),
-                'spark_color' => '#8b5cf6',
-                'icon_style' => 'primary',
+                'spark_color' => '#3b82f6',
+                'icon_style' => 'purple',
             ],
             [
                 'icon' => 'bi-layers',
@@ -205,8 +205,8 @@ class DashboardService
                 'tone' => 'default',
                 'meta_type' => $scopedCounts['total'] > 0 ? 'up' : 'default',
                 'spark' => $sparklines['total'],
-                'spark_color' => '#2563eb',
-                'icon_style' => 'primary',
+                'spark_color' => '#0284c7',
+                'icon_style' => 'cyan',
             ],
             [
                 'icon' => 'bi-arrow-repeat',
@@ -217,7 +217,7 @@ class DashboardService
                 'meta_type' => 'dot-orange',
                 'spark' => $sparklines['in_progress'],
                 'spark_color' => '#f97316',
-                'icon_style' => 'primary',
+                'icon_style' => 'orange',
             ],
             [
                 'icon' => 'bi-exclamation-circle',
@@ -864,15 +864,15 @@ class DashboardService
             ->all();
 
         $colors = [
-            'notified' => '#64748b',
-            'unassigned' => '#2563eb',
-            'assigned' => '#0ea5e9',
-            'in_progress' => '#f97316',
-            'on_hold' => '#a16207',
-            'submitted_for_review' => '#8b5cf6',
-            'rework' => '#f97316',
-            'completed' => '#22c55e',
-            'cancelled' => '#64748b',
+            'notified' => '#94a3b8',
+            'unassigned' => '#cbd5e1',
+            'assigned' => '#f0f5ff',
+            'in_progress' => '#1e3a8a',
+            'on_hold' => '#94a3b8',
+            'submitted_for_review' => '#2563eb',
+            'rework' => '#64748b',
+            'completed' => '#2563eb',
+            'cancelled' => '#cbd5e1',
         ];
         $total = array_sum(array_map(
             static fn (string $status): int => (int) ($statusCounts[$status] ?? 0),

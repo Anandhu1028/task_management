@@ -6,6 +6,7 @@ use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SubtaskController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
@@ -17,6 +18,13 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');
+
+    Route::prefix('settings/roles')->name('roles.')->group(function (): void {
+        Route::get('/', [RoleController::class, 'index'])->middleware('can:roles.view')->name('index');
+        Route::post('/', [RoleController::class, 'store'])->middleware('can:roles.create')->name('store');
+        Route::patch('/{role}', [RoleController::class, 'update'])->middleware('can:roles.update')->name('update');
+        Route::delete('/{role}', [RoleController::class, 'destroy'])->middleware('can:roles.delete')->name('destroy');
+    });
 
     // Task routes
     Route::get('/tasks/export', [TaskController::class, 'export'])->name('tasks.export');

@@ -290,6 +290,35 @@ ipcMain.handle('desktop:toggle-subtask', async (_event, payload) => {
   });
 });
 
+ipcMain.handle('desktop:request-deadline-extension', async (_event, payload) => {
+  const taskId = Number(payload?.taskId);
+  if (!Number.isInteger(taskId) || taskId < 1 || !isPlainObject(payload?.body)) {
+    return { ok: false, status: 422, data: { message: 'A valid deadline extension request is required.' } };
+  }
+
+  return authorizedRequest({
+    method: 'POST',
+    path: `/tasks/${taskId}/deadline-extension-requests`,
+    body: payload.body,
+  });
+});
+
+ipcMain.handle('desktop:review-deadline-extension', async (_event, payload) => {
+  const taskId = Number(payload?.taskId);
+  const requestId = Number(payload?.requestId);
+  if (!Number.isInteger(taskId) || taskId < 1
+    || !Number.isInteger(requestId) || requestId < 1
+    || !isPlainObject(payload?.body)) {
+    return { ok: false, status: 422, data: { message: 'A valid deadline extension review is required.' } };
+  }
+
+  return authorizedRequest({
+    method: 'POST',
+    path: `/tasks/${taskId}/deadline-extension-requests/${requestId}/review`,
+    body: payload.body,
+  });
+});
+
 app.whenReady().then(() => {
   createWindow();
 

@@ -164,13 +164,8 @@
                 || isset($statusOptions['cancelled']) || $canFlagRisk);
         @endphp
 
+        @if ($hasActions || $canReviewSubmission || auth()->user()?->can('tasks.update'))
         <header class="tf-task-detail__header">
-            <div class="tf-task-detail__heading">
-               
-                <h1>{{ $task->title }}</h1>
-                <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span> {{ $task->department?->name ?? 'No department' }}</p>
-            </div>
-
             <div class="tf-task-detail__actions">
                 @if ($canReviewSubmission)
                     <div class="tf-task-workflow__action-bar">
@@ -262,97 +257,83 @@
                 @endcan
             </div>
         </header>
+        @endif
 
         <section class="tf-task-detail__summary" aria-label="Task summary">
-            <div class="tf-task-detail__summary-item tf-task-detail__summary-item--start">
-                <div class="tf-task-detail__summary-heading">
-                    <span class="tf-task-detail__summary-icon" aria-hidden="true"><i class="bi bi-calendar2-check"></i></span>
-                    <span>Planned start</span>
-                </div>
-                <strong>{{ $task->start_date?->format('M d, Y') ?? 'Not started' }}</strong>
-                <small>{{ $task->status === 'in_progress' ? 'Work in progress' : 'Workflow: '.($statusLabels[$status] ?? $status) }}</small>
-            </div>
-            <div class="tf-task-detail__summary-item tf-task-detail__summary-item--deadline">
-                <div class="tf-task-detail__summary-heading">
-                    <span class="tf-task-detail__summary-icon" aria-hidden="true"><i class="bi bi-alarm"></i></span>
-                    <span>Deadline health</span>
-                </div>
-                <strong class="tf-task-status tf-task-status--{{ $deadlineCondition }}">{{ \App\Models\Task::DEADLINE_CONDITION_LABELS[$deadlineCondition] }}</strong>
-                <small>
-                    @if ($daysUntilDeadline === null)
-                        No deadline set
-                    @elseif ($daysUntilDeadline < 0 && ! in_array($status, ['completed', 'cancelled'], true))
-                        {{ abs($daysUntilDeadline) }} {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} overdue
-                    @elseif ($daysUntilDeadline === 0)
-                        Due today
-                    @else
-                        {{ $daysUntilDeadline }} {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left
-                    @endif
-                </small>
-            </div>
-            <div class="tf-task-detail__summary-item tf-task-detail__summary-item--effort">
-                <div class="tf-task-detail__summary-heading">
-                    <span class="tf-task-detail__summary-icon" aria-hidden="true"><i class="bi bi-hourglass-split"></i></span>
-                    <span>Estimated effort</span>
-                </div>
-                <strong>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2).' hours' : 'Not set' }}</strong>
-                <small>Task estimate</small>
-            </div>
-            <div class="tf-task-detail__summary-item tf-task-detail__summary-item--progress">
-                <div class="tf-task-detail__summary-heading">
-                    <span class="tf-task-detail__summary-icon" aria-hidden="true"><i class="bi bi-graph-up-arrow"></i></span>
-                    <span>Progress</span>
-                </div>
-                <div class="tf-task-detail__summary-progress-value">
-                    <strong>{{ (int) $task->progress_percentage }}%</strong>
-                    <small>Complete</small>
-                </div>
-                <div class="tf-task-detail__progress" role="progressbar" aria-label="Task progress" aria-valuenow="{{ (int) $task->progress_percentage }}" aria-valuemin="0" aria-valuemax="100">
-                    <span style="width: {{ min(100, max(0, (int) $task->progress_percentage)) }}%"></span>
+            <div class="tf-task-detail__heading">
+                <h1>{{ $task->title }}</h1>
+                <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span> {{ $task->department?->name ?? 'No department' }}</p>
+                <div class="tf-task-detail__summary-badges" aria-label="Task status details">
+                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--workflow">
+                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Workflow</span>
+                        <strong>{{ $statusLabels[$status] ?? $status }}</strong>
+                    </div>
+                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--start">
+                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-calendar2-check" aria-hidden="true"></i> Planned start</span>
+                        <strong>{{ $task->start_date?->format('M d, Y') ?? 'Not started' }}</strong>
+                    </div>
+                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--deadline">
+                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-alarm" aria-hidden="true"></i> Deadline health</span>
+                        <strong class="tf-task-status tf-task-status--{{ $deadlineCondition }}">{{ \App\Models\Task::DEADLINE_CONDITION_LABELS[$deadlineCondition] }}</strong>
+                        <small>
+                            @if ($daysUntilDeadline === null)
+                                No deadline set
+                            @elseif ($daysUntilDeadline < 0 && ! in_array($status, ['completed', 'cancelled'], true))
+                                {{ abs($daysUntilDeadline) }} {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} overdue
+                            @elseif ($daysUntilDeadline === 0)
+                                Due today
+                            @else
+                                {{ $daysUntilDeadline }} {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left
+                            @endif
+                        </small>
+                    </div>
+                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--effort">
+                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Estimated effort</span>
+                        <strong>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2).' hours' : 'Not set' }}</strong>
+                    </div>
                 </div>
             </div>
+            <section class="tf-task-detail__workflow-progress" aria-labelledby="task-workflow-title-top">
+                <header class="tf-task-detail__workflow-progress-header">
+                    <h2 id="task-workflow-title-top"><i class="bi bi-diagram-3" aria-hidden="true"></i> Task Workflow</h2>
+                    <span class="tf-task-detail__count">{{ $statusLabels[$task->status] ?? $task->status }}</span>
+                </header>
+                @if ($status === 'cancelled')
+                    <p class="tf-task-workflow__terminal-state"><i class="bi bi-x-circle" aria-hidden="true"></i> This task was cancelled.</p>
+                @else
+                    <ol class="tf-task-workflow__steps" aria-label="Workflow progress">
+                        @foreach ($workflowStages as $index => $stage)
+                            @php
+                                $isCompleteStage = $status === 'completed' || ($currentWorkflowStage !== null && $index < $currentWorkflowStage);
+                                $isCurrentStage = $status !== 'completed' && $index === $currentWorkflowStage;
+                                $stageLabel = $status === 'on_hold' && $isCurrentStage ? 'On Hold' : $stage['label'];
+                                $stageDate = $stageDateMap[$stage['status']] ?? null;
+                            @endphp
+                            <li class="tf-task-workflow__step{{ $isCompleteStage ? ' is-complete' : '' }}{{ $isCurrentStage ? ' is-current' : '' }}">
+                                <span class="tf-task-workflow__step-marker" aria-hidden="true">
+                                    @if ($isCompleteStage)
+                                        <i class="bi bi-check-lg"></i>
+                                    @elseif ($isCurrentStage)
+                                        <span class="tf-task-workflow__step-inner-ring"></span>
+                                    @else
+                                        <i class="bi bi-hourglass-split"></i>
+                                    @endif
+                                </span>
+                                <span class="tf-task-workflow__step-label">{{ $stageLabel }}</span>
+                                @if ($stageDate)
+                                    <span class="tf-task-workflow__step-date">{{ $stageDate->format('M j') }}</span>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ol>
+                @endif
+            </section>
         </section>
 
         <div class="tf-task-detail__grid">
-            <div class="tf-task-detail__workflow-actions">
-                <section class="tf-task-detail__card tf-task-workflow" aria-labelledby="task-workflow-title-top">
-                    <header class="tf-task-detail__card-header">
-                        <h2 id="task-workflow-title-top"><i class="bi bi-diagram-3" aria-hidden="true"></i> Task Workflow</h2>
-                        <span class="tf-task-detail__count">{{ $statusLabels[$task->status] ?? $task->status }}</span>
-                    </header>
-                    @if ($status === 'cancelled')
-                        <p class="tf-task-workflow__terminal-state"><i class="bi bi-x-circle" aria-hidden="true"></i> This task was cancelled.</p>
-                    @else
-                        <ol class="tf-task-workflow__steps" aria-label="Workflow progress">
-                            @foreach ($workflowStages as $index => $stage)
-                                @php
-                                    $isCompleteStage = $status === 'completed' || ($currentWorkflowStage !== null && $index < $currentWorkflowStage);
-                                    $isCurrentStage = $status !== 'completed' && $index === $currentWorkflowStage;
-                                    $stageLabel = $status === 'on_hold' && $isCurrentStage ? 'On Hold' : $stage['label'];
-                                    $stageDate = $stageDateMap[$stage['status']] ?? null;
-                                @endphp
-                                <li class="tf-task-workflow__step{{ $isCompleteStage ? ' is-complete' : '' }}{{ $isCurrentStage ? ' is-current' : '' }}">
-                                    <span class="tf-task-workflow__step-marker" aria-hidden="true">
-                                        @if ($isCompleteStage)
-                                            <i class="bi bi-check-lg"></i>
-                                        @elseif ($isCurrentStage)
-                                            <span class="tf-task-workflow__step-inner-ring"></span>
-                                        @else
-                                            <i class="bi bi-hourglass-split"></i>
-                                        @endif
-                                    </span>
-                                    <span class="tf-task-workflow__step-label">{{ $stageLabel }}</span>
-                                    @if ($stageDate)
-                                        <span class="tf-task-workflow__step-date">{{ $stageDate->format('M j') }}</span>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ol>
-                    @endif
-                </section>
-
-            {{-- Expandable Form Panels --}}
             @if ($hasActions || ($canReviewSubmission && isset($statusOptions['on_hold'])))
+            <div class="tf-task-detail__workflow-actions">
+            {{-- Expandable Form Panels --}}
             <div class="tf-task-workflow__panels">
                 @if ($canAcceptTask)
                     <div class="tf-wf-panel" id="top-accept" hidden>
@@ -485,8 +466,8 @@
                     </div>
                 @endif
             </div>
-            @endif
         </div>
+            @endif
 
         <div class="tf-task-detail__main">
             <nav class="tf-task-detail__tabs" aria-label="Task details" role="tablist">
@@ -511,24 +492,12 @@
                 <div id="task-details-overview" role="tabpanel" data-task-detail-panel="overview">
                     {{-- In-tab workflow: hidden at desktop widths via CSS (only top-level visible) --}}
 
-                    <section class="tf-task-detail__card" aria-labelledby="task-output-title">
-                        <header class="tf-task-detail__card-header">
-                            <h2 id="task-output-title"><i class="bi bi-bullseye" aria-hidden="true"></i> Expected Output / Deliverable Criteria</h2>
-                        </header>
-                        <div class="tf-task-detail__card-body">
-                            @if ($task->expected_output)
-                                <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
-                            @else
-                                <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
-                            @endif
-                        </div>
-                    </section>
-
                     <section class="tf-task-detail__card" aria-labelledby="task-description-title">
                         <header class="tf-task-detail__card-header">
                             <h2 id="task-description-title"><i class="bi bi-file-text" aria-hidden="true"></i> Description &amp; Details</h2>
                         </header>
                         <div class="tf-task-detail__card-body">
+                            <h3 class="tf-task-detail__section-label">Description</h3>
                             @if ($task->description)
                                 <div class="tf-task-detail__description">{{ $task->description }}</div>
                             @else
@@ -568,6 +537,14 @@
                                     <dd>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2).' hours' : '—' }}</dd>
                                 </div>
                             </dl>
+                            <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
+                                <h3 class="tf-task-detail__section-label" id="task-output-title">Expected Output / Deliverable Criteria</h3>
+                                @if ($task->expected_output)
+                                    <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
+                                @else
+                                    <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
+                                @endif
+                            </section>
                         </div>
                     </section>
 

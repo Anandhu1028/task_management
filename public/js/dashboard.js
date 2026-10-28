@@ -423,21 +423,20 @@
     };
 
     // =========================================================================
-    // Sparkline Canvas Renderer
+    // KPI mini bar-chart renderer
     // =========================================================================
     const renderSparklines = () => {
         document.querySelectorAll('.tf-kpi__spark canvas').forEach((canvas) => {
             const raw = canvas.dataset.spark;
-            if (!raw) return;
-            let points;
-            try {
-                points = JSON.parse(raw);
-            } catch (e) {
+            if (!raw) {
                 return;
             }
-            if (!Array.isArray(points) || points.length < 2) return;
 
-            const strokeColor = canvas.dataset.color || '#2563eb';
+            const points = JSON.parse(raw);
+            if (!Array.isArray(points) || points.length === 0 || !points.every(Number.isFinite)) {
+                return;
+            }
+
             const rect = canvas.getBoundingClientRect();
             const dpr = window.devicePixelRatio || 1;
             const w = rect.width || 84;
@@ -447,40 +446,27 @@
             canvas.height = h * dpr;
 
             const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return;
+            }
+
             ctx.scale(dpr, dpr);
             ctx.clearRect(0, 0, w, h);
 
-            const min = Math.min(...points);
-            const max = Math.max(...points);
-            const range = (max - min) || 1;
-            const padX = 3;
-            const padY = 4;
-            const usableW = w - padX * 2;
-            const usableH = h - padY * 2;
+            const max = Math.max(...points, 1);
+            const gap = Math.min(3, w / points.length * 0.3);
+            const barWidth = (w - gap * (points.length - 1)) / points.length;
+            const usableHeight = h - 2;
+            const colors = ['#1e3a8a', '#2563eb', '#60a5fa', '#94a3b8'];
 
-            const coords = points.map((p, i) => {
-                const x = padX + (i / (points.length - 1)) * usableW;
-                const y = h - padY - ((p - min) / range) * usableH;
-                return { x, y };
+            points.forEach((point, index) => {
+                const barHeight = Math.max(point > 0 ? 2 : 0, (point / max) * usableHeight);
+                const x = index * (barWidth + gap);
+                const y = h - barHeight;
+
+                ctx.fillStyle = colors[index % colors.length];
+                ctx.fillRect(x, y, barWidth, barHeight);
             });
-
-            ctx.beginPath();
-            ctx.moveTo(coords[0].x, coords[0].y);
-
-            for (let i = 0; i < coords.length - 1; i++) {
-                const curr = coords[i];
-                const next = coords[i + 1];
-                const mx = (curr.x + next.x) / 2;
-                ctx.quadraticCurveTo(curr.x, curr.y, mx, (curr.y + next.y) / 2);
-            }
-            const last = coords[coords.length - 1];
-            ctx.lineTo(last.x, last.y);
-
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 2;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.stroke();
         });
     };
 
@@ -498,6 +484,7 @@
     const completionEl = document.getElementById('completionChart');
     if (completionEl && window.Chart) {
         try {
+            const isAdminDashboard = Boolean(completionEl.closest('.tf-admin-dashboard'));
             const rawLabels = JSON.parse(completionEl.dataset.labels || '[]');
             const rawValues = JSON.parse(completionEl.dataset.values || '[]');
             const labels = rawLabels.length ? rawLabels : ['No Data'];
@@ -523,7 +510,7 @@
                         fill: true,
                         tension: 0.38,
                         borderWidth: 2.2,
-                        pointRadius: values.map(v => v > 0 ? 4 : 2),
+                        pointRadius: values.map(v => v > 0 ? 4 : (isAdminDashboard ? 0 : 2)),
                         pointHoverRadius: 6,
                         pointBackgroundColor: '#ffffff',
                         pointBorderColor: brandBlue,
@@ -562,6 +549,7 @@
                             min: 0,
                             suggestedMax: yMax,
                             ticks: {
+                                display: !isAdminDashboard,
                                 precision: 0,
                                 color: textLight,
                                 font: { size: 11, family: 'Inter', weight: 500 },
@@ -752,9 +740,9 @@
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Completed', data: memberData.completed || [], backgroundColor: '#22c55e', borderRadius: 3 },
-                        { label: 'In progress', data: memberData.in_progress || [], backgroundColor: '#f59e0b', borderRadius: 3 },
-                        { label: 'Overdue', data: memberData.overdue || [], backgroundColor: '#ef4444', borderRadius: 3 },
+                        { label: 'Completed', data: memberData.completed || [], backgroundColor: '#2563eb', borderRadius: 3 },
+                        { label: 'In progress', data: memberData.in_progress || [], backgroundColor: '#7da8f7', borderRadius: 3 },
+                        { label: 'Overdue', data: memberData.overdue || [], backgroundColor: '#94a3b8', borderRadius: 3 },
                     ],
                 },
                 options: {
@@ -863,8 +851,8 @@
                 data: {
                     labels: getVisibleWeekLabels(visibleWeeks),
                     datasets: [
-                        { label: 'Created', data: weekly.created.slice(-visibleWeeks), backgroundColor: '#3478e5', borderRadius: 3 },
-                        { label: 'Completed', data: weekly.completed.slice(-visibleWeeks), backgroundColor: '#22c55e', borderRadius: 3 },
+                        { label: 'Created', data: weekly.created.slice(-visibleWeeks), backgroundColor: '#1e3a8a', borderRadius: 3 },
+                        { label: 'Completed', data: weekly.completed.slice(-visibleWeeks), backgroundColor: '#2563eb', borderRadius: 3 },
                     ],
                 },
                 options: {
@@ -967,7 +955,6 @@
         try {
             const labels = JSON.parse(employeeHeadcountEl.dataset.labels || '[]');
             const counts = JSON.parse(employeeHeadcountEl.dataset.counts || '[]');
-            const companyColors = ['#8b5cf6', '#3478e5', '#22c55e', '#f59e0b', '#06b6d4', '#ec4899'];
 
             new Chart(employeeHeadcountEl, {
                 type: 'bar',
@@ -976,7 +963,7 @@
                     datasets: [{
                         label: 'Employees',
                         data: counts,
-                        backgroundColor: counts.map((_, index) => companyColors[index % companyColors.length]),
+                        backgroundColor: '#7da8f7',
                         borderRadius: 6,
                         borderSkipped: false,
                         maxBarThickness: 30,
@@ -1045,6 +1032,10 @@
     const compComparisonEl = document.getElementById('companyComparisonChart');
     if (compComparisonEl && window.Chart) {
         try {
+            const isAdminDashboard = Boolean(compComparisonEl.closest('.tf-admin-dashboard'));
+            const companyBarSpacing = isAdminDashboard
+                ? { categoryPercentage: 0.62, barPercentage: 0.68 }
+                : {};
             const labels = JSON.parse(compComparisonEl.dataset.labels || '[]');
             const totals = JSON.parse(compComparisonEl.dataset.totals || '[]');
             const completed = JSON.parse(compComparisonEl.dataset.completed || '[]');
@@ -1056,10 +1047,10 @@
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Total Tasks', data: totals, backgroundColor: '#2563eb', borderRadius: 4 },
-                        { label: 'Completed', data: completed, backgroundColor: '#22c55e', borderRadius: 4 },
-                        { label: 'At Risk', data: atRisk, backgroundColor: '#d97706', borderRadius: 4 },
-                        { label: 'Overdue', data: overdue, backgroundColor: '#dc2626', borderRadius: 4 },
+                        { label: 'Total Tasks', data: totals, backgroundColor: '#1e3a8a', borderRadius: 4, ...companyBarSpacing },
+                        { label: 'Completed', data: completed, backgroundColor: '#2563e9', borderRadius: 4, ...companyBarSpacing },
+                        { label: 'At Risk', data: atRisk, backgroundColor: '#dbe7ff', borderRadius: 4, ...companyBarSpacing },
+                        { label: 'Overdue', data: overdue, backgroundColor: '#94a3b8', borderRadius: 4, ...companyBarSpacing },
                     ],
                 },
                 options: {
@@ -1069,7 +1060,12 @@
                         legend: {
                             display: true,
                             position: 'top',
-                            labels: { boxWidth: 12, font: { size: 11 } },
+                            labels: {
+                                boxWidth: isAdminDashboard ? 8 : 12,
+                                usePointStyle: isAdminDashboard,
+                                pointStyle: 'circle',
+                                font: { size: isAdminDashboard ? 9 : 11 },
+                            },
                         },
                         tooltip: {
                             backgroundColor: '#0f172a',
@@ -1083,8 +1079,17 @@
                         },
                         y: {
                             beginAtZero: true,
-                            ticks: { precision: 0, color: textLight, font: { size: 11 } },
-                            grid: { color: gridBorderColor },
+                            ticks: {
+                                display: !isAdminDashboard,
+                                precision: 0,
+                                color: textLight,
+                                font: { size: 11 },
+                            },
+                            grid: {
+                                color: isAdminDashboard
+                                    ? (context) => context.tick.value === 0 ? gridBorderColor : 'transparent'
+                                    : gridBorderColor,
+                            },
                             border: { display: false },
                         },
                     },
@@ -1157,4 +1162,78 @@
             filterEmp.addEventListener('change', () => filterForm.submit());
         }
     }
+
+    /* ---------- ChatGPT Popup Window & Launcher ---------- */
+    const chatGptModal = document.getElementById('tfChatGptModal');
+    const chatGptTrigger = document.getElementById('tfChatGptNavBtn');
+
+    const closeModal = () => {
+        if (!chatGptModal) return;
+        chatGptModal.hidden = true;
+        document.body.classList.remove('tf-chatgpt-modal-open');
+        chatGptTrigger?.focus();
+    };
+
+    const openChatGptWindow = () => {
+        const width = Math.min(1240, Math.floor(window.screen.availWidth * 0.9));
+        const height = Math.min(860, Math.floor(window.screen.availHeight * 0.88));
+        const left = Math.max(0, Math.floor((window.screen.availWidth - width) / 2));
+        const top = Math.max(0, Math.floor((window.screen.availHeight - height) / 2));
+
+        const features = `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`;
+        const win = window.open('https://chatgpt.com/', 'TaskFlowChatGPTWindow', features);
+
+        if (win && !win.closed) {
+            win.focus();
+            if (chatGptModal && !chatGptModal.hidden) {
+                closeModal();
+            }
+        } else {
+            // Popup blocker intercepted: fallback to modal
+            if (chatGptModal) {
+                chatGptModal.hidden = false;
+                document.body.classList.add('tf-chatgpt-modal-open');
+                const focusTarget = chatGptModal.querySelector('#tfChatGptLaunchBtn') || chatGptModal.querySelector('#tfChatGptModalClose');
+                focusTarget?.focus();
+            }
+        }
+    };
+
+    chatGptTrigger?.addEventListener('click', (e) => {
+        e.preventDefault();
+        openChatGptWindow();
+    });
+
+    const launchBtn = document.getElementById('tfChatGptLaunchBtn');
+    launchBtn?.addEventListener('click', (e) => {
+        e.preventDefault();
+        openChatGptWindow();
+    });
+
+    chatGptModal?.querySelectorAll('[data-tf-chatgpt-close]').forEach(btn => {
+        btn.addEventListener('click', closeModal);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && chatGptModal && !chatGptModal.hidden) {
+            closeModal();
+        }
+    });
+
+    chatGptModal?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(chatGptModal.querySelectorAll(
+            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => !el.closest('[hidden]'));
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 })();

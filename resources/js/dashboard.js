@@ -324,4 +324,79 @@ document.addEventListener('DOMContentLoaded', function () {
             plugins: [valueLabels],
         });
     }
+
+    /* ---------- ChatGPT Popup Window & Launcher ---------- */
+    const chatGptModal = document.getElementById('tfChatGptModal');
+    const chatGptTrigger = document.getElementById('tfChatGptNavBtn');
+
+    const closeModal = () => {
+        if (!chatGptModal) return;
+        chatGptModal.hidden = true;
+        document.body.classList.remove('tf-chatgpt-modal-open');
+        chatGptTrigger?.focus();
+    };
+
+    const openChatGptWindow = () => {
+        const width = Math.min(1240, Math.floor(window.screen.availWidth * 0.9));
+        const height = Math.min(860, Math.floor(window.screen.availHeight * 0.88));
+        const left = Math.max(0, Math.floor((window.screen.availWidth - width) / 2));
+        const top = Math.max(0, Math.floor((window.screen.availHeight - height) / 2));
+
+        const features = `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`;
+        const win = window.open('https://chatgpt.com/', 'TaskFlowChatGPTWindow', features);
+
+        if (win && !win.closed) {
+            win.focus();
+            if (chatGptModal && !chatGptModal.hidden) {
+                closeModal();
+            }
+        } else {
+            // Popup blocker intercepted: fallback to modal
+            if (chatGptModal) {
+                chatGptModal.hidden = false;
+                document.body.classList.add('tf-chatgpt-modal-open');
+                const focusTarget = chatGptModal.querySelector('#tfChatGptLaunchBtn') || chatGptModal.querySelector('#tfChatGptModalClose');
+                focusTarget?.focus();
+            }
+        }
+    };
+
+    chatGptTrigger?.addEventListener('click', (e) => {
+        e.preventDefault();
+        openChatGptWindow();
+    });
+
+    const launchBtn = document.getElementById('tfChatGptLaunchBtn');
+    launchBtn?.addEventListener('click', (e) => {
+        e.preventDefault();
+        openChatGptWindow();
+    });
+
+    chatGptModal?.querySelectorAll('[data-tf-chatgpt-close]').forEach(btn => {
+        btn.addEventListener('click', closeModal);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && chatGptModal && !chatGptModal.hidden) {
+            closeModal();
+        }
+    });
+
+    chatGptModal?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(chatGptModal.querySelectorAll(
+            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(el => !el.closest('[hidden]'));
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 });
+
