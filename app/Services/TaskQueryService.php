@@ -89,7 +89,17 @@ class TaskQueryService
         }
 
         if (! empty($filters['task_type'])) {
-            $query->where('task_type', $filters['task_type']);
+            if ($filters['task_type'] === 'recurring') {
+                $query->where(function (Builder $query): void {
+                    $query->whereHas('recurringTemplate')
+                        ->orWhere(function (Builder $legacyQuery): void {
+                            $legacyQuery->where('task_type', 'recurring')
+                                ->whereNull('recurring_task_template_id');
+                        });
+                });
+            } else {
+                $query->where('task_type', $filters['task_type']);
+            }
         }
 
         if (! empty($filters['status'])) {

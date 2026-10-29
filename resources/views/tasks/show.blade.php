@@ -537,6 +537,65 @@
                                     <dd>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2).' hours' : '—' }}</dd>
                                 </div>
                             </dl>
+                            @if ($task->recurringTemplate)
+                                @php
+                                    $recurringTemplate = $task->recurringTemplate;
+                                    $nextOccurrence = $recurringTemplate->nextOccurrenceDate();
+                                @endphp
+                                <section class="tf-task-detail__output-section" aria-labelledby="task-recurrence-title">
+                                    <h3 class="tf-task-detail__section-label" id="task-recurrence-title">Recurring Schedule</h3>
+                                    <dl class="tf-task-detail__metadata">
+                                        <div>
+                                            <dt>Record type</dt>
+                                            <dd>Generated occurrence</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Schedule</dt>
+                                            <dd>{{ ucfirst($recurringTemplate->repeat_frequency) }} · {{ \Illuminate\Support\Carbon::parse($recurringTemplate->start_time)->format('g:i A') }}–{{ \Illuminate\Support\Carbon::parse($recurringTemplate->end_time)->format('g:i A') }} ({{ $recurringTemplate->timezone }})</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Schedule dates</dt>
+                                            <dd>{{ $recurringTemplate->start_date->format('M d, Y') }} – {{ $recurringTemplate->end_date->format('M d, Y') }}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Source template</dt>
+                                            <dd>{{ $recurringTemplate->title }}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Occurrence date</dt>
+                                            <dd>{{ $task->occurrence_date?->format('M d, Y') ?? '—' }}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Next occurrence</dt>
+                                            <dd>{{ $nextOccurrence?->format('M d, Y') ?? 'No upcoming occurrence' }}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Recurrence status</dt>
+                                            <dd>{{ ucfirst($recurringTemplate->status) }}</dd>
+                                        </div>
+                                        @can('update', $recurringTemplate)
+                                            <div>
+                                                <dt>Schedule control</dt>
+                                                <dd>
+                                                    <form method="POST" action="{{ route('recurring-tasks.status.update', $recurringTemplate) }}" onsubmit="return confirm('This changes future occurrence generation only. Existing tasks are not changed.');">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                        <select name="status" aria-label="Recurring schedule status" onchange="this.form.requestSubmit()">
+                                                            @foreach (\App\Models\RecurringTaskTemplate::STATUSES as $scheduleStatus)
+                                                                <option value="{{ $scheduleStatus }}" @selected($recurringTemplate->status === $scheduleStatus)>{{ ucfirst($scheduleStatus) }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                    </form>
+                                                </dd>
+                                            </div>
+                                        @endcan
+                                        <div>
+                                            <dt>Template assignees</dt>
+                                            <dd>{{ $recurringTemplate->assignees->pluck('name')->implode(', ') ?: 'Unassigned' }}</dd>
+                                        </div>
+                                    </dl>
+                                </section>
+                            @endif
                             <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
                                 <h3 class="tf-task-detail__section-label" id="task-output-title">Expected Output / Deliverable Criteria</h3>
                                 @if ($task->expected_output)

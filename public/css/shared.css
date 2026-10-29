@@ -3704,6 +3704,46 @@ body.tf-guest-body {
     column-gap: 16px;
 }
 
+.tf-create-task__recurring {
+    margin-bottom: 15px;
+    padding: 14px;
+    border: 1px solid #dbe5f1;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.tf-create-task__recurring[hidden] {
+    display: none;
+}
+
+.tf-create-task__recurring h3 {
+    margin: 0 0 12px;
+    color: var(--tf-text-secondary);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.tf-create-task__recurring-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+}
+
+.tf-create-task__recurring-grid .tf-create-task__field {
+    margin-bottom: 0;
+}
+
+.tf-create-task__recurring-duration {
+    margin: 11px 0 4px;
+    color: var(--tf-text-secondary);
+    font-size: 11px;
+}
+
+.tf-create-task__recurring-duration strong {
+    color: var(--tf-text);
+    font-weight: 650;
+}
+
 .tf-create-task__field {
     min-width: 0;
     margin-bottom: 13px;
@@ -4041,6 +4081,10 @@ body.tf-guest-body {
 
         .tf-create-task__grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+            column-gap: 8px;
+        }
+
+        .tf-create-task__recurring-grid {
             column-gap: 8px;
         }
 

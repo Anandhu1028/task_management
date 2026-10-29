@@ -135,7 +135,7 @@ class TaskManagementTest extends TestCase
             ->assertUnauthorized();
     }
 
-    public function test_task_toolbar_filters_by_company_department_and_priority(): void
+    public function test_task_toolbar_filters_by_company_department_priority_and_type(): void
     {
         $matchingTask = Task::create([
             'task_code' => Task::generateCode(),
@@ -156,7 +156,7 @@ class TaskManagementTest extends TestCase
             'title' => 'Non-matching toolbar filter task',
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
-            'task_type' => 'process',
+            'task_type' => 'volume',
             'priority' => 'low',
             'status' => 'unassigned',
             'original_deadline' => now()->addDays(2)->toDateString(),
@@ -170,15 +170,19 @@ class TaskManagementTest extends TestCase
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
             'priority' => 'high',
+            'task_type' => 'process',
         ]));
 
         $response->assertOk()
             ->assertSee('value="'.$this->company->id.'" selected', false)
             ->assertSee('value="'.$this->department->id.'" selected', false)
             ->assertSee('value="high" selected', false)
+            ->assertSee('id="taskTypeFilter"', false)
+            ->assertSee('value="process" selected', false)
             ->assertSee($matchingTask->title)
             ->assertSee('tf-task-priority tf-task-priority--high', false)
             ->assertSee('aria-label="Priority: High"', false)
+            ->assertSee('class="tf-task-type"', false)
             ->assertDontSee('Non-matching toolbar filter task');
     }
 
@@ -687,9 +691,11 @@ class TaskManagementTest extends TestCase
         ]);
 
         $response->assertRedirect(route('tasks.index'))
-            ->assertSessionHas('success', 'Task created successfully.');
+            ->assertSessionHas('success', 'Task created successfully.')
+            ->assertSessionHas('operation_status.kind', 'task')
+            ->assertSessionHas('operation_status.title', 'Task created');
         $this->get(route('tasks.index'))
-            ->assertSee('id="tfToast"', false)
+            ->assertSee('tfCompletedOperation', false)
             ->assertSee('Task created successfully.');
         $this->assertDatabaseCount('task_attachments', 2);
 
@@ -826,9 +832,10 @@ class TaskManagementTest extends TestCase
 
         $response->assertRedirect(route('tasks.index'))
             ->assertSessionHas('success', 'Task updated successfully.')
-            ->assertSessionMissing('operation_status');
+            ->assertSessionHas('operation_status.kind', 'task')
+            ->assertSessionHas('operation_status.title', 'Task updated');
         $this->get(route('tasks.index'))
-            ->assertSee('id="tfToast"', false)
+            ->assertSee('tfCompletedOperation', false)
             ->assertSee('Task updated successfully.');
         $this->assertDatabaseCount('task_attachments', 1);
         $attachment = TaskAttachment::query()->firstOrFail();
@@ -2276,9 +2283,9 @@ class TaskManagementTest extends TestCase
             ]);
 
         $response->assertOk()
-            ->assertSee('id="tfToast"', false)
             ->assertSee('Task updated successfully.')
-            ->assertDontSee('"kind":"task"', false);
+            ->assertSee('"kind":"task"', false)
+            ->assertSee('tfCompletedOperation', false);
 
         $task->refresh();
         $this->assertSame('Updated via Edit Modal', $task->title);

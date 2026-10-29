@@ -1,5 +1,6 @@
 @php
     $isEditingTask = isset($editingTask) && $editingTask instanceof \App\Models\Task;
+    $isRecurringOccurrence = $isEditingTask && $editingTask->recurring_task_template_id !== null;
     $hasAttachmentErrors = collect($errors->keys())->contains(
         fn (string $key): bool => $key === 'attachments' || str_starts_with($key, 'attachments.'),
     );
@@ -10,6 +11,7 @@
     $initialPocIds = is_array($initialPocIds) ? array_values(array_map('strval', $initialPocIds)) : [];
     $initialCompanyId = old('company_id', $isEditingTask ? $editingTask->company_id : '');
     $initialDepartmentId = old('department_id', $isEditingTask ? $editingTask->department_id : '');
+    $initialTaskType = old('task_type', $isEditingTask ? $editingTask->task_type : '');
     $initialAssigneeIds = old('assigned_to', $isEditingTask
         ? ($editingTask->activeAssignees->isNotEmpty()
             ? $editingTask->activeAssignees->modelKeys()
@@ -25,6 +27,7 @@
         'assigned_to' => $initialAssigneeIds,
         'priority' => $editingTask->priority,
         'task_type' => $editingTask->task_type,
+        'is_recurring_occurrence' => $isRecurringOccurrence,
         'original_deadline' => $editingTask->original_deadline?->format('Y-m-d'),
         'due_date' => $editingTask->due_date?->format('Y-m-d'),
         'estimated_hours' => $editingTask->estimated_hours,
@@ -222,7 +225,92 @@
                             @error('task_type') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
-                        <div class="tf-create-task__field">
+                        <section
+                            class="tf-create-task__recurring tf-create-task__field--full"
+                            id="createTaskRecurringSchedule"
+                            aria-labelledby="createTaskRecurringScheduleTitle"
+                            @if ($initialTaskType !== 'recurring' || $isEditingTask) hidden @endif
+                        >
+                            <h3 id="createTaskRecurringScheduleTitle">Recurring Schedule</h3>
+                            <div class="tf-create-task__recurring-grid">
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskRepeatFrequency">Repeat frequency <span>*</span></label>
+                                    <select
+                                        class="form-select @error('repeat_frequency') is-invalid @enderror"
+                                        id="createTaskRepeatFrequency"
+                                        name="repeat_frequency"
+                                        required
+                                        @disabled($initialTaskType !== 'recurring' || $isEditingTask)
+                                    >
+                                        <option value="">Select frequency</option>
+                                        <option value="daily" @selected(old('repeat_frequency') === 'daily')>Daily</option>
+                                    </select>
+                                    @error('repeat_frequency') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskRecurringStartDate">Start date <span>*</span></label>
+                                    <input
+                                        class="form-control @error('recurring_start_date') is-invalid @enderror"
+                                        id="createTaskRecurringStartDate"
+                                        name="recurring_start_date"
+                                        type="date"
+                                        value="{{ old('recurring_start_date') }}"
+                                        required
+                                        @disabled($initialTaskType !== 'recurring' || $isEditingTask)
+                                    >
+                                    @error('recurring_start_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskRecurringEndDate">End date <span>*</span></label>
+                                    <input
+                                        class="form-control @error('recurring_end_date') is-invalid @enderror"
+                                        id="createTaskRecurringEndDate"
+                                        name="recurring_end_date"
+                                        type="date"
+                                        value="{{ old('recurring_end_date') }}"
+                                        required
+                                        @disabled($initialTaskType !== 'recurring' || $isEditingTask)
+                                    >
+                                    @error('recurring_end_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskRecurringStartTime">Start time <span>*</span></label>
+                                    <input
+                                        class="form-control @error('recurring_start_time') is-invalid @enderror"
+                                        id="createTaskRecurringStartTime"
+                                        name="recurring_start_time"
+                                        type="time"
+                                        value="{{ old('recurring_start_time') }}"
+                                        required
+                                        @disabled($initialTaskType !== 'recurring' || $isEditingTask)
+                                    >
+                                    @error('recurring_start_time') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskRecurringEndTime">End time <span>*</span></label>
+                                    <input
+                                        class="form-control @error('recurring_end_time') is-invalid @enderror"
+                                        id="createTaskRecurringEndTime"
+                                        name="recurring_end_time"
+                                        type="time"
+                                        value="{{ old('recurring_end_time') }}"
+                                        required
+                                        @disabled($initialTaskType !== 'recurring' || $isEditingTask)
+                                    >
+                                    @error('recurring_end_time') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+                            </div>
+                            <p class="tf-create-task__recurring-duration">
+                                Daily availability: <strong id="createTaskRecurringDuration">Select a start and end time</strong>
+                            </p>
+                            <p class="tf-create-task__hint mb-0">Times use the configured application timezone ({{ config('app.timezone') }}).</p>
+                        </section>
+
+                        <div class="tf-create-task__field" id="createTaskDeadlineField" @if ($initialTaskType === 'recurring' && (! $isEditingTask || $isRecurringOccurrence)) hidden @endif>
                             <label for="createTaskDeadline">Original deadline <span id="createTaskDeadlineRequired" class="tf-create-task__optional text-muted small" @if ($isEditingTask) hidden @endif>(optional)</span></label>
                             <input
                                 class="form-control @error('original_deadline') is-invalid @enderror"
@@ -252,7 +340,7 @@
                             @error('due_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
-                        <div class="tf-create-task__field">
+                        <div class="tf-create-task__field" id="createTaskEffortField" @if ($initialTaskType === 'recurring' && (! $isEditingTask || $isRecurringOccurrence)) hidden @endif>
                             <label for="createTaskEffort">Estimated effort (hours) <span>*</span></label>
                             <input
                                 class="form-control @error('estimated_hours') is-invalid @enderror"
@@ -268,6 +356,8 @@
                             >
                             @error('estimated_hours') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
+                        <input id="createTaskNullDeadline" type="hidden" name="original_deadline" value="" disabled>
+                        <input id="createTaskNullEffort" type="hidden" name="estimated_hours" value="" disabled>
 
                         <div class="tf-create-task__field tf-create-task__field--full">
                             <label for="createTaskExpectedOutput">Expected output <span>*</span></label>
@@ -350,12 +440,23 @@
     const taskTitle = document.getElementById('createTaskTitle');
     const prioritySelect = document.getElementById('createTaskPriority');
     const taskTypeSelect = document.getElementById('createTaskType');
+    const recurringSchedule = document.getElementById('createTaskRecurringSchedule');
+    const recurringControls = recurringSchedule.querySelectorAll('input, select');
+    const recurringStartDate = document.getElementById('createTaskRecurringStartDate');
+    const recurringEndDate = document.getElementById('createTaskRecurringEndDate');
+    const recurringStartTime = document.getElementById('createTaskRecurringStartTime');
+    const recurringEndTime = document.getElementById('createTaskRecurringEndTime');
+    const recurringDuration = document.getElementById('createTaskRecurringDuration');
+    const deadlineField = document.getElementById('createTaskDeadlineField');
     const deadlineInput = document.getElementById('createTaskDeadline');
     const dueDateField = document.getElementById('createTaskDueDateField');
     const dueDateInput = document.getElementById('createTaskDueDate');
     const deadlineHint = document.getElementById('createTaskDeadlineHint');
     const deadlineRequired = document.getElementById('createTaskDeadlineRequired');
+    const nullDeadlineInput = document.getElementById('createTaskNullDeadline');
+    const effortField = document.getElementById('createTaskEffortField');
     const estimatedHoursInput = document.getElementById('createTaskEffort');
+    const nullEffortInput = document.getElementById('createTaskNullEffort');
     const expectedOutputInput = document.getElementById('createTaskExpectedOutput');
     const attachmentsInput = document.getElementById('createTaskAttachments');
     const attachmentsSummary = document.getElementById('createTaskAttachmentsSummary');
@@ -374,6 +475,117 @@
     let stateRequestId = 0;
     let currentPocs = [];
     let departmentUsers = [];
+    let previousTaskType = taskTypeSelect.value;
+    let previousDeadline = '';
+    let previousEffort = '';
+
+    const updateRecurringDuration = () => {
+        const [startHour, startMinute] = recurringStartTime.value.split(':').map(Number);
+        const [endHour, endMinute] = recurringEndTime.value.split(':').map(Number);
+        if (!recurringStartTime.value || !recurringEndTime.value) {
+            recurringDuration.textContent = 'Select a start and end time';
+            return;
+        }
+
+        const durationMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+        if (durationMinutes <= 0) {
+            recurringDuration.textContent = 'End time must be later than start time';
+            return;
+        }
+
+        const hours = Math.floor(durationMinutes / 60);
+        const minutes = durationMinutes % 60;
+        recurringDuration.textContent = [
+            hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '',
+            minutes ? `${minutes} minutes` : '',
+        ].filter(Boolean).join(' ');
+    };
+
+    const updateRecurringFields = (resetState = false) => {
+        const isEditing = modal.dataset.formMode === 'edit';
+        const isRecurring = !isEditing && taskTypeSelect.value === 'recurring';
+        const isRecurringOccurrence = isEditing
+            && taskTypeSelect.value === 'recurring'
+            && initialTask?.is_recurring_occurrence === true;
+        const wasRecurring = !isEditing && previousTaskType === 'recurring';
+
+        if (resetState) {
+            previousDeadline = '';
+            previousEffort = '';
+            if (!isRecurring) {
+                recurringControls.forEach(control => {
+                    control.value = '';
+                });
+            }
+        } else if (isRecurring && !wasRecurring) {
+            previousDeadline = deadlineInput.value;
+            previousEffort = estimatedHoursInput.value;
+        }
+
+        if (!isRecurring && wasRecurring && !resetState) {
+            deadlineInput.value = previousDeadline;
+            estimatedHoursInput.value = previousEffort;
+        }
+
+        recurringSchedule.hidden = !isRecurring;
+        deadlineField.hidden = isRecurring || isRecurringOccurrence;
+        effortField.hidden = isRecurring || isRecurringOccurrence;
+        if (!isEditing) {
+            dueDateField.hidden = true;
+        }
+
+        if (isEditing) {
+            recurringControls.forEach(control => {
+                control.disabled = true;
+            });
+            estimatedHoursInput.required = !isRecurringOccurrence;
+        } else {
+            recurringControls.forEach(control => {
+                control.disabled = !isRecurring;
+            });
+            deadlineInput.disabled = isRecurring;
+            deadlineInput.readOnly = false;
+            deadlineInput.name = isRecurring ? '' : 'original_deadline';
+            deadlineInput.required = false;
+            deadlineInput.min = isRecurring ? '' : deadlineInput.dataset.createMinDate;
+            estimatedHoursInput.disabled = isRecurring;
+            estimatedHoursInput.required = !isRecurring;
+            nullDeadlineInput.disabled = !isRecurring;
+            nullEffortInput.disabled = !isRecurring;
+
+            if (isRecurring) {
+                deadlineInput.value = '';
+                estimatedHoursInput.value = '';
+                dueDateInput.value = '';
+                nullDeadlineInput.value = '';
+                nullEffortInput.value = '';
+            } else if (wasRecurring) {
+                recurringControls.forEach(control => {
+                    control.value = '';
+                });
+            }
+        }
+
+        recurringEndDate.min = recurringStartDate.value || '';
+        recurringEndTime.min = recurringStartTime.value || '';
+        updateRecurringDuration();
+        previousTaskType = taskTypeSelect.value;
+    };
+
+    recurringStartDate.addEventListener('change', () => {
+        if (recurringEndDate.value && recurringEndDate.value < recurringStartDate.value) {
+            recurringEndDate.value = '';
+        }
+        recurringEndDate.min = recurringStartDate.value || '';
+    });
+    recurringStartTime.addEventListener('change', () => {
+        recurringEndTime.min = recurringStartTime.value || '';
+        updateRecurringDuration();
+    });
+    recurringEndTime.addEventListener('input', updateRecurringDuration);
+    recurringDuration.setAttribute('aria-live', 'polite');
+    taskTypeSelect.addEventListener('change', () => updateRecurringFields());
+    updateRecurringFields(true);
 
     attachmentsInput.addEventListener('change', () => {
         const selectedFiles = Array.from(attachmentsInput.files ?? []);
@@ -797,6 +1009,15 @@
         syncDepartmentHidden();
         syncAssigneeHiddenInputs();
         syncPocHiddenInputs();
+
+        if (typeof window.tfShowOperationProgress === 'function') {
+            const isEditing = modal.dataset.formMode === 'edit';
+            window.tfShowOperationProgress({
+                kind: 'task',
+                title: isEditing ? 'Updating task...' : 'Creating task...',
+                message: isEditing ? 'Saving task changes. Please wait a moment.' : 'Creating task. Please wait a moment.',
+            });
+        }
     });
 
     const getModalInstance = () => window.bootstrap.Modal.getOrCreateInstance(modal);
@@ -882,6 +1103,12 @@
         deadlineHint.hidden = true;
         deadlineRequired.hidden = false;
         estimatedHoursInput.value = '';
+        nullDeadlineInput.value = '';
+        nullEffortInput.value = '';
+        recurringControls.forEach(control => {
+            control.value = '';
+            control.disabled = true;
+        });
         expectedOutputInput.value = '';
         pocSearch.value = '';
         pocMenu.hidden = true;
@@ -890,6 +1117,7 @@
 
         modal.dataset.formMode = 'create';
         modal.dataset.taskId = '';
+        updateRecurringFields(true);
         form.action = modal.dataset.createAction;
         form.method = 'POST';
         form.querySelector('input[name="_method"]')?.remove();
@@ -942,6 +1170,7 @@
         deadlineRequired.hidden = true;
         estimatedHoursInput.value = task.estimated_hours ?? '';
         expectedOutputInput.value = task.expected_output ?? '';
+        updateRecurringFields(true);
 
         const pocIds = Array.isArray(task.poc_ids) ? task.poc_ids.map(String) : [];
         const assigneeIds = Array.isArray(task.assigned_to) ? task.assigned_to.map(String) : [];

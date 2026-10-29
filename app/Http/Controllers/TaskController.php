@@ -11,8 +11,10 @@ use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
 use App\Models\TaskStatusHistory;
 use App\Models\User;
+use App\Services\RecurringTaskTemplateService;
 use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
+use App\Services\TaskAttachmentService;
 use App\Services\TaskWorkflowService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -47,6 +49,7 @@ class TaskController extends Controller
                 'assignee:id,name,designation',
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
+                'recurringTemplate:id,title,repeat_frequency,start_date,end_date,status',
             ])
             ->withExists([
                 'deadlineExtensionRequests as has_pending_deadline_extension_request' => fn (Builder $query) => $query
@@ -109,8 +112,12 @@ class TaskController extends Controller
         ));
     }
 
-    public function store(StoreTaskRequest $request, TaskWorkflowService $workflow): RedirectResponse
-    {
+    public function store(
+        StoreTaskRequest $request,
+        TaskWorkflowService $workflow,
+        RecurringTaskTemplateService $recurringTemplates,
+        TaskAttachmentService $attachments,
+    ): RedirectResponse {
         $this->authorize('create', Task::class);
 
         $validated = $request->validated();
@@ -146,6 +153,32 @@ class TaskController extends Controller
             }
         }
 
+        if ($validated['task_type'] === 'recurring') {
+            $storedAttachments = $attachments->storeAttachmentFiles($validated['attachments'] ?? []);
+
+            try {
+                $recurringTemplates->create(
+                    $validated,
+                    $pocIds,
+                    $assigneeIds,
+                    $storedAttachments,
+                    $request->user(),
+                );
+            } catch (Throwable $exception) {
+                $attachments->deleteStoredAttachmentFiles($storedAttachments);
+                throw $exception;
+            }
+
+            return redirect()
+                ->route('tasks.index')
+                ->with('success', 'Recurring task schedule created successfully.')
+                ->with('operation_status', [
+                    'kind' => 'task',
+                    'title' => 'Task schedule created',
+                    'message' => 'Recurring task schedule created successfully.',
+                ]);
+        }
+
         $taskData = collect($validated)->except(['assigned_to', 'poc_ids', 'attachments'])->merge([
             'task_code' => Task::generateCode(),
             'created_by' => auth()->id(),
@@ -177,7 +210,13 @@ class TaskController extends Controller
             throw $exception;
         }
 
-        return redirect()->route('tasks.index')->with('success', 'Task created successfully.');
+        return redirect()->route('tasks.index')
+            ->with('success', 'Task created successfully.')
+            ->with('operation_status', [
+                'kind' => 'task',
+                'title' => 'Task created',
+                'message' => 'Task created successfully.',
+            ]);
     }
 
     public function show(
@@ -198,6 +237,7 @@ class TaskController extends Controller
             'assignments.user',
             'assignments.assignedBy',
             'attachments.uploadedBy',
+            'recurringTemplate.assignees:id,name',
             'statusHistory.changedBy',
             'subtasks.creator',
             'subtasks.assignee',
@@ -391,7 +431,12 @@ class TaskController extends Controller
         }
 
         return redirect()->route('tasks.index')
-            ->with('success', 'Task updated successfully.');
+            ->with('success', 'Task updated successfully.')
+            ->with('operation_status', [
+                'kind' => 'task',
+                'title' => 'Task updated',
+                'message' => 'Task updated successfully.',
+            ]);
     }
 
     /**
@@ -902,7 +947,17 @@ class TaskController extends Controller
         }
 
         if (! empty($filters['task_type'])) {
-            $query->where('task_type', $filters['task_type']);
+            if ($filters['task_type'] === 'recurring') {
+                $query->where(function (Builder $query): void {
+                    $query->whereHas('recurringTemplate')
+                        ->orWhere(function (Builder $legacyQuery): void {
+                            $legacyQuery->where('task_type', 'recurring')
+                                ->whereNull('recurring_task_template_id');
+                        });
+                });
+            } else {
+                $query->where('task_type', $filters['task_type']);
+            }
         }
 
         if (! empty($filters['status'])) {

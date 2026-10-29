@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\RecurringTaskController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SubtaskController;
@@ -27,6 +28,10 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     });
 
     // Task routes
+    Route::get('/recurring-tasks', [RecurringTaskController::class, 'index'])->name('recurring-tasks.index');
+    Route::get('/recurring-tasks/{recurringTask}', [RecurringTaskController::class, 'show'])->name('recurring-tasks.show');
+    Route::patch('/recurring-tasks/{recurringTask}/status', [RecurringTaskController::class, 'updateScheduleStatus'])->name('recurring-tasks.status.update');
+    Route::post('/recurring-tasks/{recurringTask}/tasks/{task}/status', [RecurringTaskController::class, 'updateStatus'])->name('recurring-tasks.tasks.status.update');
     Route::get('/tasks/export', [TaskController::class, 'export'])->name('tasks.export');
     Route::get('/tasks/users-by-department/{department}', [TaskController::class, 'usersByDepartment'])->name('tasks.users-by-department');
     Route::post('/tasks/{task}/reassign', [TaskController::class, 'reassign'])->name('tasks.reassign');

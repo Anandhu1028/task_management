@@ -50,6 +50,8 @@ class Task extends Model
         'estimated_hours',
         'expected_output',
         'completed_at',
+        'recurring_task_template_id',
+        'occurrence_date',
     ];
 
     protected $casts = [
@@ -63,6 +65,7 @@ class Task extends Model
         'reviewed_at' => 'datetime',
         'estimated_hours' => 'decimal:2',
         'progress_percentage' => 'integer',
+        'occurrence_date' => 'date',
     ];
 
     /** Valid priority values. */
@@ -136,6 +139,11 @@ class Task extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function recurringTemplate(): BelongsTo
+    {
+        return $this->belongsTo(RecurringTaskTemplate::class, 'recurring_task_template_id');
     }
 
     public function assignee(): BelongsTo

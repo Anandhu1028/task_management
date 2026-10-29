@@ -32,7 +32,8 @@
         $canViewTasks = auth()->user()->can('tasks.view');
         $canViewRoles = auth()->user()->can('roles.view') || auth()->user()->hasAssignedRole('Admin');
         $usersNavigationIsActive = request()->routeIs('users.*');
-        $companyNavigationIsActive = request()->routeIs('companies.*', 'departments.*');
+        $companyNavigationIsActive = request()->routeIs('companies.*');
+        $departmentNavigationIsActive = request()->routeIs('departments.*');
         $settingsNavigationIsActive = request()->routeIs('roles.*');
     @endphp
 
@@ -71,10 +72,10 @@
             </div>
         @endif
 
-        @if ($canViewCompanies || $canViewDepartments)
+        @if ($canViewCompanies)
             <div class="tf-nav__group {{ $companyNavigationIsActive ? 'is-open' : '' }}">
                 <button
-                    class="tf-nav__item tf-nav__toggle {{ request()->routeIs('companies.*', 'departments.*') ? 'is-active' : '' }}"
+                    class="tf-nav__item tf-nav__toggle {{ $companyNavigationIsActive ? 'is-active' : '' }}"
                     type="button"
                     data-tf-submenu-toggle
                     aria-expanded="{{ $companyNavigationIsActive ? 'true' : 'false' }}"
@@ -85,18 +86,32 @@
                     <i class="bi bi-chevron-down tf-nav__caret" aria-hidden="true"></i>
                 </button>
                 <div class="tf-nav__subitems" id="companiesSubmenu" @if (! $companyNavigationIsActive) hidden @endif>
-                    @if ($canViewCompanies)
-                        <a class="tf-nav__subitem {{ request()->routeIs('companies.*') ? 'is-active' : '' }}" href="{{ route('companies.index') }}">
-                            <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
-                            <span>Company Management</span>
-                        </a>
-                    @endif
-                    @if ($canViewDepartments)
-                        <a class="tf-nav__subitem {{ request()->routeIs('departments.*') ? 'is-active' : '' }}" href="{{ route('departments.index') }}">
-                            <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
-                            <span>Department Management</span>
-                        </a>
-                    @endif
+                    <a class="tf-nav__subitem {{ $companyNavigationIsActive ? 'is-active' : '' }}" href="{{ route('companies.index') }}">
+                        <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
+                        <span>Company Management</span>
+                    </a>
+                </div>
+            </div>
+        @endif
+
+        @if ($canViewDepartments)
+            <div class="tf-nav__group {{ $departmentNavigationIsActive ? 'is-open' : '' }}">
+                <button
+                    class="tf-nav__item tf-nav__toggle {{ $departmentNavigationIsActive ? 'is-active' : '' }}"
+                    type="button"
+                    data-tf-submenu-toggle
+                    aria-expanded="{{ $departmentNavigationIsActive ? 'true' : 'false' }}"
+                    aria-controls="departmentsSubmenu"
+                >
+                    <i class="bi bi-diagram-3"></i>
+                    <span>Department</span>
+                    <i class="bi bi-chevron-down tf-nav__caret" aria-hidden="true"></i>
+                </button>
+                <div class="tf-nav__subitems" id="departmentsSubmenu" @if (! $departmentNavigationIsActive) hidden @endif>
+                    <a class="tf-nav__subitem {{ $departmentNavigationIsActive ? 'is-active' : '' }}" href="{{ route('departments.index') }}">
+                        <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
+                        <span>Department Management</span>
+                    </a>
                 </div>
             </div>
         @endif

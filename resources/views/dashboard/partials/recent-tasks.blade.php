@@ -104,7 +104,11 @@
                             </div>
                         </td>
                         <td>
-                            @if ($task->due_date)
+                            @if ($task->occurrence_date)
+                                <span class="tf-recent-tasks__due-date {{ $isOverdue ? 'is-overdue' : '' }}">
+                                    Occurrence: {{ $task->occurrence_date->format('M d, Y') }}
+                                </span>
+                            @elseif ($task->due_date)
                                 <span class="tf-recent-tasks__due-date {{ $isOverdue ? 'is-overdue' : '' }}">
                                     {{ $task->due_date->format('M d, Y') }}
                                 </span>

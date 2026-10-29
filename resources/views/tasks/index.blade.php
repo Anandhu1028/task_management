@@ -81,7 +81,6 @@
 
         <div class="tf-user-toolbar">
             <form id="taskFilterForm" method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
-                <input type="hidden" name="task_type" value="{{ request('task_type') }}">
                 <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 <input type="hidden" name="assigned_to" value="{{ request('assigned_to') }}">
                 <input type="hidden" name="sort" value="{{ $filters['sort'] ?? 'deadline_priority' }}" data-kanban-sort-value>
@@ -113,6 +112,15 @@
                             <option value="">All statuses</option>
                             @foreach (\App\Models\Task::STATUSES as $statusValue)
                                 <option value="{{ $statusValue }}" @selected(request('status') === $statusValue)>{{ \App\Models\Task::STATUS_LABELS[$statusValue] }}</option>
+                            @endforeach
+                        </select>
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </label>
+                    <label class="tf-user-toolbar__select" for="taskTypeFilter">
+                        <select id="taskTypeFilter" name="task_type" aria-label="Filter by task type" data-task-auto-submit>
+                            <option value="">All task types</option>
+                            @foreach (\App\Models\Task::TYPES as $taskType)
+                                <option value="{{ $taskType }}" @selected(request('task_type') === $taskType)>{{ ucfirst($taskType) }}</option>
                             @endforeach
                         </select>
                         <i class="bi bi-chevron-down" aria-hidden="true"></i>
@@ -224,6 +232,7 @@
                         <th>Task</th>
                         <th>Assignees</th>
                         <th>Priority</th>
+                        <th>Task Type</th>
                         <th>Status</th>
                         <th>Deadline</th>
                         <th>Progress</th>
@@ -233,6 +242,7 @@
                 <tbody>
                     @forelse ($tasks as $task)
                         @php
+                            $isRecurringOccurrence = $task->recurringTemplate !== null;
                             $isOverdue = $task->isOverdue();
                             $status = $task->display_status;
                             $deadlineCondition = $task->deadline_condition;
@@ -244,8 +254,10 @@
                                 $taskAssignees = collect([$task->assignee]);
                             }
                             $assigneeNames = $taskAssignees->pluck('name')->implode(', ');
+                            $taskDetailUrl = route('tasks.show', $task);
+                            $deadline = $task->due_date ?? $task->original_deadline;
                         @endphp
-                        <tr class="tf-task-table__row">
+                        <tr class="tf-task-table__row" @if ($taskDetailUrl) data-task-detail-url="{{ $taskDetailUrl }}" @endif>
                             <td class="tf-task-table__check">
                                 <input
                                     class="tf-check"
@@ -259,10 +271,17 @@
                             <td>
                                 <div class="tf-task-identity">
                                     <div class="tf-task-identity__title">
-                                        <a href="{{ route('tasks.show', $task) }}" class="tf-task-identity__link">
+                                        @if ($taskDetailUrl)
+                                            <a href="{{ $taskDetailUrl }}" class="tf-task-identity__link">{{ $task->title }}</a>
+                                        @else
                                             {{ $task->title }}
-                                        </a>
+                                        @endif
                                     </div>
+                                    @if ($isRecurringOccurrence)
+                                        <small class="tf-task-identity__occurrence">
+                                            Recurring occurrence · {{ $task->occurrence_date?->format('M d, Y') ?? 'Date unavailable' }}
+                                        </small>
+                                    @endif
                                     <small class="tf-task-identity__company">
                                         {{ $task->company?->name ?? '—' }}
                                         <span aria-hidden="true">·</span>
@@ -309,6 +328,17 @@
                                 </span>
                             </td>
 
+                            {{-- Task Type --}}
+                            <td>
+                                <span class="tf-task-type">
+                                    @if ($isRecurringOccurrence)
+                                        Recurring · {{ ucfirst($task->task_type ?? 'process') }}
+                                    @else
+                                        {{ ucfirst($task->task_type ?? 'process') }}
+                                    @endif
+                                </span>
+                            </td>
+
                             {{-- Status --}}
                             <td>
                                 <div class="d-flex flex-column align-items-start gap-1">
@@ -327,9 +357,9 @@
                             <td>
                                 <div class="d-flex flex-column">
                                     <span class="tf-task-deadline {{ $isOverdue ? 'is-overdue' : '' }}">
-                                        {{ $task->original_deadline?->format('M d, Y') ?? '—' }}
+                                        {{ $deadline?->format('M d, Y') ?? '—' }}
                                     </span>
-                                    @if ($task->due_date && $task->due_date->ne($task->original_deadline))
+                                    @if ($task->due_date && $task->original_deadline && $task->due_date->ne($task->original_deadline))
                                         <small class="tf-task-deadline__revised">
                                             Revised: {{ $task->due_date->format('M d, Y') }}
                                         </small>
@@ -444,7 +474,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="tf-task-table__empty-cell">
+                            <td colspan="9" class="tf-task-table__empty-cell">
                                 @include('components.empty-state', [
                                     'icon' => 'bi-check2-square',
                                     'title' => 'No tasks found',
@@ -525,6 +555,12 @@
 
                                 {{-- Title --}}
                                 <span class="tf-kanban-card__title">{{ $kTask->title }}</span>
+                                @if ($kTask->occurrence_date)
+                                    <span class="tf-kanban-card__meta">
+                                        <i class="bi bi-calendar-event" aria-hidden="true"></i>
+                                        <span>Occurrence: {{ $kTask->occurrence_date->format('M d, Y') }}</span>
+                                    </span>
+                                @endif
 
                                 {{-- Department chip --}}
                                 @if ($kTask->department)
@@ -943,6 +979,17 @@
                 selectAllTasks.checked = selectedCount > 0 && selectedCount === taskCheckboxes.length;
                 selectAllTasks.indeterminate = selectedCount > 0 && selectedCount < taskCheckboxes.length;
             };
+
+            document.querySelector('#taskListView tbody')?.addEventListener('click', (event) => {
+                if (event.target.closest('a, button, input, select, textarea, label, form, .dropdown-menu')) {
+                    return;
+                }
+
+                const row = event.target.closest('[data-task-detail-url]');
+                if (row?.dataset.taskDetailUrl) {
+                    window.location.assign(row.dataset.taskDetailUrl);
+                }
+            });
 
             document.addEventListener('change', (event) => {
                 if (!(event.target instanceof HTMLInputElement)) {

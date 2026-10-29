@@ -43,16 +43,20 @@
         operationModal.className = `tf-operation tf-operation--${operation.to || 'update'}`;
         operationModal.hidden = false;
         operationModal.dataset.state = 'progress';
-        operationTitle.textContent = operation.kind === 'status'
-            ? 'Updating status...'
-            : operation.kind === 'task'
-                ? 'Updating task...'
-                : 'Updating user...';
-        operationMessage.textContent = operation.kind === 'status'
-            ? `Changing ${operation.user} to ${operation.to}. Please wait a moment.`
-            : operation.kind === 'task'
-                ? 'Applying your task action. Please wait a moment.'
-                : `Saving changes for ${operation.user}. Please wait a moment.`;
+        operationTitle.textContent = operation.title || (
+            operation.kind === 'status'
+                ? 'Updating status...'
+                : operation.kind === 'task'
+                    ? 'Updating task...'
+                    : 'Updating user...'
+        );
+        operationMessage.textContent = operation.message || (
+            operation.kind === 'status'
+                ? `Changing ${operation.user} to ${operation.to}. Please wait a moment.`
+                : operation.kind === 'task'
+                    ? 'Applying your task action. Please wait a moment.'
+                    : `Saving changes for ${operation.user}. Please wait a moment.`
+        );
         operationSpinner.hidden = false;
         operationCompleteIcon.hidden = true;
 
@@ -76,7 +80,7 @@
         operationModal.className = `tf-operation tf-operation--complete tf-operation--${isStatusChange ? operation.to : 'success'}`;
         operationModal.hidden = false;
         operationModal.dataset.state = 'complete';
-        operationTitle.textContent = operation.title || (isStatusChange ? 'Status updated' : 'User updated');
+        operationTitle.textContent = operation.title || (isStatusChange ? 'Status updated' : (operation.kind === 'task' ? 'Task updated' : 'User updated'));
         operationMessage.textContent = operation.message;
         operationSpinner.hidden = true;
         operationCompleteIcon.hidden = false;
@@ -91,6 +95,7 @@
 
         operationCloseTimer = window.setTimeout(closeOperationModal, 2000);
     };
+    window.tfShowOperationProgress = showOperationProgress;
     window.tfShowOperationComplete = showOperationComplete;
 
     if (window.tfCompletedOperation) {
