@@ -49,7 +49,8 @@ class TaskController extends Controller
                 'assignee:id,name,designation',
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
-                'recurringTemplate:id,title,repeat_frequency,start_date,end_date,status',
+                'recurringTask:id,task_id,repeat_frequency,start_date,end_date,status',
+                'recurringSchedule:id,task_id,repeat_frequency,start_date,end_date,status',
             ])
             ->withExists([
                 'deadlineExtensionRequests as has_pending_deadline_extension_request' => fn (Builder $query) => $query
@@ -237,7 +238,8 @@ class TaskController extends Controller
             'assignments.user',
             'assignments.assignedBy',
             'attachments.uploadedBy',
-            'recurringTemplate.assignees:id,name',
+            'recurringTask.task.activeAssignees:id,name',
+            'recurringSchedule',
             'statusHistory.changedBy',
             'subtasks.creator',
             'subtasks.assignee',
@@ -948,13 +950,7 @@ class TaskController extends Controller
 
         if (! empty($filters['task_type'])) {
             if ($filters['task_type'] === 'recurring') {
-                $query->where(function (Builder $query): void {
-                    $query->whereHas('recurringTemplate')
-                        ->orWhere(function (Builder $legacyQuery): void {
-                            $legacyQuery->where('task_type', 'recurring')
-                                ->whereNull('recurring_task_template_id');
-                        });
-                });
+                $query->where('task_type', 'recurring');
             } else {
                 $query->where('task_type', $filters['task_type']);
             }

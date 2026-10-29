@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\DesktopMetaController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\SubtaskController;
@@ -12,8 +11,6 @@ Route::post('/auth/login', [AuthController::class, 'login'])->middleware('thrott
 Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
     Route::get('/auth/user', [AuthController::class, 'user']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-
-    Route::get('/desktop/meta', [DesktopMetaController::class, 'show']);
 
     Route::get('/tasks', [TaskController::class, 'index']);
     Route::post('/tasks', [TaskController::class, 'store']);

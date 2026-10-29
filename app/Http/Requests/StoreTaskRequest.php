@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests;
 
-use App\Models\RecurringTaskTemplate;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -59,7 +59,7 @@ class StoreTaskRequest extends FormRequest
             'repeat_frequency' => [
                 'exclude_unless:task_type,recurring',
                 'required',
-                Rule::in(RecurringTaskTemplate::FREQUENCIES),
+                Rule::in(RecurringTask::FREQUENCIES),
             ],
             'recurring_start_date' => [
                 'exclude_unless:task_type,recurring',

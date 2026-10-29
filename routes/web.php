@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PwaTaskController;
 use App\Http\Controllers\RecurringTaskController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RoleController;
@@ -16,6 +17,10 @@ use Illuminate\Support\Facades\Route;
 require __DIR__.'/auth.php';
 
 Route::middleware(['auth', 'active'])->group(function (): void {
+    Route::prefix('pwa')->name('pwa.')->group(function (): void {
+        Route::get('/tasks', [PwaTaskController::class, 'index'])->name('tasks.index');
+        Route::get('/tasks/{task}', [PwaTaskController::class, 'show'])->name('tasks.show');
+    });
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');

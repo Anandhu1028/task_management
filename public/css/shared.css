@@ -1082,34 +1082,6 @@ body.tf-guest-body {
     margin-left: auto;
 }
 
-.tf-desktop-pill-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 38px;
-    padding: 0 16px;
-    background: #ffffff;
-    border: 1px solid var(--tf-border);
-    border-radius: var(--tf-radius-pill);
-    color: var(--tf-text);
-    font-size: 12.5px;
-    font-weight: 600;
-    text-decoration: none;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
-    transition: background var(--tf-transition), border-color var(--tf-transition);
-}
-
-.tf-desktop-pill-btn:hover {
-    background: #f8fafc;
-    border-color: #cbd5e1;
-    color: var(--tf-text);
-}
-
-.tf-desktop-pill-btn i {
-    color: var(--tf-primary);
-    font-size: 14px;
-}
-
 .tf-icon-btn {
     width: 38px;
     height: 38px;
@@ -5065,84 +5037,6 @@ body.tf-guest-body {
 .tf-kanban-col--submitted_for_review .tf-kanban-card__progress-bar { background: #a78bfa; }
 .tf-kanban-col--rework       .tf-kanban-card__progress-bar { background: #f97316; }
 
-/* Desktop installer link in the global navbar */
-.tf-desktop-download {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 9px;
-    min-height: 42px;
-    padding: 5px 12px 5px 6px;
-    border: 1px solid var(--tf-primary-border);
-    border-radius: 12px;
-    color: var(--tf-primary);
-    background: var(--tf-primary-soft);
-    box-shadow: var(--tf-shadow-sm);
-    transition: background var(--tf-transition), border-color var(--tf-transition), box-shadow var(--tf-transition), transform var(--tf-transition);
-}
-
-.tf-desktop-download:hover {
-    border-color: var(--tf-primary);
-    color: var(--tf-primary-hover);
-    background: #e5efff;
-    box-shadow: var(--tf-shadow-md);
-    transform: translateY(-1px);
-}
-
-.tf-desktop-download:focus-visible {
-    outline: 3px solid rgba(37, 99, 235, .25);
-    outline-offset: 2px;
-}
-
-.tf-desktop-download__icon {
-    display: grid;
-    flex: 0 0 30px;
-    width: 30px;
-    height: 30px;
-    place-items: center;
-    border-radius: 9px;
-    color: #fff;
-    background: var(--tf-primary);
-    font-size: 14px;
-}
-
-.tf-desktop-download__copy {
-    display: grid;
-    gap: 1px;
-    line-height: 1.2;
-}
-
-.tf-desktop-download__title {
-    font-size: 12px;
-    font-weight: 700;
-    white-space: nowrap;
-}
-
-.tf-desktop-download__detail {
-    color: var(--tf-muted);
-    font-size: 10px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-@media (max-width: 767px) {
-    .tf-desktop-download {
-        min-height: 38px;
-        padding: 4px 9px 4px 5px;
-        gap: 7px;
-    }
-
-    .tf-desktop-download__icon {
-        flex-basis: 28px;
-        width: 28px;
-        height: 28px;
-    }
-
-    .tf-desktop-download__detail {
-        display: none;
-    }
-}
-
 /* ==========================================================================
    AI Assistant / ChatGPT Sidebar Widget & Modal Component
    ========================================================================== */
@@ -6694,23 +6588,10 @@ body.tf-chatgpt-modal-open {
     gap: 10px;
 }
 
-.tf-desktop-pill-btn {
-    height: 36px;
-    padding: 0 14px;
-    border-color: #e1e7f1;
-    background: #fff;
-    color: #1e3a8a;
-    box-shadow: 0 2px 5px rgb(30 58 138 / 5%);
-}
-
-.tf-desktop-pill-btn:hover, .tf-icon-btn:hover, .tf-account-menu__toggle:hover, .tf-account-menu__toggle[aria-expanded="true"] {
+.tf-icon-btn:hover, .tf-account-menu__toggle:hover, .tf-account-menu__toggle[aria-expanded="true"] {
     border-color: #c8d7f0;
     background: #f0f5ff;
     color: #1e3a8a;
-}
-
-.tf-desktop-pill-btn i {
-    color: #2563eb;
 }
 
 .tf-navbar__actions > .dropdown > .tf-icon-btn, .tf-account-menu__toggle {
@@ -6751,9 +6632,6 @@ body.tf-chatgpt-modal-open {
         gap: 7px;
     }
 
-    .tf-desktop-pill-btn {
-        padding: 0 11px;
-    }
 }
 
 /* Shared user-management tab styles */

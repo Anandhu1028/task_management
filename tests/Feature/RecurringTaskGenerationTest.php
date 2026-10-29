@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Company;
 use App\Models\Department;
-use App\Models\RecurringTaskTemplate;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -71,23 +71,19 @@ class RecurringTaskGenerationTest extends TestCase
         $response->assertRedirect(route('tasks.index'))
             ->assertSessionHas('success', 'Recurring task schedule created successfully.');
 
-        $template = RecurringTaskTemplate::query()->where('title', $title)->firstOrFail();
-        $this->assertModelExists($template);
-        $this->assertDatabaseHas('recurring_task_templates', [
-            'id' => $template->id,
-            'task_type' => 'process',
-            'status' => 'active',
-            'original_deadline' => null,
-            'estimated_hours' => null,
+        $schedule = RecurringTask::query()->whereHas('task', fn ($query) => $query->where('title', $title))->firstOrFail();
+        $this->assertModelExists($schedule);
+        $this->assertDatabaseHas('tasks', [
+            'id' => $schedule->task_id,
+            'task_type' => 'recurring',
+            'status' => 'assigned',
         ]);
-        $this->assertSame('2026-10-29', $template->start_date->toDateString());
-        $this->assertSame('2026-10-31', $template->end_date->toDateString());
-        $this->assertSame([$poc->id], $template->pocs()->pluck('users.id')->map(fn ($id): int => (int) $id)->all());
-        $this->assertSame([$assignee->id], $template->assignees()->pluck('users.id')->map(fn ($id): int => (int) $id)->all());
-        $this->assertSame(0, $template->occurrences()->count());
-        $this->assertSame('requirements.txt', $template->attachments[0]['original_name']);
-        Storage::disk('local')->assertExists($template->attachments[0]['path']);
-        $this->assertDatabaseMissing('tasks', ['title' => $title]);
+        $this->assertSame('2026-10-29', $schedule->start_date->toDateString());
+        $this->assertSame('2026-10-31', $schedule->end_date->toDateString());
+        $this->assertSame([$poc->id], $schedule->task->pocs()->pluck('users.id')->map(fn ($id): int => (int) $id)->all());
+        $this->assertSame([$assignee->id], $schedule->task->activeAssignees()->pluck('users.id')->map(fn ($id): int => (int) $id)->all());
+        $this->assertSame(0, $schedule->occurrences()->count());
+        Storage::disk('local')->assertExists($schedule->task->attachments()->sole()->path);
     }
 
     public function test_recurring_schedule_creation_generates_a_due_first_occurrence(): void

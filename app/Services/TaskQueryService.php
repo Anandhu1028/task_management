@@ -90,13 +90,7 @@ class TaskQueryService
 
         if (! empty($filters['task_type'])) {
             if ($filters['task_type'] === 'recurring') {
-                $query->where(function (Builder $query): void {
-                    $query->whereHas('recurringTemplate')
-                        ->orWhere(function (Builder $legacyQuery): void {
-                            $legacyQuery->where('task_type', 'recurring')
-                                ->whereNull('recurring_task_template_id');
-                        });
-                });
+                $query->where('task_type', 'recurring');
             } else {
                 $query->where('task_type', $filters['task_type']);
             }

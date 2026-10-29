@@ -242,7 +242,7 @@
                 <tbody>
                     @forelse ($tasks as $task)
                         @php
-                            $isRecurringOccurrence = $task->recurringTemplate !== null;
+                            $isRecurringOccurrence = $task->recurringTask !== null;
                             $isOverdue = $task->isOverdue();
                             $status = $task->display_status;
                             $deadlineCondition = $task->deadline_condition;
@@ -332,7 +332,7 @@
                             <td>
                                 <span class="tf-task-type">
                                     @if ($isRecurringOccurrence)
-                                        Recurring · {{ ucfirst($task->task_type ?? 'process') }}
+                                        Recurring occurrence
                                     @else
                                         {{ ucfirst($task->task_type ?? 'process') }}
                                     @endif

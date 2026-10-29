@@ -1,6 +1,6 @@
 @php
     $isEditingTask = isset($editingTask) && $editingTask instanceof \App\Models\Task;
-    $isRecurringOccurrence = $isEditingTask && $editingTask->recurring_task_template_id !== null;
+    $isRecurringOccurrence = $isEditingTask && $editingTask->recurring_task_id !== null;
     $hasAttachmentErrors = collect($errors->keys())->contains(
         fn (string $key): bool => $key === 'attachments' || str_starts_with($key, 'attachments.'),
     );

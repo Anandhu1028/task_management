@@ -6,6 +6,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" >
     <meta name="csrf-token"content="{{ csrf_token() }}" >
+    <meta name="theme-color" content="{{ config('pwa.theme_color') }}">
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <link rel="icon" href="{{ asset('icons/task-manager-192.png') }}" type="image/png">
     <title>
         @yield('title', 'Dashboard') · TaskFlow
     </title>
@@ -102,6 +105,11 @@
     {{-- Dashboard JS --}}
     <script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
     @stack('scripts')
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('{{ asset('sw.js') }}', { scope: '/' }));
+        }
+    </script>
 
 </body>
 

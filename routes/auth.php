@@ -11,6 +11,10 @@ Route::middleware('guest')->group(function (): void {
     Route::post('/register', [RegisteredUserController::class, 'store']);
 });
 
+Route::middleware('guest')->group(function (): void {
+    Route::get('/pwa/login', [AuthenticatedSessionController::class, 'create'])->name('pwa.login');
+});
+
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
     ->middleware('auth')
     ->name('logout');

@@ -12,18 +12,6 @@
 
     <div class="tf-navbar__actions">
 
-        <a
-            class="tf-desktop-pill-btn"
-            href="{{ config('desktop.download_url') ?: '#' }}"
-            title="Download Desktop app"
-            aria-label="Download Desktop app"
-        >
-            <i class="bi bi-arrow-down"></i>
-            <span>Desktop app</span>
-        </a>
-
-       
-
         {{-- Notifications --}}
         <div class="dropdown" data-tf-notification-poll="{{ route('notifications.poll') }}">
             <button class="tf-icon-btn tf-bell" type="button" data-bs-toggle="dropdown"

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Task extends Model
@@ -50,7 +51,7 @@ class Task extends Model
         'estimated_hours',
         'expected_output',
         'completed_at',
-        'recurring_task_template_id',
+        'recurring_task_id',
         'occurrence_date',
     ];
 
@@ -141,9 +142,14 @@ class Task extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function recurringTemplate(): BelongsTo
+    public function recurringTask(): BelongsTo
     {
-        return $this->belongsTo(RecurringTaskTemplate::class, 'recurring_task_template_id');
+        return $this->belongsTo(RecurringTask::class);
+    }
+
+    public function recurringSchedule(): HasOne
+    {
+        return $this->hasOne(RecurringTask::class);
     }
 
     public function assignee(): BelongsTo

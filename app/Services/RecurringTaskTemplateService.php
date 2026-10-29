@@ -2,7 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\RecurringTaskTemplate;
+use App\Models\RecurringTask;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -10,6 +11,8 @@ class RecurringTaskTemplateService
 {
     public function __construct(
         private readonly RecurringTaskGenerationService $generation,
+        private readonly TaskAssignmentService $assignments,
+        private readonly TaskAttachmentService $attachments,
     ) {}
 
     /**
@@ -24,19 +27,35 @@ class RecurringTaskTemplateService
         array $assigneeIds,
         array $attachments,
         User $creator,
-    ): RecurringTaskTemplate {
-        return DB::transaction(function () use ($data, $pocIds, $assigneeIds, $attachments, $creator): RecurringTaskTemplate {
-            $template = RecurringTaskTemplate::query()->create([
+    ): RecurringTask {
+        return DB::transaction(function () use ($data, $pocIds, $assigneeIds, $attachments, $creator): RecurringTask {
+            $task = Task::query()->create([
+                'task_code' => Task::generateCode(),
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
                 'company_id' => $data['company_id'],
                 'department_id' => $data['department_id'],
                 'created_by' => $creator->id,
-                'task_type' => $data['task_type'] === 'recurring' ? 'process' : $data['task_type'],
+                'assigned_to' => $assigneeIds[0] ?? null,
+                'task_type' => 'recurring',
                 'priority' => $data['priority'],
                 'expected_output' => $data['expected_output'],
-                'original_deadline' => null,
-                'estimated_hours' => null,
+                'status' => $assigneeIds === [] ? 'notified' : 'assigned',
+                'progress_percentage' => 0,
+            ]);
+
+            $task->pocs()->sync($pocIds);
+            $this->assignments->syncTaskAssignees($task, $assigneeIds, 'Initial recurring schedule assignment', $creator->id);
+            $this->attachments->createAttachmentRecords($task, $attachments, $creator->id);
+            $task->statusHistory()->create([
+                'changed_by' => $creator->id,
+                'new_status' => $task->status,
+                'event_type' => 'status',
+                'remarks' => 'Recurring schedule created.',
+            ]);
+
+            $schedule = RecurringTask::query()->create([
+                'task_id' => $task->id,
                 'repeat_frequency' => $data['repeat_frequency'],
                 'start_date' => $data['recurring_start_date'],
                 'end_date' => $data['recurring_end_date'],
@@ -44,15 +63,11 @@ class RecurringTaskTemplateService
                 'end_time' => $data['recurring_end_time'],
                 'timezone' => config('app.timezone'),
                 'status' => 'active',
-                'attachments' => $attachments === [] ? null : $attachments,
             ]);
 
-            $template->pocs()->sync($pocIds);
-            $template->assignees()->sync($assigneeIds);
+            $this->generation->generateDueOccurrencesForTemplate($schedule);
 
-            $this->generation->generateDueOccurrencesForTemplate($template);
-
-            return $template;
+            return $schedule;
         });
     }
 }

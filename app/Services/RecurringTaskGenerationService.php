@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Department;
-use App\Models\RecurringTaskTemplate;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -23,9 +23,9 @@ class RecurringTaskGenerationService
     {
         $createdCount = 0;
 
-        foreach (RecurringTaskTemplate::query()
+        foreach (RecurringTask::query()
             ->where('status', 'active')
-            ->with(['creator:id,name'])
+            ->with(['task.creator:id,name'])
             ->lazyById(100) as $template) {
             $createdCount += $this->generateTemplateOccurrences($template);
         }
@@ -33,14 +33,14 @@ class RecurringTaskGenerationService
         return $createdCount;
     }
 
-    public function generateDueOccurrencesForTemplate(RecurringTaskTemplate $template): int
+    public function generateDueOccurrencesForTemplate(RecurringTask $template): int
     {
         return $this->generateTemplateOccurrences($template);
     }
 
-    private function generateTemplateOccurrences(RecurringTaskTemplate $template): int
+    private function generateTemplateOccurrences(RecurringTask $template): int
     {
-        if (! in_array($template->repeat_frequency, RecurringTaskTemplate::FREQUENCIES, true)) {
+        if (! in_array($template->repeat_frequency, RecurringTask::FREQUENCIES, true)) {
             throw new LogicException("Unsupported recurring frequency [{$template->repeat_frequency}].");
         }
 
@@ -60,7 +60,7 @@ class RecurringTaskGenerationService
         }
 
         $existingDates = Task::withTrashed()
-            ->where('recurring_task_template_id', $template->id)
+            ->where('recurring_task_id', $template->id)
             ->whereBetween('occurrence_date', [$startDate->toDateString(), $lastEligibleDate->toDateString()])
             ->pluck('occurrence_date')
             ->mapWithKeys(fn (string $date): array => [$date => true])
@@ -93,8 +93,9 @@ class RecurringTaskGenerationService
     private function createOccurrence(int $templateId, string $occurrenceDate): bool
     {
         return DB::transaction(function () use ($templateId, $occurrenceDate): bool {
-            $template = RecurringTaskTemplate::query()
+            $template = RecurringTask::query()
                 ->whereKey($templateId)
+                ->with(['task.creator', 'task.pocs', 'task.activeAssignees', 'task.attachments'])
                 ->lockForUpdate()
                 ->first();
 
@@ -103,74 +104,67 @@ class RecurringTaskGenerationService
             }
 
             if (Task::withTrashed()
-                ->where('recurring_task_template_id', $template->id)
+                ->where('recurring_task_id', $template->id)
                 ->whereDate('occurrence_date', $occurrenceDate)
                 ->exists()) {
                 return false;
             }
 
+            $master = $template->task;
+            if (! $master) {
+                return false;
+            }
+
             $companyIsActive = Company::query()
-                ->whereKey($template->company_id)
+                ->whereKey($master->company_id)
                 ->where('status', 'active')
                 ->exists();
             $departmentIsActive = Department::query()
-                ->whereKey($template->department_id)
-                ->where('company_id', $template->company_id)
+                ->whereKey($master->department_id)
+                ->where('company_id', $master->company_id)
                 ->where('status', 'active')
                 ->exists();
 
             if (! $companyIsActive || ! $departmentIsActive) {
                 Log::warning('Skipped recurring task occurrence because its company or department is inactive.', [
-                    'recurring_task_template_id' => $template->id,
+                    'recurring_task_id' => $template->id,
                     'occurrence_date' => $occurrenceDate,
                 ]);
 
                 return false;
             }
 
-            $pocIds = $template->pocs()
-                ->where('users.company_id', $template->company_id)
-                ->where('users.department_id', $template->department_id)
-                ->where('users.status', 'active')
-                ->pluck('users.id')
-                ->map(fn (int|string $id): int => (int) $id)
-                ->all();
+            $pocIds = $master->pocs->pluck('id')->map(fn (int|string $id): int => (int) $id)->all();
 
             if ($pocIds === []) {
                 Log::warning('Skipped recurring task occurrence because its template has no active department POC.', [
-                    'recurring_task_template_id' => $template->id,
+                    'recurring_task_id' => $template->id,
                     'occurrence_date' => $occurrenceDate,
                 ]);
 
                 return false;
             }
 
-            $assigneeIds = $template->assignees()
-                ->where('users.company_id', $template->company_id)
-                ->where('users.department_id', $template->department_id)
-                ->where('users.status', 'active')
-                ->pluck('users.id')
-                ->map(fn (int|string $id): int => (int) $id)
-                ->all();
+            $assigneeIds = $master->activeAssignees->pluck('id')->map(fn (int|string $id): int => (int) $id)->all();
 
             $task = Task::query()->create([
                 'task_code' => Task::generateCode(),
-                'title' => $template->title,
-                'description' => $template->description,
-                'company_id' => $template->company_id,
-                'department_id' => $template->department_id,
-                'created_by' => $template->created_by,
+                'title' => $master->title,
+                'description' => $master->description,
+                'company_id' => $master->company_id,
+                'department_id' => $master->department_id,
+                'created_by' => $master->created_by,
                 'assigned_to' => $assigneeIds[0] ?? null,
-                'priority' => $template->priority,
-                'task_type' => $template->task_type,
+                'priority' => $master->priority,
+                'task_type' => 'recurring',
                 'status' => $assigneeIds === [] ? 'notified' : 'assigned',
                 'progress_percentage' => 0,
                 'start_date' => null,
                 'due_date' => $occurrenceDate,
                 'original_deadline' => null,
                 'estimated_hours' => null,
-                'expected_output' => $template->expected_output,
-                'recurring_task_template_id' => $template->id,
+                'expected_output' => $master->expected_output,
+                'recurring_task_id' => $template->id,
                 'occurrence_date' => $occurrenceDate,
             ]);
 
@@ -179,20 +173,19 @@ class RecurringTaskGenerationService
                 $task,
                 $assigneeIds,
                 'Recurring task occurrence assignment',
-                $template->created_by,
+                $master->created_by,
             );
             $task->statusHistory()->create([
-                'changed_by' => $template->created_by,
+                'changed_by' => $master->created_by,
                 'new_status' => $task->status,
                 'event_type' => 'status',
                 'remarks' => "Recurring task occurrence for {$occurrenceDate}.",
             ]);
-            $this->attachments->createAttachmentRecords(
-                $task,
-                $template->attachments ?? [],
-                $template->created_by,
-            );
-            $creator = $template->creator;
+            $this->attachments->createAttachmentRecords($task, $master->attachments->map(fn ($attachment): array => [
+                'path' => $attachment->path, 'original_name' => $attachment->original_name,
+                'mime_type' => $attachment->mime_type, 'size_bytes' => $attachment->size_bytes,
+            ])->all(), $master->created_by);
+            $creator = $master->creator;
             if (! $creator) {
                 throw new LogicException("Recurring task template [{$template->id}] has no creator.");
             }
