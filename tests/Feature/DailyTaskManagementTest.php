@@ -11,6 +11,7 @@ use App\Models\TaskAssignment;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class DailyTaskManagementTest extends TestCase
@@ -125,6 +126,46 @@ class DailyTaskManagementTest extends TestCase
             ->assertSee('Daily Task: Reconcile support queue', false)
             ->assertSee('Status: On Hold', false)
             ->assertSee('Daily Task Update');
+    }
+
+    public function test_employee_assigned_through_the_legacy_task_assignee_field_sees_add_daily_task_button(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createTask([
+            'status' => 'in_progress',
+            'assigned_to' => $employee->id,
+        ]);
+
+        $this->actingAs($employee)
+            ->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('id="daily-task-create-toggle"', false)
+            ->assertSee('Add Daily Task');
+    }
+
+    public function test_employee_can_add_daily_task_when_role_permission_has_not_been_seeded(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createAssignedTask($employee);
+        Role::findByName('Employee')->revokePermissionTo('daily_tasks.create_own');
+
+        $this->actingAs($employee)
+            ->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('id="daily-task-create-toggle"', false);
+
+        $this->post(route('daily-tasks.store', $task), [
+            'title' => 'Review unseeded-permission task',
+            'work_date' => today()->toDateString(),
+            'quick_entry' => '1',
+            'priority' => 'medium',
+        ])->assertRedirect(route('tasks.show', $task).'#panel-daily-tasks');
+
+        $this->assertDatabaseHas('daily_tasks', [
+            'task_id' => $task->id,
+            'assigned_to' => $employee->id,
+            'title' => 'Review unseeded-permission task',
+        ]);
     }
 
     public function test_standalone_daily_task_pages_redirect_to_the_task_detail_or_task_list(): void

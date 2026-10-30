@@ -105,8 +105,12 @@ class TaskPolicy
             return $this->canManageOperationalTask($user, $task);
         }
 
-        return $user->can('daily_tasks.create_own')
-            && ($this->isActiveAssignee($user, $task) || $this->isTaskPoc($user, $task));
+        return ($user->hasAssignedRole('Employee') || $user->can('daily_tasks.create_own'))
+            && (
+                $this->isActiveAssignee($user, $task)
+                || (int) $task->assigned_to === (int) $user->id
+                || $this->isTaskPoc($user, $task)
+            );
     }
 
     public function updateDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
@@ -121,12 +125,15 @@ class TaskPolicy
         }
 
         if ($user->hasAssignedRole('Admin')) {
-            return $user->can('daily_tasks.manage') && $this->canManageOperationalTask($user, $task);
+            return $this->canManageOperationalTask($user, $task);
         }
 
-        return $user->hasAssignedRole('Employee')
-            && (int) $dailyTask->assigned_to === (int) $user->id
-            && $user->can('daily_tasks.update_own');
+        if ($user->hasAssignedRole('Employee') && (int) $dailyTask->assigned_to === (int) $user->id) {
+            return true;
+        }
+
+        return $user->can('daily_tasks.update_own')
+            && (int) $dailyTask->assigned_to === (int) $user->id;
     }
 
     public function viewDailyTask(User $user, Task $task, DailyTask $dailyTask): bool

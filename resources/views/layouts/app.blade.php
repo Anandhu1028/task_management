@@ -112,7 +112,6 @@
     {{-- Dashboard JS --}}
     <script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
     @stack('scripts')
-    <button type="button" data-pwa-install hidden class="tf-btn tf-btn--ghost" style="position:fixed;right:1rem;bottom:1rem;z-index:1100">Install app</button>
     <script src="{{ asset('js/pwa-install.js') }}"></script>
 
 </body>
