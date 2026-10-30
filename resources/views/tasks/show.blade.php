@@ -273,16 +273,6 @@
                 <h1>{{ $task->title }}</h1>
                 <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span>
                     {{ $task->department?->name ?? 'No department' }}</p>
-                <div class="d-flex flex-wrap gap-2 mb-3">
-                    @can('createDailyTask', $task)
-                        <a class="tf-btn tf-btn--primary tf-btn--sm" href="{{ route('daily-tasks.create', $task) }}">
-                            <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Daily Task
-                        </a>
-                    @endcan
-                    <a class="tf-btn tf-btn--ghost tf-btn--sm" href="{{ route('daily-tasks.index', ['task_id' => $task->id]) }}">
-                        View Daily Tasks
-                    </a>
-                </div>
                 <div class="tf-task-detail__summary-badges" aria-label="Task status details">
                     <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--workflow">
                         <span class="tf-task-detail__summary-badge-label"><i class="bi bi-arrow-repeat"
@@ -2705,18 +2695,67 @@
 
                 <div class="tf-activity-tab-panel" id="panel-daily-tasks" role="tabpanel" aria-labelledby="tab-daily-tasks-btn"
                     hidden>
+                    <div class="daily-task-panel-actions">
+                        @if (auth()->user()->hasAssignedRole('Employee') && auth()->user()->can('createDailyTask', $task))
+                            <div class="position-relative">
+                                <button class="btn btn-primary btn-sm" type="button" id="daily-task-create-toggle"
+                                    aria-expanded="{{ old('quick_entry') ? 'true' : 'false' }}"
+                                    aria-controls="daily-task-create-dialog">
+                                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Daily Task
+                                </button>
+                                <div class="daily-task-create-dialog" id="daily-task-create-dialog" role="dialog"
+                                    aria-labelledby="daily-task-create-title"
+                                    @if (!old('quick_entry')) hidden @else data-show-daily-task-create @endif>
+                                    <form method="POST" action="{{ route('daily-tasks.store', $task) }}">
+                                        @csrf
+                                        <input type="hidden" name="quick_entry" value="1">
+                                        <input type="hidden" name="priority" value="medium">
+                                        <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                                            <div>
+                                                <h3 class="h6 mb-1" id="daily-task-create-title">Add Daily Task</h3>
+                                                <p class="small text-body-secondary mb-0">For {{ auth()->user()->name }}</p>
+                                            </div>
+                                            <button class="btn-close" type="button" data-close-daily-task-create
+                                                aria-label="Close"></button>
+                                        </div>
+                                        @if ($errors->any() && old('quick_entry'))
+                                            <div class="alert alert-danger py-2" role="alert">
+                                                <ul class="mb-0 ps-3">
+                                                    @foreach ($errors->all() as $error)
+                                                        <li>{{ $error }}</li>
+                                                    @endforeach
+                                                </ul>
+                                            </div>
+                                        @endif
+                                        <div class="mb-3">
+                                            <label class="form-label" for="quickDailyTaskDate">Date</label>
+                                            <input class="form-control" type="date" id="quickDailyTaskDate"
+                                                name="work_date" value="{{ old('work_date', today()->toDateString()) }}" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label" for="quickDailyTaskTitle">Task</label>
+                                            <input class="form-control" type="text" id="quickDailyTaskTitle"
+                                                name="title" value="{{ old('title') }}" maxlength="500" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label" for="quickDailyTaskEmployee">Employee Name</label>
+                                            <input class="form-control" type="text" id="quickDailyTaskEmployee"
+                                                value="{{ auth()->user()->name }}" readonly>
+                                        </div>
+                                        <div class="d-flex justify-content-end gap-2">
+                                            <button class="btn btn-outline-secondary btn-sm" type="button"
+                                                data-close-daily-task-create>Cancel</button>
+                                            <button class="btn btn-primary btn-sm" type="submit">Add Task</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
                     <section class="tf-task-detail__card mb-3">
                         <header class="tf-task-detail__card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
                             <h2><i class="bi bi-calendar2-week" aria-hidden="true"></i> Daily Updates</h2>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="tf-task-detail__count">{{ $dailyTasks->count() }}</span>
-                                @can('createDailyTask', $task)
-                                    <a class="btn btn-primary btn-sm"
-                                        href="{{ route('daily-tasks.create', $task) }}?return_to_task=1">
-                                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Daily Task
-                                    </a>
-                                @endcan
-                            </div>
+                            <span class="tf-task-detail__count">{{ $dailyTasks->count() }}</span>
                         </header>
                         @if (session('success'))
                             <div class="alert alert-success mx-3 mt-3 mb-0" role="status">{{ session('success') }}</div>
@@ -2733,28 +2772,26 @@
                                         <th scope="col">Date</th>
                                         <th scope="col">Employee Name</th>
                                         <th scope="col">Department</th>
+                                        <th scope="col">Task</th>
                                         <th scope="col">Daily Task Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @forelse ($dailyTasks->sortByDesc('work_date') as $dailyTask)
-                                        <tr>
+                                        <tr id="daily-task-{{ $dailyTask->id }}">
+                                            <td>{{ $dailyTask->work_date?->format('M j, Y') ?? 'Date unavailable' }}</td>
+                                            <td>{{ $dailyTask->assignee?->name ?? 'Former employee' }}</td>
+                                            <td>{{ $task->department?->name ?? '—' }}</td>
                                             <td>
-                                                <a href="{{ route('daily-tasks.show', [$task, $dailyTask]) }}">
-                                                    {{ $dailyTask->work_date?->format('M j, Y') ?? 'Date unavailable' }}
-                                                </a>
-                                                <a class="d-block small text-decoration-none"
-                                                    href="{{ route('daily-tasks.show', [$task, $dailyTask]) }}">
+                                                <span class="d-block">
                                                     {{ $dailyTask->title }}
-                                                </a>
+                                                </span>
                                                 @if (filled($dailyTask->description))
                                                     <small class="d-block text-body-secondary">
                                                         {{ \Illuminate\Support\Str::limit($dailyTask->description, 100) }}
                                                     </small>
                                                 @endif
                                             </td>
-                                            <td>{{ $dailyTask->assignee?->name ?? 'Former employee' }}</td>
-                                            <td>{{ $task->department?->name ?? '—' }}</td>
                                             <td>
                                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                                     @php
@@ -2781,7 +2818,6 @@
                                                         @foreach ($statusActions as $statusAction => $statusActionLabel)
                                                             <form method="POST" action="{{ route('daily-tasks.action', [$task, $dailyTask, $statusAction]) }}">
                                                                 @csrf
-                                                                <input type="hidden" name="return_to_task" value="1">
                                                                 <button class="btn btn-sm {{ $statusAction === 'cancel' ? 'btn-outline-danger' : 'btn-outline-primary' }}"
                                                                     type="submit">{{ $statusActionLabel }}</button>
                                                             </form>
@@ -2792,7 +2828,7 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td class="text-center text-secondary py-4" colspan="4">No daily updates have been recorded.</td>
+                                            <td class="text-center text-secondary py-4" colspan="5">No daily updates have been recorded.</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -3096,8 +3132,101 @@
                     });
                 });
             });
-            if (window.location.hash === '#panel-daily-tasks') {
+            const dailyTaskHash = window.location.hash;
+            const dailyTaskHashMatch = dailyTaskHash.match(/^#daily-task-(\d+)$/);
+            if (dailyTaskHash === '#panel-daily-tasks' || dailyTaskHashMatch) {
                 document.getElementById('tab-daily-tasks-btn')?.click();
+            }
+            if (dailyTaskHashMatch) {
+                setTimeout(() => {
+                    document.getElementById(`daily-task-${dailyTaskHashMatch[1]}`)?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                    });
+                }, 300);
+            }
+            const dailyTaskCreateToggle = document.getElementById('daily-task-create-toggle');
+            const dailyTaskCreateDialog = document.getElementById('daily-task-create-dialog');
+            if (dailyTaskCreateDialog) {
+                document.body.append(dailyTaskCreateDialog);
+            }
+            const positionDailyTaskCreateDialog = () => {
+                if (!dailyTaskCreateToggle || !dailyTaskCreateDialog || dailyTaskCreateDialog.hidden) {
+                    return;
+                }
+
+                const triggerRect = dailyTaskCreateToggle.getBoundingClientRect();
+                const dialogRect = dailyTaskCreateDialog.getBoundingClientRect();
+                const viewportPadding = 12;
+                const left = Math.max(
+                    viewportPadding,
+                    Math.min(triggerRect.right - dialogRect.width, window.innerWidth - dialogRect.width - viewportPadding),
+                );
+                const belowTop = triggerRect.bottom + 8;
+                const aboveTop = triggerRect.top - dialogRect.height - 8;
+                const top = belowTop + dialogRect.height <= window.innerHeight - viewportPadding
+                    ? belowTop
+                    : Math.max(viewportPadding, aboveTop);
+
+                dailyTaskCreateDialog.style.left = `${left}px`;
+                dailyTaskCreateDialog.style.top = `${top}px`;
+            };
+            const closeDailyTaskCreateDialog = () => {
+                if (!dailyTaskCreateDialog || !dailyTaskCreateToggle) {
+                    return;
+                }
+
+                dailyTaskCreateDialog.hidden = true;
+                dailyTaskCreateToggle.setAttribute('aria-expanded', 'false');
+                dailyTaskCreateDialog.style.removeProperty('left');
+                dailyTaskCreateDialog.style.removeProperty('top');
+            };
+            const openDailyTaskCreateDialog = () => {
+                if (!dailyTaskCreateDialog || !dailyTaskCreateToggle) {
+                    return;
+                }
+
+                dailyTaskCreateDialog.hidden = false;
+                dailyTaskCreateToggle.setAttribute('aria-expanded', 'true');
+                positionDailyTaskCreateDialog();
+                dailyTaskCreateDialog.querySelector('#quickDailyTaskTitle')?.focus();
+            };
+
+            dailyTaskCreateToggle?.addEventListener('click', () => {
+                if (dailyTaskCreateDialog?.hidden) {
+                    openDailyTaskCreateDialog();
+                } else {
+                    closeDailyTaskCreateDialog();
+                }
+            });
+            dailyTaskCreateDialog?.querySelectorAll('[data-close-daily-task-create]').forEach(button => {
+                button.addEventListener('click', closeDailyTaskCreateDialog);
+            });
+            document.addEventListener('click', event => {
+                if (
+                    dailyTaskCreateDialog
+                    && dailyTaskCreateToggle
+                    && !dailyTaskCreateDialog.hidden
+                    && !dailyTaskCreateDialog.contains(event.target)
+                    && !dailyTaskCreateToggle.contains(event.target)
+                ) {
+                    closeDailyTaskCreateDialog();
+                }
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && dailyTaskCreateDialog && !dailyTaskCreateDialog.hidden) {
+                    closeDailyTaskCreateDialog();
+                    dailyTaskCreateToggle?.focus();
+                }
+            });
+            window.addEventListener('resize', positionDailyTaskCreateDialog);
+            window.addEventListener('scroll', positionDailyTaskCreateDialog, true);
+            if (
+                dailyTaskCreateDialog?.hasAttribute('data-show-daily-task-create')
+                || new URLSearchParams(window.location.search).get('open_daily_task') === '1'
+            ) {
+                document.getElementById('tab-daily-tasks-btn')?.click();
+                openDailyTaskCreateDialog();
             }
 
             // ── Quick Add Subtask Panel ───────────────────────────────────────────

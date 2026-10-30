@@ -4,16 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreDailyTaskRequest;
 use App\Models\DailyTask;
-use App\Models\Department;
-use App\Models\Milestone;
-use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\User;
 use App\Notifications\TaskLifecycleNotification;
 use App\Services\DailyTaskQueryService;
 use App\Services\DailyTaskWorkflowService;
 use App\Services\TaskAttachmentService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -22,7 +18,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Illuminate\View\View;
 use Throwable;
 
 class DailyTaskController extends Controller
@@ -33,70 +28,35 @@ class DailyTaskController extends Controller
         private readonly TaskAttachmentService $attachments,
     ) {}
 
-    public function index(Request $request): View|JsonResponse
+    public function index(Request $request): JsonResponse|RedirectResponse
     {
         $this->authorize('viewAny', Task::class);
+
+        if (! $request->wantsJson()) {
+            return redirect()->route('tasks.index');
+        }
+
         $this->workflow->refreshDueStatuses();
 
         $filters = $this->validatedFilters($request);
         $listing = $this->query->paginateForUser($request->user(), $filters);
-        $employees = $this->employeesVisibleTo($request->user());
-        $tasks = Task::query()->visibleTo($request->user())->orderByDesc('id')->limit(100)->get(['id', 'task_code', 'title', 'company_id', 'department_id']);
-        $subtasks = Subtask::query()
-            ->whereHas('task', fn (Builder $taskQuery) => $taskQuery->visibleTo($request->user()))
-            ->orderBy('title')
-            ->get(['id', 'task_id', 'title']);
-        $milestones = Milestone::query()
-            ->whereHas('task', fn (Builder $taskQuery) => $taskQuery->visibleTo($request->user()))
-            ->orderBy('title')
-            ->get(['id', 'task_id', 'title']);
-        $departments = Department::query()
-            ->where('status', 'active')
-            ->when(
-                ! $request->user()->hasAssignedRole('Admin') && ! $request->user()->hasAssignedRole('CEO'),
-                fn (Builder $departmentQuery) => $departmentQuery->where('company_id', $request->user()->company_id),
-            )
-            ->when(
-                ! $request->user()->hasAssignedRole('Admin')
-                    && ! $request->user()->hasAssignedRole('CEO')
-                    && ! $request->user()->hasAssignedRole('Manager')
-                    && ! $request->user()->hasAssignedRole('Team Leader')
-                    && ! $request->user()->can('daily_tasks.view_team'),
-                fn (Builder $departmentQuery) => $departmentQuery->whereKey($request->user()->department_id),
-            )
-            ->orderBy('name')
-            ->get(['id', 'name', 'company_id']);
 
-        if ($request->wantsJson()) {
-            return response()->json([
-                'ok' => true,
-                'summary' => $listing['summary'],
-                'daily_tasks' => $listing['paginator']->through(fn (DailyTask $dailyTask): array => $this->formatDailyTask($dailyTask)),
-            ]);
-        }
-
-        return view('daily-tasks.index', [
-            'dailyTasks' => $listing['paginator'],
+        return response()->json([
+            'ok' => true,
             'summary' => $listing['summary'],
-            'filters' => $filters,
-            'employees' => $employees,
-            'tasks' => $tasks,
-            'subtasks' => $subtasks,
-            'milestones' => $milestones,
-            'departments' => $departments,
+            'daily_tasks' => $listing['paginator']->through(fn (DailyTask $dailyTask): array => $this->formatDailyTask($dailyTask)),
         ]);
     }
 
-    public function create(Request $request, Task $task): View
+    public function create(Request $request, Task $task): RedirectResponse
     {
         $this->authorize('createDailyTask', $task);
 
-        return view('daily-tasks.create', [
-            'task' => $task->load(['department', 'subtasks', 'milestones.assignees']),
-            'employees' => $this->employeesForTask($request->user(), $task),
-            'metricDefinitions' => $this->metricDefinitionsForTask($task),
-            'returnToTask' => $request->boolean('return_to_task'),
-        ]);
+        $openCreateDialog = $request->user()->hasAssignedRole('Employee')
+            ? '?open_daily_task=1'
+            : '';
+
+        return redirect()->to(route('tasks.show', $task).$openCreateDialog.'#panel-daily-tasks');
     }
 
     public function forTask(Request $request, Task $task): JsonResponse
@@ -158,11 +118,8 @@ class DailyTaskController extends Controller
         );
 
         if (! $request->wantsJson()) {
-            $redirect = $request->boolean('return_to_task')
-                ? redirect()->to(route('tasks.show', $task).'#panel-daily-tasks')
-                : redirect()->route('daily-tasks.show', [$task, $dailyTask]);
-
-            return $redirect
+            return redirect()
+                ->to(route('tasks.show', $task).'#panel-daily-tasks')
                 ->with('success', 'Daily Task created successfully.')
                 ->with('overlap_warning', $overlaps->isNotEmpty());
         }
@@ -180,29 +137,21 @@ class DailyTaskController extends Controller
         ], 201);
     }
 
-    public function show(Request $request, Task $task, DailyTask $dailyTask): JsonResponse|View
+    public function show(Request $request, Task $task, DailyTask $dailyTask): JsonResponse|RedirectResponse
     {
         $this->authorize('viewDailyTask', [$task, $dailyTask]);
+
+        if (! $request->wantsJson()) {
+            return redirect()->to(route('tasks.show', $task).'#daily-task-'.$dailyTask->id);
+        }
 
         $dailyTask->load(['task.department', 'subtask', 'milestone', 'assignee', 'creator', 'activity.changedBy', 'activity.attachments']);
         $payload = $this->formatDailyTask($dailyTask, true);
 
-        if ($request->wantsJson()) {
-            return response()->json([
-                'ok' => true,
-                'daily_task' => $payload,
-                'overlap_warning' => $dailyTask->overlappingSchedules()->isNotEmpty(),
-            ]);
-        }
-
-        return view('daily-tasks.show', [
-            'dailyTask' => $dailyTask,
-            'payload' => $payload,
-            'overlaps' => $dailyTask->overlappingSchedules(),
-            'canUpdate' => $request->user()->can('updateDailyTask', [$task, $dailyTask]),
-            'canManage' => $request->user()->can('updateDailyTask', [$task, $dailyTask])
-                && $request->user()->can('update', $task),
-            'metricDefinitions' => $this->metricDefinitionsForTask($task),
+        return response()->json([
+            'ok' => true,
+            'daily_task' => $payload,
+            'overlap_warning' => $dailyTask->overlappingSchedules()->isNotEmpty(),
         ]);
     }
 
@@ -281,11 +230,8 @@ class DailyTaskController extends Controller
         }
 
         if (! $request->wantsJson()) {
-            $redirect = $request->boolean('return_to_task')
-                ? redirect()->to(route('tasks.show', $task).'#panel-daily-tasks')
-                : redirect()->route('daily-tasks.show', [$task, $dailyTask]);
-
-            return $redirect
+            return redirect()
+                ->to(route('tasks.show', $task).'#panel-daily-tasks')
                 ->with('success', 'Daily Task updated successfully.')
                 ->with('overlap_warning', $overlaps->isNotEmpty());
         }
@@ -462,32 +408,6 @@ class DailyTaskController extends Controller
         }
 
         return $payload;
-    }
-
-    /**
-     * @return EloquentCollection<int, User>
-     */
-    private function employeesVisibleTo(User $user): EloquentCollection
-    {
-        $query = User::query()->where('status', 'active');
-
-        if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
-            return $query->orderBy('name')->get(['id', 'name', 'company_id', 'department_id']);
-        }
-
-        $query->where('company_id', $user->company_id);
-
-        if ($user->hasAssignedRole('Manager')) {
-            return $query->orderBy('name')->get(['id', 'name', 'company_id', 'department_id']);
-        }
-
-        if ($user->hasAssignedRole('Team Leader') || $user->can('daily_tasks.view_team')) {
-            $query->where('department_id', $user->department_id);
-        } else {
-            $query->whereKey($user->id);
-        }
-
-        return $query->orderBy('name')->get(['id', 'name', 'company_id', 'department_id']);
     }
 
     /**

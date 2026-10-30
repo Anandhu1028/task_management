@@ -52,7 +52,7 @@ class DailyTaskManagementTest extends TestCase
         ]);
 
         $dailyTask = DailyTask::query()->where('task_id', $task->id)->firstOrFail();
-        $response->assertRedirect(route('daily-tasks.show', [$task, $dailyTask]));
+        $response->assertRedirect(route('tasks.show', $task).'#panel-daily-tasks');
         $this->assertDatabaseHas('daily_tasks', [
             'id' => $dailyTask->id,
             'task_id' => $task->id,
@@ -71,40 +71,48 @@ class DailyTaskManagementTest extends TestCase
         $employee = $this->createEmployee();
         $task = $this->createAssignedTask($employee);
         $returnUrl = route('tasks.show', $task).'#panel-daily-tasks';
-        $createUrl = route('daily-tasks.create', $task);
 
-        $this->actingAs($employee)
+        $response = $this->actingAs($employee)
             ->get(route('tasks.show', $task))
             ->assertSee('Add Daily Task')
-            ->assertSee($createUrl.'?return_to_task=1', false);
-
-        $this->get($createUrl.'?return_to_task=1')
-            ->assertSee('name="return_to_task" value="1"', false);
+            ->assertSee('id="daily-task-create-dialog"', false)
+            ->assertSee('name="work_date"', false)
+            ->assertSee('name="title"', false)
+            ->assertSee('value="'.$employee->name.'" readonly', false);
+        $html = $response->getContent();
+        $dialogStart = strpos($html, 'id="daily-task-create-dialog"');
+        $dialogEnd = strpos($html, '</form>', $dialogStart);
+        $this->assertNotFalse($dialogStart);
+        $this->assertNotFalse($dialogEnd);
+        $dialog = substr($html, $dialogStart, $dialogEnd - $dialogStart);
+        $this->assertStringNotContainsString('name="assigned_to"', $dialog);
 
         $this->post(route('daily-tasks.store', $task), [
             'title' => 'Reconcile support queue',
-            'description' => 'Review and reconcile incoming requests.',
             'work_date' => today()->toDateString(),
-            'planned_start_time' => '09:00',
-            'planned_end_time' => '10:00',
-            'priority' => 'high',
-            'return_to_task' => '1',
+            'quick_entry' => '1',
+            'assigned_to' => $this->admin->id,
+            'priority' => 'medium',
         ])->assertRedirect($returnUrl);
 
         $dailyTask = DailyTask::query()->where('task_id', $task->id)->firstOrFail();
+        $this->assertDatabaseHas('daily_tasks', [
+            'id' => $dailyTask->id,
+            'assigned_to' => $employee->id,
+            'estimated_minutes' => null,
+        ]);
+        $this->assertNotNull($dailyTask->planned_start_time);
+        $this->assertNotNull($dailyTask->planned_end_time);
 
-        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'start']), [
-            'return_to_task' => '1',
-        ])->assertRedirect($returnUrl);
-        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'hold']), [
-            'return_to_task' => '1',
-        ])->assertRedirect($returnUrl);
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'start']))
+            ->assertRedirect($returnUrl);
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'hold']))
+            ->assertRedirect($returnUrl);
         $this->get(route('tasks.show', $task))
             ->assertSee('Unhold')
             ->assertSee('Status: On Hold', false);
-        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'resume']), [
-            'return_to_task' => '1',
-        ])->assertRedirect($returnUrl);
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'resume']))
+            ->assertRedirect($returnUrl);
 
         $this->assertDatabaseHas('daily_tasks', [
             'id' => $dailyTask->id,
@@ -115,9 +123,40 @@ class DailyTaskManagementTest extends TestCase
             ->assertSee('Reconcile support queue')
             ->assertSee('On Hold')
             ->assertSee('Daily Task: Reconcile support queue', false)
-            ->assertSee('Details: Review and reconcile incoming requests.', false)
             ->assertSee('Status: On Hold', false)
             ->assertSee('Daily Task Update');
+    }
+
+    public function test_standalone_daily_task_pages_redirect_to_the_task_detail_or_task_list(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createAssignedTask($employee);
+        $dailyTask = $task->dailyTasks()->create([
+            'assigned_to' => $employee->id,
+            'created_by' => $employee->id,
+            'title' => 'Review support queue',
+            'work_date' => today()->toDateString(),
+            'planned_start_time' => '09:00',
+            'planned_end_time' => '10:00',
+            'original_work_date' => today()->toDateString(),
+            'original_planned_start_time' => '09:00',
+            'original_planned_end_time' => '10:00',
+            'status' => 'pending',
+        ]);
+
+        $this->actingAs($employee)
+            ->get(route('daily-tasks.index'))
+            ->assertRedirect(route('tasks.index'));
+        $this->getJson(route('daily-tasks.index'))
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+        $this->get(route('daily-tasks.create', $task))
+            ->assertRedirect(route('tasks.show', $task).'?open_daily_task=1#panel-daily-tasks');
+        $this->get(route('daily-tasks.show', [$task, $dailyTask]))
+            ->assertRedirect(route('tasks.show', $task).'#daily-task-'.$dailyTask->id);
+        $this->getJson(route('daily-tasks.show', [$task, $dailyTask]))
+            ->assertOk()
+            ->assertJsonPath('daily_task.id', $dailyTask->id);
     }
 
     public function test_employee_cannot_create_a_daily_task_for_another_employee(): void
@@ -190,7 +229,7 @@ class DailyTaskManagementTest extends TestCase
             'priority' => 'medium',
         ]);
         $dailyTask = DailyTask::query()->where('task_id', $task->id)->firstOrFail();
-        $response->assertRedirect(route('daily-tasks.show', [$task, $dailyTask]));
+        $response->assertRedirect(route('tasks.show', $task).'#panel-daily-tasks');
 
         $this->post(route('daily-tasks.action', [$task, $dailyTask, 'start']));
         $this->post(route('daily-tasks.action', [$task, $dailyTask, 'complete']), [
@@ -316,6 +355,7 @@ class DailyTaskManagementTest extends TestCase
             ->assertSee('Date')
             ->assertSee('Employee Name')
             ->assertSee('Department')
+            ->assertSee('Task')
             ->assertSee('Daily Task Status')
             ->assertSee($this->admin->name)
             ->assertSee($this->department->name)
@@ -402,12 +442,52 @@ class DailyTaskManagementTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)
-            ->post(route('daily-tasks.action', [$task, $dailyTask, 'start']))
+            ->get(route('tasks.show', $task))
+            ->assertSee(route('daily-tasks.action', [$task, $dailyTask, 'start']), false)
+            ->assertDontSee('Add Daily Task');
+
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'start']))
             ->assertRedirect();
 
         $this->assertDatabaseHas('daily_tasks', [
             'id' => $dailyTask->id,
             'status' => 'in_progress',
+        ]);
+    }
+
+    public function test_manager_cannot_change_daily_task_status(): void
+    {
+        $employee = $this->createEmployee();
+        $manager = User::factory()->create([
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+        ]);
+        $manager->assignRole('Manager');
+        $task = $this->createAssignedTask($employee);
+        $dailyTask = $task->dailyTasks()->create([
+            'assigned_to' => $employee->id,
+            'created_by' => $this->admin->id,
+            'title' => 'Review daily queue',
+            'work_date' => today()->toDateString(),
+            'planned_start_time' => '09:00',
+            'planned_end_time' => '10:00',
+            'original_work_date' => today()->toDateString(),
+            'original_planned_start_time' => '09:00',
+            'original_planned_end_time' => '10:00',
+            'status' => 'pending',
+        ]);
+
+        $this->actingAs($manager)
+            ->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertDontSee(route('daily-tasks.action', [$task, $dailyTask, 'start']), false);
+
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'start']))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('daily_tasks', [
+            'id' => $dailyTask->id,
+            'status' => 'pending',
         ]);
     }
 

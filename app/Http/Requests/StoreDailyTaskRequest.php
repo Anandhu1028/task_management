@@ -23,15 +23,37 @@ class StoreDailyTaskRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if (! $this->filled('assigned_to') && $this->user() !== null) {
+        if ($this->boolean('quick_entry') && $this->user() !== null) {
             $this->merge(['assigned_to' => $this->user()->id]);
+        } elseif (! $this->filled('assigned_to') && $this->user() !== null) {
+            $this->merge(['assigned_to' => $this->user()->id]);
+        }
+
+        $plannedTimesWereProvided = $this->filled('planned_start_time') && $this->filled('planned_end_time');
+        if ($this->boolean('quick_entry')
+            && ! $this->has('planned_start_time')
+            && ! $this->has('planned_end_time')) {
+            $workDate = (string) $this->input('work_date');
+            $isToday = $workDate === now()->timezone(config('app.timezone'))->toDateString();
+            $plannedStartTime = $isToday
+                ? now()->timezone(config('app.timezone'))->format('H:i')
+                : '09:00';
+
+            if ($plannedStartTime >= '23:59') {
+                $plannedStartTime = '23:58';
+            }
+
+            $this->merge([
+                'planned_start_time' => $plannedStartTime,
+                'planned_end_time' => $isToday ? '23:59' : '17:00',
+            ]);
         }
 
         if (! $this->filled('work_date')) {
             $this->merge(['work_date' => now()->toDateString()]);
         }
 
-        if ($this->filled('planned_start_time') && $this->filled('planned_end_time') && ! $this->filled('estimated_minutes')) {
+        if ($plannedTimesWereProvided && ! $this->filled('estimated_minutes')) {
             $start = strtotime((string) $this->input('planned_start_time'));
             $end = strtotime((string) $this->input('planned_end_time'));
             if ($start !== false && $end !== false && $end > $start) {

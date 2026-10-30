@@ -7268,3 +7268,26 @@
     grid-row: 2;
     min-width: 0;
 }
+
+.daily-task-panel-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.daily-task-create-dialog {
+    position: fixed;
+    z-index: 1080;
+    top: 0;
+    left: 0;
+    width: min(360px, calc(100vw - 32px));
+    padding: 16px;
+    border: 1px solid #dfe5ef;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(27, 44, 78, .18);
+}
+
+.daily-task-create-dialog[hidden] {
+    display: none;
+}

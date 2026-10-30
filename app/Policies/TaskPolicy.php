@@ -120,8 +120,13 @@ class TaskPolicy
             return false;
         }
 
-        return ((int) $dailyTask->assigned_to === (int) $user->id && $user->can('daily_tasks.update_own'))
-            || ($user->can('daily_tasks.manage') && $this->canManageOperationalTask($user, $task));
+        if ($user->hasAssignedRole('Admin')) {
+            return $user->can('daily_tasks.manage') && $this->canManageOperationalTask($user, $task);
+        }
+
+        return $user->hasAssignedRole('Employee')
+            && (int) $dailyTask->assigned_to === (int) $user->id
+            && $user->can('daily_tasks.update_own');
     }
 
     public function viewDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
