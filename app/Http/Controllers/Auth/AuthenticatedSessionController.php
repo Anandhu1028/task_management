@@ -11,7 +11,7 @@ use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
-    public function create(Request $request): View
+    public function create(): View
     {
         $demoAccounts = [];
 
@@ -30,7 +30,7 @@ class AuthenticatedSessionController extends Controller
             }
         }
 
-        return view($request->routeIs('pwa.login') ? 'pwa.login' : 'auth.login', compact('demoAccounts'));
+        return view('auth.login', compact('demoAccounts'));
     }
 
     public function store(LoginRequest $request): RedirectResponse
@@ -38,7 +38,7 @@ class AuthenticatedSessionController extends Controller
         $request->authenticate();
         $request->session()->regenerate();
 
-        return redirect()->intended(route('pwa.tasks.index'));
+        return redirect()->intended(route('dashboard'));
     }
 
     public function destroy(Request $request): RedirectResponse

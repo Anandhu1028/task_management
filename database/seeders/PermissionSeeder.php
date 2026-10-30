@@ -38,6 +38,15 @@ class PermissionSeeder extends Seeder
             'tasks.flag_risk',
             'tasks.review',
             'tasks.cancel',
+            'subtasks.create',
+            'subtasks.manage',
+            'milestones.create',
+            'milestones.manage',
+            'daily_tasks.create_own',
+            'daily_tasks.create_for_others',
+            'daily_tasks.view_team',
+            'daily_tasks.update_own',
+            'daily_tasks.manage',
         ];
 
         $roleManagementPermissions = config('role-management.management_permissions', []);
@@ -47,15 +56,35 @@ class PermissionSeeder extends Seeder
         }
 
         $employeePermissions = array_values(array_diff($permissions, [
+            'tasks.create',
             'tasks.update',
             'tasks.delete',
+            'subtasks.create',
+            'subtasks.manage',
+            'milestones.create',
+            'milestones.manage',
+            'daily_tasks.create_for_others',
+            'daily_tasks.view_team',
+            'daily_tasks.manage',
         ]));
 
         $roles = [
             'Admin' => array_merge($permissions, $roleManagementPermissions),
             'CEO' => $permissions,
-            'Manager' => ['tasks.view'],
-            'Team Leader' => $permissions,
+            'Manager' => [
+                'tasks.view',
+                'tasks.create',
+                'tasks.update',
+                'subtasks.create',
+                'subtasks.manage',
+                'milestones.create',
+                'milestones.manage',
+                'daily_tasks.create_own',
+                'daily_tasks.create_for_others',
+                'daily_tasks.view_team',
+                'daily_tasks.manage',
+            ],
+            'Team Leader' => array_values(array_diff($permissions, ['tasks.create', 'tasks.delete'])),
             'Employee' => $employeePermissions,
         ];
 

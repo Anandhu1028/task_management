@@ -2,6 +2,8 @@
 
 namespace App\Policies;
 
+use App\Models\DailyTask;
+use App\Models\Milestone;
 use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\User;
@@ -86,28 +88,74 @@ class TaskPolicy
 
     public function createSubtask(User $user, Task $task): bool
     {
-        return $this->update($user, $task)
-            || ($user->can('tasks.change_status')
-                && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
-                && $this->isActiveAssignee($user, $task));
+        return $user->can('subtasks.create') && $this->canManageOperationalTask($user, $task);
+    }
+
+    public function createDailyTask(User $user, Task $task): bool
+    {
+        if ($user->hasAssignedRole('CEO') || $user->hasAssignedRole('Team Leader')) {
+            return false;
+        }
+
+        if (! Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()) {
+            return false;
+        }
+
+        if ($user->can('daily_tasks.create_for_others')) {
+            return $this->canManageOperationalTask($user, $task);
+        }
+
+        return $user->can('daily_tasks.create_own')
+            && ($this->isActiveAssignee($user, $task) || $this->isTaskPoc($user, $task));
+    }
+
+    public function updateDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
+    {
+        if ($dailyTask->task_id !== $task->id
+            || ! Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()) {
+            return false;
+        }
+
+        if ($user->hasAssignedRole('CEO') || $user->hasAssignedRole('Team Leader')) {
+            return false;
+        }
+
+        return ((int) $dailyTask->assigned_to === (int) $user->id && $user->can('daily_tasks.update_own'))
+            || ($user->can('daily_tasks.manage') && $this->canManageOperationalTask($user, $task));
+    }
+
+    public function viewDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
+    {
+        return $dailyTask->task_id === $task->id
+            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+            && DailyTask::query()->visibleTo($user)->whereKey($dailyTask->getKey())->exists();
+    }
+
+    public function createMilestone(User $user, Task $task): bool
+    {
+        return $user->can('milestones.create')
+            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+            && $this->canManageOperationalTask($user, $task);
+    }
+
+    public function updateMilestone(User $user, Task $task, Milestone $milestone): bool
+    {
+        return $milestone->task_id === $task->id
+            && $user->can('milestones.manage')
+            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+            && $this->canManageOperationalTask($user, $task);
     }
 
     public function updateSubtask(User $user, Task $task): bool
     {
-        return $this->createSubtask($user, $task);
+        return $user->can('subtasks.manage')
+            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+            && $this->canManageOperationalTask($user, $task);
     }
 
     public function deleteSubtask(User $user, Task $task, ?Subtask $subtask = null): bool
     {
-        if ($this->updateSubtask($user, $task)) {
-            return true;
-        }
-
-        if ($subtask && (int) $subtask->created_by === (int) $user->id) {
-            return Task::query()->visibleTo($user)->whereKey($task->getKey())->exists();
-        }
-
-        return false;
+        return $subtask !== null && $this->updateSubtask($user, $task);
     }
 
     public function delete(User $user, Task $task): bool
@@ -217,10 +265,44 @@ class TaskPolicy
             return true;
         }
 
-        return $user->hasAssignedRole('Team Leader')
-            && $user->company_id === $task->company_id
-            && $user->department_id !== null
-            && $user->department_id === $task->department_id;
+        if ($user->hasAssignedRole('Manager')) {
+            return $user->company_id === $task->company_id;
+        }
+
+        return $user->company_id === $task->company_id
+            && (($user->hasAssignedRole('Team Leader')
+                    && $user->department_id !== null
+                    && $user->department_id === $task->department_id)
+                || ($user->department_id === $task->department_id && $this->isTaskPoc($user, $task)));
+    }
+
+    private function canManageOperationalTask(User $user, Task $task): bool
+    {
+        if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
+            return true;
+        }
+
+        if ($user->hasAssignedRole('Manager')) {
+            return $user->company_id === $task->company_id;
+        }
+
+        if ($user->hasAssignedRole('Team Leader')) {
+            return $user->company_id === $task->company_id
+                && $user->department_id !== null
+                && $user->department_id === $task->department_id
+                && $this->isTaskPoc($user, $task);
+        }
+
+        return $user->company_id === $task->company_id
+            && $user->department_id === $task->department_id
+            && $this->isTaskPoc($user, $task);
+    }
+
+    private function isTaskPoc(User $user, Task $task): bool
+    {
+        return $task->relationLoaded('pocs')
+            ? $task->pocs->contains('id', $user->id)
+            : $task->pocs()->whereKey($user->id)->exists();
     }
 
     private function isActiveAssignee(User $user, Task $task): bool

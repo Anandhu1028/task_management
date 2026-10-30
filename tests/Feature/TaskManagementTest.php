@@ -72,7 +72,7 @@ class TaskManagementTest extends TestCase
             ->assertDontSee("checkbox.name = 'poc_ids[]';", false);
     }
 
-    public function test_task_detail_shows_timeline_tab_before_subtasks_by_default(): void
+    public function test_task_detail_opens_overview_full_width_before_activity_tabs(): void
     {
         $task = $this->createWorkflowTask();
 
@@ -85,15 +85,67 @@ class TaskManagementTest extends TestCase
         $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge-label"><i class="bi bi-(?:arrow-repeat|calendar2-check|alarm|hourglass-split)"/', $html));
         $this->assertStringNotContainsString('tf-task-detail__summary-item--progress', $html);
         $this->assertSame(1, preg_match('/<section class="tf-task-detail__summary"[^>]*>.*?<section class="tf-task-detail__workflow-progress"[^>]*>.*?<ol class="tf-task-workflow__steps"[^>]*aria-label="Workflow progress"/s', $html));
-        $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-overview-btn")(?=[^>]*data-activity-tab="overview")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-subtasks-btn")(?=[^>]*data-activity-tab="subtasks")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
-        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-timeline")(?=[^>]*class="[^"]*is-active")[^>]*>/s', $html));
-        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-subtasks")(?=[^>]*hidden)[^>]*>/s', $html));
+        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-subtasks")(?=[^>]*hidden)[^>]*>.*?id="subtasks-table"/s', $html));
+        $this->assertStringNotContainsString('id="task-subtasks-overview"', $html);
+        $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-timeline")(?=[^>]*hidden)[^>]*>/s', $html));
+        $this->assertStringNotContainsString('Subtask timeline', $html);
+        $this->assertStringNotContainsString('Subtask Timeline (Gantt View)', $html);
+        $this->assertStringNotContainsString('tf-gantt-', $html);
+        $this->assertStringContainsString('id="subtasks-table"', $html);
+        $this->assertStringNotContainsString('data-tl-row="subtasks"', $html);
+        $this->assertStringContainsString('data-activity-view="overview"', $html);
+        $this->assertStringContainsString("taskDetails.hidden = target !== 'overview';", $html);
 
         $this->assertLessThan(
             strpos($html, 'id="tab-subtasks-btn"'),
             strpos($html, 'id="tab-timeline-btn"'),
         );
+        $this->assertLessThan(
+            strpos($html, 'id="tab-daily-tasks-btn"'),
+            strpos($html, 'id="tab-overview-btn"'),
+        );
+    }
+
+    public function test_task_timeline_milestones_render_creator_and_assignee_badges_on_their_recorded_dates(): void
+    {
+        $assignee = User::factory()->create([
+            'name' => 'Anandhu',
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+        ]);
+        $assigner = User::factory()->create([
+            'name' => 'Asha Manager',
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+        ]);
+        $task = $this->createWorkflowTask([
+            'assigned_to' => $assignee->id,
+            'due_date' => '2026-01-22',
+        ]);
+        $task->forceFill([
+            'created_at' => '2026-01-12 23:30:00',
+            'updated_at' => '2026-01-12 23:30:00',
+        ])->save();
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $assignee->id,
+            'assigned_by' => $assigner->id,
+            'assigned_at' => '2026-01-15 00:30:00',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
+
+        $response->assertOk()
+            ->assertSee('Task Created By')
+            ->assertSee('Created by '.$this->admin->name)
+            ->assertSee('Assigned to Anandhu')
+            ->assertSee('\\u0022date\\u0022:\\u00222026-01-12\\u0022', false)
+            ->assertSee('\\u0022date\\u0022:\\u00222026-01-15\\u0022', false)
+            ->assertSee('\\u0022date\\u0022:\\u00222026-01-22\\u0022', false);
     }
 
     public function test_notification_poll_returns_only_the_signed_in_users_latest_notifications(): void
@@ -1537,7 +1589,7 @@ class TaskManagementTest extends TestCase
             ->assertSee('start.png')
             ->assertSee('data-wf-toggle="top-hold"', false)
             ->assertSee('Review')
-            ->assertSee('Recent updates and history')
+            ->assertSee('data-task-timeline', false)
             ->assertDontSee('tf-task-detail__activity-tabs', false)
             ->assertDontSee('data-task-activity-tab', false)
             ->assertSee('class="tf-task-detail__people-cards"', false)
@@ -1545,6 +1597,8 @@ class TaskManagementTest extends TestCase
             ->assertSee('id="task-assignment-title"', false)
             ->assertSee('id="topTaskWorkUpdate" name="note"', false)
             ->assertSee('id="topWorkUpdateDate" name="update_date"', false)
+            ->assertSee("start: 'Work started'", false)
+            ->assertSee('tl-activity-card__date', false)
             ->assertSee('data-wf-toggle="top-submit-review"', false)
             ->assertSee('name="status" value="submitted_for_review"', false)
             ->assertSee('id="topTaskSubmissionNote" name="reason"', false)

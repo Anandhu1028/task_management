@@ -48,6 +48,9 @@
             <a class="tf-nav__item {{ request()->routeIs('tasks.*') ? 'is-active' : '' }}" href="{{ route('tasks.index') }}">
                 <i class="bi bi-check2-square"></i><span> Tasks</span>
             </a>
+            <a class="tf-nav__item {{ request()->routeIs('daily-tasks.*') ? 'is-active' : '' }}" href="{{ route('daily-tasks.index') }}">
+                <i class="bi bi-calendar2-week"></i><span> Daily Tasks</span>
+            </a>
         @endif
 
         @if ($canViewUsers)

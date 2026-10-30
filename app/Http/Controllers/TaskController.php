@@ -235,12 +235,22 @@ class TaskController extends Controller
             'activeAssignees',
             'creator',
             'pocs',
+            'assignments' => fn ($query) => $query
+                ->orderBy('assigned_at')
+                ->orderBy('id'),
             'assignments.user',
-            'assignments.assignedBy',
+            'assignments.assignedBy.roles',
             'attachments.uploadedBy',
             'recurringTask.task.activeAssignees:id,name',
+            'recurringTask.occurrences:id,recurring_task_id,occurrence_date,status,completed_at,missed_at,task_code,title',
             'recurringSchedule',
+            'recurringSchedule.occurrences:id,recurring_task_id,occurrence_date,status,completed_at,missed_at,task_code,title',
             'statusHistory.changedBy',
+            'statusHistory.attachments',
+            'milestones.creator:id,name',
+            'milestones.completedBy:id,name',
+            'milestones.assignees:id,name',
+            'milestones.activity.changedBy:id,name',
             'subtasks.creator',
             'subtasks.assignee',
             'subtasks.completedBy',
@@ -248,7 +258,49 @@ class TaskController extends Controller
 
         $companies = Company::query()->where('status', 'active')->orderBy('name')->get(['id', 'name']);
         $departments = Department::query()->where('status', 'active')->orderBy('name')->get(['id', 'name', 'company_id']);
-        $employees = User::query()->where('status', 'active')->orderBy('name')->get(['id', 'name', 'company_id', 'department_id', 'designation']);
+        $employees = User::query()
+            ->where('status', 'active')
+            ->where('company_id', $task->company_id)
+            ->where('department_id', $task->department_id)
+            ->orderBy('name')
+            ->get(['id', 'name', 'company_id', 'department_id', 'designation']);
+        $milestones = $task->milestones()
+            ->with(['creator:id,name', 'completedBy:id,name', 'assignees:id,name', 'activity.changedBy:id,name'])
+            ->when(
+                ! $request->user()->hasAssignedRole('Admin')
+                    && ! $request->user()->hasAssignedRole('CEO')
+                    && ! $request->user()->hasAssignedRole('Manager')
+                    && ! $request->user()->hasAssignedRole('Team Leader')
+                    && ! $request->user()->can('daily_tasks.view_team'),
+                fn (Builder $query) => $query->where(function (Builder $visibilityQuery) use ($request): void {
+                    $visibilityQuery->whereDoesntHave('assignees')
+                        ->orWhereHas('assignees', fn (Builder $assigneeQuery) => $assigneeQuery->whereKey($request->user()->id));
+                }),
+            )
+            ->get();
+        $dailyTasks = $task->dailyTasks()
+            ->visibleTo($request->user())
+            ->with([
+                'assignee:id,name',
+                'subtask:id,task_id,title',
+                'milestone:id,task_id,title',
+                'activity.changedBy:id,name',
+                'activity.attachments',
+            ])
+            ->get();
+        if (! $request->user()->hasAssignedRole('Admin')
+            && ! $request->user()->hasAssignedRole('CEO')
+            && ! $request->user()->hasAssignedRole('Manager')
+            && ! $request->user()->hasAssignedRole('Team Leader')
+            && ! $request->user()->can('daily_tasks.view_team')) {
+            $visibleSubtaskIds = $task->subtasks
+                ->where('assigned_to', $request->user()->id)
+                ->pluck('id');
+            $task->setRelation(
+                'subtasks',
+                $task->subtasks->whereIn('id', $visibleSubtaskIds)->values(),
+            );
+        }
         $statusOptions = $workflow->availableTransitions($task, $request->user());
         $canFlagRisk = $request->user()->can('flagRisk', $task);
         $canReviewSubmission = $request->user()->can('review', $task);
@@ -274,11 +326,38 @@ class TaskController extends Controller
             )
             ->get();
 
+        // Load other active tasks assigned to at least one of this task's current assignees.
+        // The timeline uses this data only to avoid false missed-update warnings on a
+        // lower-priority task while the same employee has a higher-priority task scheduled.
+        $currentAssigneeIds = $task->activeAssignees->pluck('id')->all();
+        $priorityWorkload = $currentAssigneeIds === []
+            ? collect()
+            : Task::query()
+                ->where('id', '!=', $task->id)
+                ->whereNotIn('status', ['completed', 'cancelled'])
+                ->whereHas('activeAssignees', fn (Builder $query) => $query->whereIn('users.id', $currentAssigneeIds))
+                ->with('activeAssignees:id,name')
+                ->get(['id', 'task_code', 'title', 'priority', 'start_date', 'due_date', 'status'])
+                ->map(fn (Task $otherTask): array => [
+                    'id' => $otherTask->id,
+                    'title' => $otherTask->title,
+                    'taskCode' => $otherTask->task_code,
+                    'priority' => strtolower((string) $otherTask->priority),
+                    'start' => $otherTask->start_date?->toDateString(),
+                    'due' => $otherTask->due_date?->toDateString(),
+                    'status' => $otherTask->status,
+                    'assigneeIds' => $otherTask->activeAssignees->pluck('id')->values()->all(),
+                ])
+                ->values()
+                ->all();
+
         return view('tasks.show', compact(
             'task',
             'companies',
             'departments',
             'employees',
+            'milestones',
+            'dailyTasks',
             'statusOptions',
             'canFlagRisk',
             'canReviewSubmission',
@@ -292,6 +371,7 @@ class TaskController extends Controller
             'resumeToReview',
             'canReviewDeadlineExtensions',
             'deadlineExtensionRequests',
+            'priorityWorkload',
         ));
     }
 
@@ -383,6 +463,33 @@ class TaskController extends Controller
 
         try {
             DB::transaction(function () use ($task, $taskData, $pocIds, $hasAssigneeUpdate, $assigneeIds, $storedAttachments, $workflow, $request): void {
+                $task->refresh();
+                $oldStatusForAudit = $task->status;
+                $auditedChanges = [];
+                foreach ($taskData as $field => $newValue) {
+                    $oldValue = $task->getAttribute($field);
+                    $normalizeAuditValue = static function ($value, string $field): ?string {
+                        if ($value instanceof \DateTimeInterface) {
+                            return in_array($field, ['start_date', 'due_date', 'original_deadline'], true)
+                                ? $value->format('Y-m-d')
+                                : $value->format('Y-m-d H:i:s');
+                        }
+                        if (is_bool($value)) {
+                            return $value ? '1' : '0';
+                        }
+                        if ($value === null) {
+                            return null;
+                        }
+
+                        return is_scalar($value) ? (string) $value : json_encode($value);
+                    };
+                    $oldNormalized = $normalizeAuditValue($oldValue, $field);
+                    $newNormalized = $normalizeAuditValue($newValue, $field);
+                    if ($oldNormalized !== $newNormalized) {
+                        $auditedChanges[$field] = ['from' => $oldNormalized, 'to' => $newNormalized];
+                    }
+                }
+
                 if ($hasAssigneeUpdate) {
                     $this->syncTaskAssignees($task, $assigneeIds, 'Updated task assignment', auth()->id());
                 }
@@ -393,10 +500,36 @@ class TaskController extends Controller
                 }
 
                 if ($pocIds !== null) {
+                    $oldPocNames = $task->pocs()->orderBy('users.name')->pluck('users.name')->values()->all();
+                    $newPocNames = User::query()
+                        ->whereIn('id', $pocIds)
+                        ->orderBy('name')
+                        ->pluck('name')
+                        ->values()
+                        ->all();
+                    if ($oldPocNames !== $newPocNames) {
+                        $auditedChanges['poc_ids'] = [
+                            'from' => implode(', ', $oldPocNames),
+                            'to' => implode(', ', $newPocNames),
+                        ];
+                    }
                     $task->pocs()->sync($pocIds);
                 }
 
                 $this->createAttachmentRecords($task, $storedAttachments, auth()->id());
+
+                if ($auditedChanges !== []) {
+                    $task->statusHistory()->create([
+                        'changed_by' => $request->user()->id,
+                        'old_status' => $oldStatusForAudit,
+                        'new_status' => $task->fresh()->status,
+                        'event_type' => 'task_updated',
+                        'remarks' => json_encode([
+                            'action' => 'task_updated',
+                            'changes' => $auditedChanges,
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    ]);
+                }
 
                 $updateDetails = ['task details updated'];
                 if ($hasAssigneeUpdate) {
@@ -1053,7 +1186,10 @@ class TaskController extends Controller
 
     private function redirectWithTaskOperation(Task $task, string $title, string $message): RedirectResponse
     {
-        return redirect()->route('tasks.show', $task)
+        // The installable PWA posts return_to=pwa so it stays inside its own screens.
+        $route = request()->input('return_to') === 'pwa' ? 'pwa.tasks.show' : 'tasks.show';
+
+        return redirect()->route($route, $task)
             ->with('success', $message)
             ->with('operation_status', [
                 'kind' => 'task',

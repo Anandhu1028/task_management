@@ -135,7 +135,7 @@ class SubtaskController extends Controller
 
     public function toggle(Request $request, Task $task, Subtask $subtask): JsonResponse
     {
-        $this->authorize('changeStatus', $task);
+        $this->authorize('updateSubtask', $task);
         abort_if($subtask->task_id !== $task->id, 404);
 
         $actor = $request->user();
@@ -205,9 +205,9 @@ class SubtaskController extends Controller
             && (int) ($validated['assigned_to'] ?? 0) !== (int) ($subtask->assigned_to ?? 0);
 
         if ($managerChanges) {
-            $this->authorize($assigneeChanged ? 'update' : 'updateSubtask', $task);
+            $this->authorize('updateSubtask', $task);
         } elseif ($statusOrProgressChanged) {
-            $this->authorize('changeStatus', $task);
+            $this->authorize('updateSubtask', $task);
         } else {
             $this->authorize('view', $task);
 
@@ -442,7 +442,16 @@ class SubtaskController extends Controller
                 'deleted',
                 $subtask->title,
                 'Deleted',
-                "deleted subtask \"{$subtask->title}\"",
+                json_encode([
+                    'action' => 'deleted',
+                    'title' => $subtask->title,
+                    'description' => $subtask->description,
+                    'assigned_to' => $subtask->assigned_to,
+                    'assignee' => $subtask->assignee?->name ?? 'Unassigned',
+                    'start_date' => $subtask->start_date?->toDateString(),
+                    'due_date' => $subtask->due_date?->toDateString(),
+                    'deleted_subtask_id' => $subtask->id,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             );
             $this->activity->notifyParticipants(
                 $task,

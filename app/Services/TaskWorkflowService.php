@@ -109,6 +109,7 @@ class TaskWorkflowService
 
     public function startWork(Task $task, string $note, string $startDate, User $actor): TaskStatusHistory
     {
+        $this->ensureRecurringOccurrenceIsAvailable($task);
         Gate::forUser($actor)->authorize('startWork', $task);
 
         if (blank($note)) {
@@ -152,6 +153,7 @@ class TaskWorkflowService
 
     public function addWorkUpdate(Task $task, string $note, string $updateDate, User $actor): TaskStatusHistory
     {
+        $this->ensureRecurringOccurrenceIsAvailable($task);
         Gate::forUser($actor)->authorize('addWorkUpdate', $task);
 
         return DB::transaction(function () use ($task, $note, $updateDate, $actor): TaskStatusHistory {
@@ -179,6 +181,7 @@ class TaskWorkflowService
 
     public function resumeWork(Task $task, ?string $note, User $actor): void
     {
+        $this->ensureRecurringOccurrenceIsAvailable($task);
         Gate::forUser($actor)->authorize('resume', $task);
 
         $holdEvent = $task->statusHistory()
@@ -242,6 +245,7 @@ class TaskWorkflowService
 
     public function changeStatus(Task $task, string $newStatus, ?string $reason, User $actor, ?string $statusDate = null): TaskStatusHistory
     {
+        $this->ensureRecurringOccurrenceIsAvailable($task);
         $allowedTransitions = Task::STATUS_TRANSITIONS[$task->status] ?? [];
         $isCancellation = $newStatus === 'cancelled';
         $ability = match ($newStatus) {
@@ -360,6 +364,20 @@ class TaskWorkflowService
 
             return $history;
         });
+    }
+
+    private function ensureRecurringOccurrenceIsAvailable(Task $task): void
+    {
+        if ($task->recurring_task_id === null) {
+            return;
+        }
+
+        if ($task->status === 'missed' || $task->available_from === null || $task->expires_at === null
+            || now()->lt($task->available_from) || now()->gte($task->expires_at)) {
+            throw ValidationException::withMessages([
+                'status' => 'This recurring occurrence is outside its permitted time window and cannot be updated.',
+            ]);
+        }
     }
 
     public function updateRisk(Task $task, string $action, ?string $reason, User $actor): void

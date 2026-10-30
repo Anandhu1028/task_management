@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Task extends Model
 {
+    /** @use HasFactory<TaskFactory> */
     use HasFactory, SoftDeletes;
 
     protected $attributes = [
@@ -53,6 +55,9 @@ class Task extends Model
         'completed_at',
         'recurring_task_id',
         'occurrence_date',
+        'available_from',
+        'expires_at',
+        'missed_at',
     ];
 
     protected $casts = [
@@ -67,6 +72,9 @@ class Task extends Model
         'estimated_hours' => 'decimal:2',
         'progress_percentage' => 'integer',
         'occurrence_date' => 'date',
+        'available_from' => 'datetime',
+        'expires_at' => 'datetime',
+        'missed_at' => 'datetime',
     ];
 
     /** Valid priority values. */
@@ -86,6 +94,7 @@ class Task extends Model
         'rework',
         'completed',
         'cancelled',
+        'missed',
     ];
 
     public const DEADLINE_CONDITIONS = [
@@ -105,6 +114,7 @@ class Task extends Model
         'rework' => 'Re-work',
         'completed' => 'Completed',
         'cancelled' => 'Cancelled',
+        'missed' => 'Missed',
     ];
 
     /** @var array<string, string> */
@@ -216,6 +226,16 @@ class Task extends Model
         return $this->hasMany(Subtask::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    public function dailyTasks(): HasMany
+    {
+        return $this->hasMany(DailyTask::class)->orderBy('work_date')->orderBy('planned_start_time');
+    }
+
+    public function milestones(): HasMany
+    {
+        return $this->hasMany(Milestone::class)->orderBy('target_date')->orderBy('id');
+    }
+
     public function getDisplayStatusAttribute(): string
     {
         return $this->status;
@@ -308,6 +328,23 @@ class Task extends Model
         });
     }
 
+    public function scopeAvailableInRecurringWindow(Builder $query): Builder
+    {
+        $now = now();
+
+        return $query->where(function (Builder $windowQuery) use ($now): void {
+            $windowQuery->where(function (Builder $regularTaskQuery): void {
+                $regularTaskQuery->whereNull('tasks.recurring_task_id')
+                    ->where('tasks.task_type', '!=', 'recurring');
+            })->orWhere(function (Builder $occurrenceQuery) use ($now): void {
+                $occurrenceQuery->whereNotNull('tasks.recurring_task_id')
+                    ->where('tasks.available_from', '<=', $now)
+                    ->where('tasks.expires_at', '>', $now)
+                    ->whereNotIn('tasks.status', ['completed', 'missed', 'cancelled']);
+            });
+        });
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
@@ -320,7 +357,9 @@ class Task extends Model
                     ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                         ->whereKey($user->id)
                         ->where('users.company_id', $user->company_id)
-                        ->where('users.department_id', $user->department_id));
+                        ->where('users.department_id', $user->department_id))
+                    ->orWhereHas('dailyTasks', fn (Builder $dailyTaskQuery) => $dailyTaskQuery
+                        ->where('daily_tasks.assigned_to', $user->id));
             });
         }
 
@@ -342,7 +381,9 @@ class Task extends Model
                 ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                     ->whereKey($user->id)
                     ->where('users.company_id', $user->company_id)
-                    ->where('users.department_id', $user->department_id));
+                    ->where('users.department_id', $user->department_id))
+                ->orWhereHas('dailyTasks', fn (Builder $dailyTaskQuery) => $dailyTaskQuery
+                    ->where('daily_tasks.assigned_to', $user->id));
         });
     }
 

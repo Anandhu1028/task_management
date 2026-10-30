@@ -2,6 +2,12 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 
 <head>
+    {{-- Installed PWA launched into the admin app (old start_url) → send it to the PWA task list. --}}
+    <script>
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+            window.location.replace('{{ route('pwa.tasks.index') }}');
+        }
+    </script>
 
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" >
@@ -9,6 +15,7 @@
     <meta name="theme-color" content="{{ config('pwa.theme_color') }}">
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <link rel="icon" href="{{ asset('icons/task-manager-192.png') }}" type="image/png">
+    <link rel="apple-touch-icon" href="{{ asset('icons/task-manager-192.png') }}">
     <title>
         @yield('title', 'Dashboard') · TaskFlow
     </title>
@@ -25,7 +32,7 @@
     @if (request()->routeIs('dashboard', 'dashboard.*'))
         <link href="{{ asset('css/dashboard.css') }}?v={{ filemtime(public_path('css/dashboard.css')) }}" rel="stylesheet">
     @endif
-    @if (request()->routeIs('tasks.*'))
+    @if (request()->routeIs('tasks.*', 'daily-tasks.*'))
         <link href="{{ asset('css/tasks.css') }}?v={{ filemtime(public_path('css/tasks.css')) }}" rel="stylesheet">
     @endif
     @if (request()->routeIs('users.*'))
@@ -105,11 +112,8 @@
     {{-- Dashboard JS --}}
     <script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
     @stack('scripts')
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => navigator.serviceWorker.register('{{ asset('sw.js') }}', { scope: '/' }));
-        }
-    </script>
+    <button type="button" data-pwa-install hidden class="tf-btn tf-btn--ghost" style="position:fixed;right:1rem;bottom:1rem;z-index:1100">Install app</button>
+    <script src="{{ asset('js/pwa-install.js') }}"></script>
 
 </body>
 

@@ -28,7 +28,7 @@ class EnsureUserIsActive
             $request->session()->regenerateToken();
 
             return redirect()
-                ->route('login')
+                ->route($request->is('pwa/*') ? 'pwa.login' : 'login')
                 ->withErrors(['email' => 'Your account is inactive. Please contact an administrator.']);
         }
 

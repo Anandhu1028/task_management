@@ -6524,7 +6524,7 @@ body.tf-chatgpt-modal-open {
 }
 
 .tf-activity-tabs-card {
-    width: fit-content;
+    width: 100%;
     max-width: 100%;
     padding: 8px;
     border: 1px solid #e8eef8;
@@ -6534,7 +6534,7 @@ body.tf-chatgpt-modal-open {
 }
 
 .tf-activity-tabs-nav {
-    width: fit-content;
+    width: 100%;
     max-width: 100%;
     gap: 3px;
     overflow-x: auto;

@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Company;
 use App\Models\Department;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -18,7 +19,10 @@ class DepartmentFactory extends Factory
     public function definition(): array
     {
         return [
-            //
+            'company_id' => Company::factory(),
+            'name' => fake()->unique()->words(2, true),
+            'description' => fake()->optional()->sentence(),
+            'status' => 'active',
         ];
     }
 }

@@ -1,5 +1,46 @@
 @extends('layouts.pwa')
+
+@section('title', 'Tasks · TaskFlow')
+
 @section('content')
-<header class="border-b border-slate-200 bg-white"><div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3"><a class="flex items-center gap-2 text-sm font-bold" href="{{ route('pwa.tasks.index') }}"><span class="grid h-6 w-6 place-items-center rounded-md bg-blue-600 text-xs text-white">✓</span>{{ config('pwa.short_name') }}</a><div class="flex items-center gap-3 text-xs text-slate-500"><span>{{ auth()->user()->name }}</span><form method="POST" action="{{ route('logout') }}">@csrf<button class="rounded-md border border-slate-200 px-3 py-1.5 text-slate-700">Sign out</button></form></div></div></header>
-<main class="mx-auto max-w-7xl p-4 sm:p-6"><div><h1 class="text-xl font-bold">Good {{ now()->hour < 12 ? 'morning' : (now()->hour < 18 ? 'afternoon' : 'evening') }}, {{ explode(' ', auth()->user()->name)[0] }}</h1><p class="text-xs text-slate-500">{{ $summary['all'] }} tasks in your workspace · <span class="text-red-600">{{ $summary['overdue'] }} overdue</span></p></div><div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-6">@foreach (['all' => 'All tasks', 'overdue' => 'Overdue', 'awaiting' => 'Awaiting assignment', 'at_risk' => 'At risk', 'in_progress' => 'In progress', 'completed' => 'Completed'] as $key => $label)<div class="rounded-xl border border-slate-200 bg-white p-3"><p class="text-[10px] text-slate-500">{{ $label }}</p><p class="mt-1 text-xl font-bold {{ in_array($key, ['overdue', 'at_risk'], true) ? 'text-red-600' : '' }}">{{ $summary[$key] }}</p></div>@endforeach</div><div class="mt-5 flex gap-2 overflow-auto"><a class="rounded-full px-3 py-1.5 text-xs {{ !request('status') ? 'bg-blue-600 text-white' : 'bg-white ring-1 ring-slate-200' }}" href="{{ route('pwa.tasks.index') }}">All</a>@foreach (['assigned' => 'Assigned', 'in_progress' => 'Active', 'completed' => 'Done'] as $value => $label)<a class="rounded-full px-3 py-1.5 text-xs {{ request('status') === $value ? 'bg-blue-600 text-white' : 'bg-white ring-1 ring-slate-200' }}" href="{{ route('pwa.tasks.index', ['status' => $value]) }}">{{ $label }}</a>@endforeach</div><section class="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white">@forelse($tasks as $task)<a class="grid gap-2 border-b border-slate-100 px-4 py-4 last:border-0 hover:bg-blue-50/40 md:grid-cols-[minmax(220px,2fr)_130px_100px_150px_90px] md:items-center md:gap-3" href="{{ route('pwa.tasks.show', $task) }}"><div class="flex gap-3"><span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">{{ strtoupper(substr($task->title, 0, 1)) }}</span><span><strong class="block text-sm">{{ $task->title }}</strong><small class="text-[11px] text-slate-500">{{ $task->task_code }}</small></span></div><span class="w-fit rounded bg-blue-50 px-2 py-1 text-[10px] text-blue-700">{{ ucwords(str_replace('_', ' ', $task->status)) }}</span><span class="text-xs font-medium">{{ ucfirst($task->priority) }}</span><span class="text-xs text-slate-600">{{ $task->activeAssignees->pluck('name')->implode(', ') ?: $task->assignee?->name ?: 'Unassigned' }}</span><span class="text-xs {{ $task->isOverdue() ? 'text-red-600' : 'text-slate-600' }}">{{ ($task->due_date ?? $task->original_deadline)?->format('M j') ?? '—' }}</span></a>@empty<p class="p-8 text-center text-sm text-slate-500">No tasks match this filter.</p>@endforelse</section><div class="mt-5">{{ $tasks->links() }}</div></main>
+@include('pwa.partials.topbar')
+@php
+    $firstName = \Illuminate\Support\Str::of(auth()->user()->name)->before(' ')->toString();
+    $cards = [
+        ['key' => 'all', 'label' => 'Total tasks', 'value' => $summary['total'], 'tone' => 'blue'],
+        ['key' => 'overdue', 'label' => 'Overdue', 'value' => $summary['overdue_count'], 'tone' => 'red'],
+        ['key' => 'awaiting', 'label' => 'Awaiting assignment', 'value' => $summary['pending_assignment_count'], 'tone' => 'amber'],
+        ['key' => 'at_risk', 'label' => 'At risk', 'value' => $summary['at_risk_count'], 'tone' => 'orange'],
+        ['key' => 'in_progress', 'label' => 'In progress', 'value' => $summary['in_progress_count'], 'tone' => 'blue'],
+        ['key' => 'done', 'label' => 'Completed', 'value' => $summary['completed_count'], 'tone' => 'green'],
+    ];
+@endphp
+<main class="pwa-container">
+    <section class="pwa-greeting">
+        <h1>Hi, {{ $firstName }}</h1>
+        <p>Here is where your tasks stand today.</p>
+    </section>
+
+    <section class="pwa-summary" aria-label="Task summary">
+        @foreach ($cards as $card)
+            <a href="{{ route('pwa.tasks.index', $card['key'] === 'all' ? [] : ['filter' => $card['key']]) }}"
+               class="pwa-stat pwa-stat--{{ $card['tone'] }} {{ $filter === $card['key'] ? 'is-active' : '' }}">
+                <span class="pwa-stat__value">{{ number_format($card['value']) }}</span>
+                <span class="pwa-stat__label">{{ $card['label'] }}</span>
+            </a>
+        @endforeach
+    </section>
+
+    @include('pwa.partials.list-controls', ['action' => route('pwa.tasks.index')])
+
+    <section class="pwa-list" aria-label="Tasks">
+        @forelse ($tasks as $task)
+            @include('pwa.partials.task-row', ['task' => $task])
+        @empty
+            <p class="pwa-empty">No tasks match this view.</p>
+        @endforelse
+    </section>
+
+    @include('pwa.partials.pager')
+</main>
 @endsection

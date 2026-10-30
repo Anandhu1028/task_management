@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\DailyTaskController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\MilestoneController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PwaTaskController;
 use App\Http\Controllers\RecurringTaskController;
@@ -17,7 +19,7 @@ use Illuminate\Support\Facades\Route;
 require __DIR__.'/auth.php';
 
 Route::middleware(['auth', 'active'])->group(function (): void {
-    Route::prefix('pwa')->name('pwa.')->group(function (): void {
+    Route::prefix('pwa')->name('pwa.')->middleware('pwa.nostore')->group(function (): void {
         Route::get('/tasks', [PwaTaskController::class, 'index'])->name('tasks.index');
         Route::get('/tasks/{task}', [PwaTaskController::class, 'show'])->name('tasks.show');
     });
@@ -57,6 +59,17 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/tasks/{task}/attachments/{attachment}', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
     Route::get('/tasks/{task}/attachments/{attachment}/preview', [TaskController::class, 'previewAttachment'])->name('tasks.attachments.preview');
     Route::resource('tasks', TaskController::class);
+
+    Route::get('/daily-tasks', [DailyTaskController::class, 'index'])->name('daily-tasks.index');
+    Route::get('/tasks/{task}/daily-tasks', [DailyTaskController::class, 'forTask'])->name('daily-tasks.for-task');
+    Route::get('/tasks/{task}/daily-tasks/options', [DailyTaskController::class, 'subtasks'])->name('daily-tasks.options');
+    Route::get('/tasks/{task}/daily-tasks/create', [DailyTaskController::class, 'create'])->name('daily-tasks.create');
+    Route::post('/tasks/{task}/daily-tasks', [DailyTaskController::class, 'store'])->name('daily-tasks.store');
+    Route::get('/tasks/{task}/daily-tasks/{dailyTask}', [DailyTaskController::class, 'show'])->name('daily-tasks.show')->scopeBindings();
+    Route::post('/tasks/{task}/daily-tasks/{dailyTask}/{action}', [DailyTaskController::class, 'action'])->name('daily-tasks.action')->scopeBindings();
+    Route::post('/tasks/{task}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');
+    Route::patch('/tasks/{task}/milestones/{milestone}', [MilestoneController::class, 'update'])
+        ->name('milestones.update')->scopeBindings();
 
     // Subtask routes
     Route::post('/tasks/{task}/subtasks', [SubtaskController::class, 'store'])->name('subtasks.store');

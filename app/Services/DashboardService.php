@@ -873,6 +873,7 @@ class DashboardService
             'rework' => '#64748b',
             'completed' => '#2563eb',
             'cancelled' => '#cbd5e1',
+            'missed' => '#dc2626',
         ];
         $total = array_sum(array_map(
             static fn (string $status): int => (int) ($statusCounts[$status] ?? 0),

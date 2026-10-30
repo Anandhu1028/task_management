@@ -11,6 +11,8 @@ class TaskStatusHistory extends Model
     protected $fillable = [
         'task_id',
         'subtask_id',
+        'daily_task_id',
+        'milestone_id',
         'changed_by',
         'old_status',
         'new_status',
@@ -26,6 +28,16 @@ class TaskStatusHistory extends Model
     public function subtask(): BelongsTo
     {
         return $this->belongsTo(Subtask::class);
+    }
+
+    public function dailyTask(): BelongsTo
+    {
+        return $this->belongsTo(DailyTask::class);
+    }
+
+    public function milestone(): BelongsTo
+    {
+        return $this->belongsTo(Milestone::class);
     }
 
     public function changedBy(): BelongsTo

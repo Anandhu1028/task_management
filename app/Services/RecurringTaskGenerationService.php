@@ -30,6 +30,8 @@ class RecurringTaskGenerationService
             $createdCount += $this->generateTemplateOccurrences($template);
         }
 
+        $this->expireOverdueOccurrences();
+
         return $createdCount;
     }
 
@@ -146,6 +148,8 @@ class RecurringTaskGenerationService
             }
 
             $assigneeIds = $master->activeAssignees->pluck('id')->map(fn (int|string $id): int => (int) $id)->all();
+            $availableFrom = CarbonImmutable::parse("{$occurrenceDate} {$template->start_time}", $template->timezone)->utc();
+            $expiresAt = CarbonImmutable::parse("{$occurrenceDate} {$template->end_time}", $template->timezone)->utc();
 
             $task = Task::query()->create([
                 'task_code' => Task::generateCode(),
@@ -166,6 +170,8 @@ class RecurringTaskGenerationService
                 'expected_output' => $master->expected_output,
                 'recurring_task_id' => $template->id,
                 'occurrence_date' => $occurrenceDate,
+                'available_from' => $availableFrom,
+                'expires_at' => $expiresAt,
             ]);
 
             $task->pocs()->sync($pocIds);
@@ -179,7 +185,7 @@ class RecurringTaskGenerationService
                 'changed_by' => $master->created_by,
                 'new_status' => $task->status,
                 'event_type' => 'status',
-                'remarks' => "Recurring task occurrence for {$occurrenceDate}.",
+                'remarks' => "Recurring task occurrence opened for {$occurrenceDate} at ".$availableFrom->setTimezone($template->timezone)->format('g:i A').'.',
             ]);
             $this->attachments->createAttachmentRecords($task, $master->attachments->map(fn ($attachment): array => [
                 'path' => $attachment->path, 'original_name' => $attachment->original_name,
@@ -194,5 +200,47 @@ class RecurringTaskGenerationService
 
             return true;
         });
+    }
+
+    private function expireOverdueOccurrences(): void
+    {
+        Task::query()
+            ->whereNotNull('recurring_task_id')
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', now())
+            ->whereNotIn('status', ['completed', 'missed', 'cancelled'])
+            ->lazyById(100)
+            ->each(function (Task $occurrence): void {
+                DB::transaction(function () use ($occurrence): void {
+                    $occurrence = Task::query()->lockForUpdate()->find($occurrence->id);
+
+                    if (! $occurrence
+                        || $occurrence->expires_at === null
+                        || $occurrence->expires_at->isFuture()
+                        || in_array($occurrence->status, ['completed', 'missed', 'cancelled'], true)) {
+                        return;
+                    }
+
+                    $oldStatus = $occurrence->status;
+                    $occurrence->update([
+                        'status' => 'missed',
+                        'missed_at' => $occurrence->expires_at,
+                    ]);
+                    $occurrence->statusHistory()->create([
+                        'changed_by' => $occurrence->created_by,
+                        'old_status' => $oldStatus,
+                        'new_status' => 'missed',
+                        'event_type' => 'missed',
+                        'remarks' => 'Recurring occurrence missed when its permitted time window expired.',
+                        'created_at' => $occurrence->expires_at,
+                        'updated_at' => $occurrence->expires_at,
+                    ]);
+                });
+            });
+
+        RecurringTask::query()
+            ->where('status', 'active')
+            ->whereDate('end_date', '<', CarbonImmutable::now()->toDateString())
+            ->update(['status' => 'completed']);
     }
 }
