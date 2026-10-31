@@ -2518,7 +2518,7 @@
     color: #7a93bd;
     font-size: 12.5px;
 }
-.dpf-empty i { display: block; margin-bottom: 6px; font-size: 24px; color: #bfdbfe; }
+.dpf-empty i { display: block; margin-bottom: 6px; font-size: 12px; color: #bfdbfe; }
 .dpf-empty--block { border: 1px dashed #dbeafe; border-radius: 14px; }
 
 /* Chart */

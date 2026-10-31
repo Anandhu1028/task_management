@@ -133,9 +133,9 @@
             {{-- Controls: metric + period --}}
             <div class="cwt2-controls">
                 <div class="cwt2-seg" role="tablist" aria-label="Task status">
-                    <button type="button" class="cwt2-seg__btn is-active" data-cwt2-metric="completed" role="tab" aria-selected="true"><i class="bi bi-check-circle-fill"></i> Completed</button>
                     <button type="button" class="cwt2-seg__btn" data-cwt2-metric="in_progress" role="tab" aria-selected="false"><i class="bi bi-arrow-repeat"></i> In progress</button>
                     <button type="button" class="cwt2-seg__btn" data-cwt2-metric="pending" role="tab" aria-selected="false"><i class="bi bi-hourglass-split"></i> Pending</button>
+                    <button type="button" class="cwt2-seg__btn is-active" data-cwt2-metric="completed" role="tab" aria-selected="true"><i class="bi bi-check-circle-fill"></i> Completed</button>
                 </div>
 
                 <div class="cwt2-seg" role="tablist" aria-label="Company tasks period filter">
@@ -481,7 +481,6 @@
                         <span class="dpf-panel__icon dpf-panel__icon--high"><i class="bi bi-trophy-fill"></i></span>
                         <div>
                             <h3>High-Performance Departments</h3>
-                            <p>100% completed with zero pending tasks</p>
                         </div>
                     </div>
                     <span class="dpf-count dpf-count--high"><i class="bi bi-patch-check-fill"></i> {{ count($highPerformingDepartments) }} Qualified</span>
@@ -513,7 +512,7 @@
                                 <tr>
                                     <td colspan="6" class="dpf-empty">
                                         <i class="bi bi-trophy"></i>
-                                        <span>No departments qualify yet. A department needs at least 1 task, all completed, and none pending.</span>
+                                        <span><i>No departments qualify yet. A department needs at least 1 task, all completed, and none pending.</i></span>
                                     </td>
                                 </tr>
                             @endforelse
@@ -529,7 +528,6 @@
                         <span class="dpf-panel__icon dpf-panel__icon--low"><i class="bi bi-exclamation-triangle-fill"></i></span>
                         <div>
                             <h3>Low-Performance Departments</h3>
-                            <p>Departments with pending tasks, highest backlog first</p>
                         </div>
                     </div>
                     <span class="dpf-count dpf-count--low"><i class="bi bi-eye-fill"></i> {{ count($lowPerformingDepartments) }} Need attention</span>
