@@ -241,7 +241,18 @@ class DailyTaskWorkflowService
                 }
 
                 if ($dailyTask->shouldBecomePending($now)) {
-                    $dailyTask->update(['status' => 'pending']);
+                    DB::transaction(function () use ($dailyTask): void {
+                        $oldStatus = $dailyTask->status;
+                        $dailyTask->update(['status' => 'pending']);
+                        $this->activity->record(
+                            $dailyTask,
+                            null,
+                            'daily_task_pending',
+                            $oldStatus,
+                            'pending',
+                            'Daily Task became available on its scheduled work date.',
+                        );
+                    });
                     $updated++;
                 }
             });

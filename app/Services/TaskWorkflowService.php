@@ -157,15 +157,14 @@ class TaskWorkflowService
         Gate::forUser($actor)->authorize('addWorkUpdate', $task);
 
         return DB::transaction(function () use ($task, $note, $updateDate, $actor): TaskStatusHistory {
-            $now = now();
             $workUpdate = $task->statusHistory()->make([
                 'changed_by' => $actor->id,
                 'old_status' => $task->status,
                 'new_status' => $task->status,
                 'event_type' => 'work_update',
+                'activity_date' => Carbon::parse($updateDate, config('app.timezone'))->toDateString(),
                 'remarks' => trim($note),
             ]);
-            $workUpdate->created_at = Carbon::parse($updateDate)->setTime($now->hour, $now->minute, $now->second);
             $workUpdate->save();
 
             $this->notifyTaskParticipants(

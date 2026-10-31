@@ -1145,16 +1145,6 @@
 
                         $timelineRangeStart = $timelineStart->copy()->subDays(3);
                         $timelineRangeEnd = $timelineDue->copy()->addDays(5);
-                        $timelineUpdates = $mainTaskHistory
-                            ->where('event_type', 'work_update')
-                            ->sortBy('created_at')
-                            ->map(fn($history) => [
-                                'date' => $history->created_at?->toDateString(),
-                                'summary' => $history->remarks,
-                                'hours' => null,
-                            ])
-                            ->filter(fn(array $update): bool => $update['date'] !== null)
-                            ->values();
                         $timelineDate = fn($date): ?string => $date?->copy()
                             ->timezone(config('app.timezone'))
                             ->toDateString();
@@ -1202,41 +1192,131 @@
                             ],
                         ])->filter(fn(array $milestone): bool => filled($milestone['date']))->values();
                         $timelineSchedule = $task->recurringSchedule ?? $task->recurringTask;
+                        $dailyTaskStatusTransitions = [
+                            'daily_task_pending',
+                            'daily_task_started',
+                            'daily_task_on_hold',
+                            'daily_task_resumed',
+                            'daily_task_completed',
+                            'daily_task_cancelled',
+                            'daily_task_missed',
+                        ];
+                        // The timeline should show only meaningful Daily Task lifecycle transitions.
+                        // Creation, assignment, progress edits and generic update records stay in the Daily Tasks panel.
+                        $dailyTaskTimelineEventTypes = [
+                            'daily_task_started',
+                            'daily_task_on_hold',
+                            'daily_task_resumed',
+                            'daily_task_completed',
+                        ];
                         $dailyTaskTimelineActivities = $dailyTasks
-                            ->flatMap(function ($dailyTask) {
-                                return $dailyTask->activity
-                                    ->reject(fn($history): bool => $history->event_type === 'daily_task_assigned')
-                                    ->map(function ($history) use ($dailyTask): array {
-                                        $newStatus = (string) $history->new_status;
-                                        $statusLabel = \App\Models\DailyTask::STATUS_LABELS[$newStatus]
-                                            ?? \App\Models\DailyTask::STATUS_LABELS[$dailyTask->status]
-                                            ?? ucfirst($dailyTask->status);
-                                        $details = [
-                                            'Daily Task: '.$dailyTask->title,
-                                            'Status: '.$statusLabel,
-                                        ];
+                            ->flatMap(function (\App\Models\DailyTask $dailyTask) use ($dailyTaskStatusTransitions, $dailyTaskTimelineEventTypes) {
+                                $activityStatus = null;
 
-                                        if (filled($dailyTask->description)) {
-                                            $details[] = 'Details: '.\Illuminate\Support\Str::limit($dailyTask->description, 180);
+                                return $dailyTask->activity
+                                    ->filter(fn($history): bool => in_array(
+                                        strtolower((string) $history->event_type),
+                                        $dailyTaskTimelineEventTypes,
+                                        true,
+                                    ))
+                                    ->sort(fn($first, $second): int => ($first->created_at?->timestamp ?? 0) <=> ($second->created_at?->timestamp ?? 0)
+                                        ?: $first->id <=> $second->id)
+                                    ->values()
+                                    ->map(function ($history) use ($dailyTask, $dailyTaskStatusTransitions, &$activityStatus): array {
+                                        $eventType = strtolower((string) $history->event_type);
+                                        if (
+                                            in_array($eventType, $dailyTaskStatusTransitions, true)
+                                            || ($eventType === 'daily_task_created'
+                                                && in_array($history->new_status, \App\Models\DailyTask::STATUSES, true))
+                                        ) {
+                                            $activityStatus = $history->new_status;
+                                        } elseif (
+                                            $activityStatus === null
+                                            && in_array($history->old_status, \App\Models\DailyTask::STATUSES, true)
+                                        ) {
+                                            $activityStatus = $history->old_status;
+                                        }
+                                        $eventStatus = $activityStatus ?? $dailyTask->status;
+                                        $currentStatusLabel = \App\Models\DailyTask::STATUS_LABELS[$dailyTask->status]
+                                            ?? ucfirst($dailyTask->status);
+                                        $details = [];
+                                        if (in_array($eventType, $dailyTaskStatusTransitions, true)) {
+                                            $details[] = (\App\Models\DailyTask::STATUS_LABELS[$history->old_status] ?? $history->old_status ?? '—')
+                                                .' → '.(\App\Models\DailyTask::STATUS_LABELS[$history->new_status] ?? $history->new_status);
+                                        }
+                                        if ($eventType === 'daily_task_progress_updated') {
+                                            $details[] = 'Progress: '.$history->old_status.'% → '.$history->new_status.'%';
                                         }
                                         if (filled($history->remarks)) {
                                             $details[] = 'Update: '.\Illuminate\Support\Str::limit($history->remarks, 180);
                                         }
+                                        if (
+                                            $eventType === 'daily_task_update_submitted'
+                                            && $history->created_at !== null
+                                            && $history->activity_date?->toDateString()
+                                                !== $history->created_at->timezone(config('app.timezone'))->toDateString()
+                                        ) {
+                                            $details[] = 'Submitted on: '.$history->created_at
+                                                ->timezone(config('app.timezone'))
+                                                ->format('M j, Y');
+                                        }
 
                                         return [
-                                            'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString(),
+                                            'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString()
+                                                ?? $history->activity_date?->toDateString(),
                                             'time' => $history->created_at?->timezone(config('app.timezone'))->format('g:i A'),
-                                            'type' => 'daily_task_update',
+                                            'timestamp' => $history->created_at?->timestamp,
+                                            'type' => $eventType,
+                                            'isDailyTask' => true,
+                                            'dailyTaskId' => $dailyTask->id,
+                                            'dailyTaskTitle' => $dailyTask->title,
+                                            'employeeId' => $dailyTask->assignee?->id,
+                                            'workDate' => $history->activity_date?->toDateString()
+                                                ?? $dailyTask->work_date?->toDateString(),
+                                            'progress' => (int) $dailyTask->progress_percentage,
+                                            'employee' => $dailyTask->assignee?->name ?? 'Former employee',
+                                            'department' => $dailyTask->assignee?->department?->name ?? 'Unknown department',
+                                            'currentStatus' => $currentStatusLabel,
+                                            'eventStatus' => $eventStatus,
+                                            'statusTransition' => in_array($eventType, $dailyTaskStatusTransitions, true),
                                             'actor' => $history->changedBy?->name ?? 'System',
+                                            'from' => in_array($eventType, $dailyTaskStatusTransitions, true)
+                                                ? (\App\Models\DailyTask::STATUS_LABELS[$history->old_status] ?? $history->old_status)
+                                                : null,
+                                            'to' => in_array($eventType, $dailyTaskStatusTransitions, true)
+                                                ? (\App\Models\DailyTask::STATUS_LABELS[$history->new_status] ?? $history->new_status)
+                                                : null,
                                             'detail' => implode(' · ', $details),
                                         ];
                                     });
                             })
                             ->filter(fn(array $event): bool => $event['date'] !== null)
                             ->values();
+                        $accountabilityTimelineActivities = $accountabilityEvents
+                            ->map(fn(\App\Models\DailyAccountabilityEvent $event): array => [
+                                'date' => $event->report_date?->toDateString(),
+                                'time' => $event->created_at?->timezone(config('app.timezone'))->format('g:i A'),
+                                'timestamp' => $event->created_at?->timestamp,
+                                'type' => 'daily_accountability_'.$event->event_type,
+                                'actor' => $event->employee_name,
+                                'employee' => $event->employee_name,
+                                'department' => $event->employee?->department?->name ?? 'Unknown department',
+                                'dailyTaskId' => $event->daily_task_id,
+                                'dailyTaskTitle' => $event->daily_task_title,
+                                'employeeId' => $event->employee_id,
+                                'isDailyTask' => true,
+                                'isAccountability' => true,
+                                'accountabilityTone' => 'missed',
+                                'detail' => $event->description,
+                            ])
+                            ->filter(fn(array $event): bool => $event['date'] !== null)
+                            ->values();
                         $timelineDates = collect([$timelineRangeStart, $timelineRangeEnd])
                             ->merge($mainTaskHistory->pluck('created_at'))
+                            ->merge($task->statusHistory->whereNotNull('subtask_id')->pluck('created_at'))
+                            ->merge($mainTaskHistory->where('event_type', 'work_update')->pluck('activity_date'))
                             ->merge($dailyTaskTimelineActivities->pluck('date'))
+                            ->merge($accountabilityTimelineActivities->pluck('date'))
                             ->merge($task->assignments->pluck('assigned_at'))
                             ->merge($task->assignments->pluck('unassigned_at'))
                             ->merge($deadlineExtensionRequests->pluck('created_at'))
@@ -1255,7 +1335,7 @@
                             ->sortByDesc(fn($date) => $date->getTimestamp())
                             ->first();
                         $statusTimelineActivities = $mainTaskHistory
-                            ->filter(function ($history): bool {
+                            ->filter(function ($history) use ($task): bool {
                                 $eventType = strtolower((string) $history->event_type);
 
                                 // The initial task status is creation metadata, not a daily work update.
@@ -1267,18 +1347,67 @@
                                     return false;
                                 }
 
+                                if (
+                                    $eventType === 'status'
+                                    && $history->old_status === 'unassigned'
+                                    && $history->new_status === 'assigned'
+                                    && $task->assignments->contains(
+                                        fn($assignment): bool => $assignment->assigned_at?->timestamp === $history->created_at?->timestamp,
+                                    )
+                                ) {
+                                    return false;
+                                }
+
+                                if ($eventType === 'task_updated') {
+                                    $audit = json_decode((string) $history->remarks, true);
+                                    $changes = is_array($audit) && is_array($audit['changes'] ?? null)
+                                        ? $audit['changes']
+                                        : [];
+                                    if (count($changes) === 1 && array_key_exists('assigned_to', $changes)) {
+                                        return false;
+                                    }
+                                }
+
                                 return true;
                             })
-                            ->map(fn($history) => [
-                                'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString(),
+                            ->map(function ($history): array {
+                                $detail = $history->remarks;
+                                if ($history->event_type === 'task_updated') {
+                                    $audit = json_decode((string) $detail, true);
+                                    if (is_array($audit) && is_array($audit['changes'] ?? null)) {
+                                        unset($audit['changes']['assigned_to']);
+                                        $detail = json_encode($audit, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                                    }
+                                }
+
+                                return [
+                                'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString()
+                                    ?? $history->activity_date?->toDateString(),
                                 'time' => $history->created_at?->timezone(config('app.timezone'))->format('g:i A'),
+                                'timestamp' => $history->created_at?->timestamp,
                                 'type' => $history->event_type,
                                 'actor' => $history->changedBy?->name ?? 'System',
                                 'from' => $history->old_status,
                                 'to' => $history->new_status,
-                                'detail' => $history->remarks,
-                            ])
+                                'detail' => $history->event_type === 'work_update'
+                                    && $history->activity_date?->toDateString() !== $history->created_at?->timezone(config('app.timezone'))->toDateString()
+                                    ? trim((string) $detail).' · Work date: '.$history->activity_date?->format('M j, Y')
+                                    : $detail,
+                                ];
+                            })
                             ->filter(fn(array $event): bool => $event['date'] !== null);
+                        if ($task->created_at !== null) {
+                            $statusTimelineActivities->prepend([
+                                'date' => $task->created_at->timezone(config('app.timezone'))->toDateString(),
+                                'time' => $task->created_at->timezone(config('app.timezone'))->format('g:i A'),
+                                'timestamp' => $task->created_at->timestamp,
+                                'type' => 'created',
+                                'actor' => $task->creator?->name ?? 'System',
+                                'from' => null,
+                                'to' => null,
+                                'detail' => 'Main task created.',
+                            ]);
+                        }
 
                         $orderedAssignments = $task->assignments
                             ->filter(fn($assignment) => $assignment->assigned_at !== null)
@@ -1286,12 +1415,13 @@
                             ->values();
                         $firstAssignmentTimestamp = $orderedAssignments->first()?->assigned_at?->getTimestamp();
                         $assignmentTimelineActivities = $orderedAssignments
-                            ->map(fn($assignment) => [
+                            ->map(fn($assignment, $index) => [
                                 'date' => $assignment->assigned_at->timezone(config('app.timezone'))->toDateString(),
                                 'time' => $assignment->assigned_at->timezone(config('app.timezone'))->format('g:i A'),
+                                'timestamp' => $assignment->assigned_at->timestamp,
                                 'type' => $assignment->assigned_at->getTimestamp() === $firstAssignmentTimestamp ? 'assignment' : 'reassignment',
                                 'actor' => $assignment->assignedBy?->name ?? 'System',
-                                'from' => null,
+                                'from' => $orderedAssignments->get($index - 1)?->user?->name,
                                 'to' => $assignment->user?->name ?? 'Unknown user',
                                 'detail' => $assignment->reason,
                             ]);
@@ -1309,6 +1439,7 @@
                                     $events[] = [
                                         'date' => $requestedDate,
                                         'time' => $extensionRequest->created_at?->timezone(config('app.timezone'))->format('g:i A'),
+                                        'timestamp' => $extensionRequest->created_at?->timestamp,
                                         'type' => 'deadline_extension_requested',
                                         'actor' => $extensionRequest->requester?->name ?? 'Unknown user',
                                         'from' => $currentDeadline,
@@ -1325,6 +1456,7 @@
                                     $events[] = [
                                         'date' => $reviewedDate,
                                         'time' => $extensionRequest->updated_at?->timezone(config('app.timezone'))->format('g:i A'),
+                                        'timestamp' => $extensionRequest->updated_at?->timestamp,
                                         'type' => $extensionRequest->status === 'approved'
                                             ? 'deadline_extension_approved'
                                             : 'deadline_extension_rejected',
@@ -1344,16 +1476,46 @@
                         $statusTimelineActivities = $statusTimelineActivities->reject(
                             fn(array $existing): bool => $deadlineExtensionActivities->contains(
                                 fn(array $requestEvent): bool => $existing['type'] === $requestEvent['type']
-                                    && $existing['date'] === $requestEvent['date'],
+                                    && $existing['timestamp'] === $requestEvent['timestamp'],
                             ),
                         );
 
                         $timelineActivities = $statusTimelineActivities
                             ->concat($assignmentTimelineActivities)
                             ->concat($deadlineExtensionActivities)
-                            ->concat($dailyTaskTimelineActivities)
-                            ->sortBy(fn(array $event) => ($event['date'] ?? '') . ' ' . ($event['time'] ?? ''))
+                            ->sort(fn(array $first, array $second): int => ($first['date'] ?? '') <=> ($second['date'] ?? '')
+                                ?: (int) ($first['timestamp'] ?? 0) <=> (int) ($second['timestamp'] ?? 0))
                             ->values();
+                        $subtaskTimelineActivities = $task->statusHistory
+                            ->filter(fn($history): bool => $history->subtask_id !== null)
+                            ->map(function ($history) use ($task): array {
+                                $subtask = $task->subtasks->firstWhere('id', $history->subtask_id);
+
+                                return [
+                                    'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString(),
+                                    'time' => $history->created_at?->timezone(config('app.timezone'))->format('g:i A'),
+                                    'timestamp' => $history->created_at?->timestamp,
+                                    'type' => $history->event_type,
+                                    'actor' => $history->changedBy?->name ?? 'System',
+                                    'from' => $history->old_status,
+                                    'to' => $history->new_status,
+                                    'subtaskTitle' => $subtask?->title ?? 'Subtask',
+                                    'detail' => $history->remarks,
+                                ];
+                            })
+                            ->filter(fn(array $event): bool => $event['date'] !== null)
+                            ->values();
+                        $dailyTaskUpdateDates = $dailyTasks
+                            ->flatMap(fn(\App\Models\DailyTask $dailyTask) => $dailyTask->activity
+                                ->filter(fn($history): bool => strtolower((string) $history->event_type) === 'daily_task_update_submitted')
+                                ->map(fn($history): array => [
+                                    'date' => $history->activity_date?->toDateString()
+                                        ?? $history->created_at?->timezone(config('app.timezone'))->toDateString(),
+                                    'employeeId' => $dailyTask->assignee?->id,
+                                ]))
+                            ->filter(fn(array $item): bool => filled($item['date']) && $item['employeeId'] !== null)
+                            ->values();
+
                         $timelineModel = [
                             'range' => [
                                 'start' => $timelineRangeStart->toDateString(),
@@ -1372,9 +1534,15 @@
                                 'priority' => strtolower((string) $task->priority),
                                 'created' => $task->created_at?->timezone(config('app.timezone'))->toDateString(),
                             ],
-                            'dailyUpdates' => $timelineUpdates,
+                            'dailyTaskUpdateDates' => $dailyTaskUpdateDates,
+                            'dailyUpdates' => $dailyTaskTimelineActivities
+                                ->concat($accountabilityTimelineActivities)
+                                ->sort(fn(array $first, array $second): int => ($first['date'] ?? '') <=> ($second['date'] ?? '')
+                                    ?: (int) ($first['timestamp'] ?? 0) <=> (int) ($second['timestamp'] ?? 0))
+                                ->values(),
                             'activities' => $timelineActivities,
-                            'priorityWorkload' => $priorityWorkload ?? [],
+                            'subtaskActivities' => $subtaskTimelineActivities,
+                            'hasSubtasks' => $task->subtasks->isNotEmpty(),
                             'milestones' => $timelineMilestones,
                             'recurrence' => $timelineSchedule ? [
                                 'frequency' => $timelineSchedule->repeat_frequency,
@@ -1393,7 +1561,7 @@
                         aria-label="Task update timeline">
                         <style>
                             .task-timeline {
-                                --tl-cell: 48px;
+                                --tl-cell: 64px;
                                 overflow: hidden;
                                 border: 1px solid #e8ecf5;
                                 border-radius: 24px;
@@ -1512,6 +1680,7 @@
                             .tl-scroller {
                                 overflow: auto;
                                 max-height: 620px;
+                                scrollbar-gutter: stable;
                             }
 
                             .tl-grid {
@@ -1611,9 +1780,9 @@
                                 top: 0;
                                 bottom: 0;
                                 width: var(--tl-cell);
-                                background: rgba(37, 99, 235, .07);
+                                z-index: 1;
+                                background: rgba(37, 99, 235, .1);
                                 pointer-events: none;
-                                z-index: 0;
                             }
 
                             .tl-today-column::after {
@@ -1621,6 +1790,7 @@
                                 top: 0;
                                 bottom: 0;
                                 left: calc(50% - 1px);
+                                z-index: 2;
                                 width: 2px;
                                 background: #2563eb;
                                 content: '';
@@ -1631,6 +1801,7 @@
                             .tl-label-row {
                                 display: flex;
                                 align-items: center;
+                                box-sizing: border-box;
                                 min-height: 48px;
                                 padding: 0 16px;
                                 border-bottom: 1px solid #edf0f6;
@@ -1726,12 +1897,48 @@
 
                             .tl-row {
                                 position: relative;
+                                box-sizing: border-box;
                                 min-height: 48px;
                                 border-bottom: 1px solid #edf0f6;
                                 background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--tl-cell) - 1px), #f0f2f7 calc(var(--tl-cell) - 1px), #f0f2f7 var(--tl-cell));
                             }
 
+                            .tl-row[data-tl-row="task"] {
+                                min-height: 56px;
+                                background-color: #f1f6ff;
+                            }
+
+                            .tl-row[data-tl-row="subtasks"] {
+                                min-height: 56px;
+                                background-color: #f8fbff;
+                            }
+
+                            .tl-left > .tl-label-row[data-tl-row="task"] {
+                                min-height: 56px;
+                            }
+
+                            .tl-left > .tl-label-row[data-tl-row="subtasks"] {
+                                min-height: 56px;
+                            }
+
+                            .tl-row[data-tl-row="updates"] {
+                                background-color: #f8fbff;
+                            }
+
+                            .tl-row--daily-missed {
+                                background-color: #fff7f8 !important;
+                            }
+
+                            .tl-row[data-tl-row="milestones"] {
+                                background-color: #f8fbff;
+                            }
+
+                            .tl-row[data-tl-row="recurring"] {
+                                background-color: #f5f3ff;
+                            }
+
                             .tl-section-row {
+                                box-sizing: border-box;
                                 min-height: 36px;
                                 border-bottom: 1px solid #edf0f6;
                                 background: #f8fafe;
@@ -1744,6 +1951,7 @@
 
                             .tl-bar {
                                 position: absolute;
+                                z-index: 2;
                                 top: 13px;
                                 left: calc(var(--tl-start) * var(--tl-cell) + 5px);
                                 width: calc(var(--tl-length) * var(--tl-cell) - 10px);
@@ -1751,13 +1959,6 @@
                                 height: 23px;
                                 border-radius: 999px;
                                 box-shadow: 0 3px 7px rgba(37, 99, 235, .2);
-                            }
-
-                            .tl-bar--task {
-                                display: block;
-                                padding: 0;
-                                overflow: visible;
-                                background: linear-gradient(90deg, #3b82f6, #1d4ed8);
                             }
 
                             .tl-workflow-marker {
@@ -1787,6 +1988,16 @@
                             .tl-workflow-marker--assigned {
                                 background: #bfdbfe;
                                 color: #1d4ed8;
+                            }
+
+                            .tl-workflow-marker--hold {
+                                background: #fed7aa;
+                                color: #c2410c;
+                            }
+
+                            .tl-workflow-marker--resumed {
+                                background: #bbf7d0;
+                                color: #15803d;
                             }
 
                             .tl-workflow-marker--review {
@@ -1884,58 +2095,117 @@
                             }
 
                             .tl-row-copy--daily {
-                                top: 7px;
-                                left: calc(var(--tl-start) * var(--tl-cell) + 5px);
+                                top: 50%;
+                                left: calc(var(--tl-start) * var(--tl-cell) + 6px);
                                 z-index: 2;
-                                width: max(220px, calc((var(--tl-days) - var(--tl-start)) * var(--tl-cell) - 12px));
+                                display: block;
+                                width: min(360px, calc((var(--tl-days) - var(--tl-start)) * var(--tl-cell) - 12px));
                                 white-space: normal;
                                 overflow: visible;
+                                transform: translateY(-50%);
+                            }
+
+                            .tl-daily-no-update {
+                                position: absolute;
+                                top: 50%;
+                                left: calc(var(--tl-start) * var(--tl-cell) + 4px);
+                                z-index: 4;
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                gap: 5px;
+                                width: max-content;
+                                max-width: min(220px, calc((var(--tl-days) - var(--tl-start)) * var(--tl-cell) - 8px));
+                                min-height: 29px;
+                                padding: 4px 8px;
+                                border: 1px solid #fda4af;
+                                border-radius: 7px;
+                                background: #fff1f2;
+                                color: #be123c;
+                                font-size: 9px;
+                                font-weight: 800;
+                                line-height: 1.15;
+                                white-space: nowrap;
+                                box-shadow: 0 2px 7px rgba(225, 29, 72, .14);
+                                transform: translateY(-50%);
+                            }
+
+                            .tl-daily-no-update i {
+                                flex: 0 0 auto;
+                                font-size: 10px;
+                            }
+
+                            .tl-daily-no-update strong {
+                                color: inherit;
+                                font-size: 9px;
+                                font-weight: 800;
+                            }
+
+                            .tl-row--daily-warning {
+                                background-color: #fff7f8 !important;
                             }
 
                             .tl-daily-waiting {
-                                position: relative;
-                                z-index: 2;
+                                position: absolute;
+                                top: 50%;
+                                left: calc(var(--tl-start) * var(--tl-cell) + 4px);
+                                z-index: 3;
                                 display: inline-flex;
                                 align-items: center;
-                                gap: 6px;
-                                width: max-content;
-                                min-height: 32px;
-                                padding: 6px 9px;
-                                border: 1px solid #ffbb50;
-                                border-radius: 8px;
-                                background: #feefdb;
-                                color: #1e40af;
-                                font-size: 10px;
+                                justify-content: center;
+                                gap: 3px;
+                                width: calc(var(--tl-cell) - 8px);
+                                min-width: 0;
+                                min-height: 27px;
+                                padding: 3px 4px;
+                                overflow: hidden;
+                                border: 1px dashed #d97706;
+                                border-radius: 7px;
+                                background: #fff7ed;
+                                color: #b45309;
+                                font-size: 8px;
                                 font-weight: 750;
-                                line-height: 1.25;
+                                line-height: 1.1;
                                 white-space: nowrap;
-                                box-shadow: 0 2px 6px rgba(37, 99, 235, .14);
+                                box-shadow: 0 2px 5px rgba(217, 119, 6, .12);
+                                transform: translateY(-50%);
+                            }
+
+                            .tl-daily-waiting--below {
+                                top: 39px;
+                                transform: none;
+                            }
+
+                            .tl-daily-waiting--upcoming {
+                                border-color: #cbd5e1;
+                                background: #f1f5f9;
+                                color: #475569;
+                                box-shadow: 0 2px 5px rgba(15, 23, 42, .07);
                             }
 
                             .tl-daily-waiting i {
                                 display: inline-grid;
-                                width: 18px;
-                                height: 18px;
-                                flex: 0 0 18px;
+                                width: 12px;
+                                height: 12px;
+                                flex: 0 0 12px;
                                 place-items: center;
-                                border: 1px dashed #e97b00;
-                                border-radius: 6px;
-                                backgroufcf4eaff6ff;
-                                color: #ff7d09;
-                                font-size: 10px;
+                                color: currentColor;
+                                font-size: 8px;
                             }
 
                             .tl-daily-waiting strong {
-                                color: #000000ff;
-                                font-size: 10px;
-                                font-weight: 750;
+                                overflow: hidden;
+                                color: inherit;
+                                font-size: 8px;
+                                font-weight: 800;
+                                text-overflow: ellipsis;
                             }
 
                             .tl-daily-events {
                                 display: flex;
                                 flex-direction: column;
-                                align-items: flex-start;
-                                gap: 4px;
+                                align-items: stretch;
+                                gap: 8px;
                             }
 
                             .tl-daily-event[hidden] {
@@ -1943,8 +2213,24 @@
                             }
 
                             .tl-daily-label-row {
-                                min-height: 48px;
+                                min-height: 56px;
                                 background: #fff;
+                            }
+
+                            .tl-task-label-row {
+                                min-height: 62px;
+                                background: #f8fbff;
+                            }
+
+                            .tl-task-section-title {
+                                min-width: 0;
+                                margin-left: auto;
+                                overflow: hidden;
+                                color: #64748b;
+                                font-size: 9px;
+                                font-weight: 600;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
                             }
 
                             .tl-daily-expand {
@@ -1957,14 +2243,14 @@
                                 border-radius: 999px;
                                 background: #eef4ff;
                                 color: #315a9c;
-                                font-size: 9px;
+                                font-size: 10px;
                                 font-weight: 700;
                                 cursor: pointer;
                                 white-space: nowrap;
                             }
 
                             .tl-daily-expand i {
-                                font-size: 9px;
+                                font-size: 10px;
                                 transition: transform .15s ease;
                             }
 
@@ -1975,52 +2261,353 @@
                             .tl-daily-event {
                                 position: relative;
                                 z-index: 2;
-                                display: flex;
-                                flex-direction: column;
-                                align-items: flex-start;
-                                gap: 2px;
+                                display: inline-flex;
+                                align-items: center;
                                 width: max-content;
-                                max-width: 360px;
-                                min-height: 38px;
-                                padding: 6px 9px;
+                                max-width: min(250px, calc(var(--tl-days) * var(--tl-cell) - 12px));
+                                align-self: flex-start;
+                                min-height: 32px;
+                                padding: 6px 10px;
                                 border: 1px solid #93c5fd;
                                 border-radius: 8px;
                                 background: #dbeafe;
                                 color: #1e40af;
                                 line-height: 1.25;
                                 text-align: left;
-                                white-space: normal;
-                                overflow-wrap: anywhere;
-                                box-shadow: 0 2px 6px rgba(37, 99, 235, .14);
+                                box-shadow: 0 2px 6px rgba(37, 99, 235, .12);
+                                cursor: help;
                             }
 
                             .tl-daily-event strong {
-                                display: block;
-                                max-width: 340px;
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
+                                min-width: 0;
+                                overflow: hidden;
                                 color: #1d4ed8;
-                                font-size: 10px;
+                                font-size: 11px;
                                 font-weight: 750;
                                 line-height: 1.25;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
                             }
 
-                            .tl-daily-event small {
-                                display: block;
-                                max-width: 340px;
+                            .tl-event-tooltip {
+                                position: absolute;
+                                bottom: calc(100% + 8px);
+                                left: 50%;
+                                z-index: 50;
+                                display: grid;
+                                width: min(300px, calc(100vw - 32px));
+                                min-width: min(220px, calc(100vw - 32px));
+                                gap: 7px;
+                                padding: 11px 13px;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 11px;
+                                background: #fff;
                                 color: #334155;
-                                font-size: 9px;
+                                font-size: 11px;
                                 font-weight: 500;
-                                line-height: 1.25;
+                                line-height: 1.45;
+                                text-align: left;
                                 white-space: normal;
+                                overflow-wrap: anywhere;
+                                box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+                                pointer-events: none;
+                                opacity: 0;
+                                visibility: hidden;
+                                transform: translate(-50%, 4px);
+                                transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
+                            }
+
+                            .tl-event-tooltip::after {
+                                position: absolute;
+                                top: 100%;
+                                left: 50%;
+                                width: 9px;
+                                height: 9px;
+                                border-right: 1px solid #e2e8f0;
+                                border-bottom: 1px solid #e2e8f0;
+                                background: #fff;
+                                content: '';
+                                transform: translate(-50%, -50%) rotate(45deg);
+                            }
+
+                            .tl-event-tooltip__heading {
+                                color: #1e293b;
+                                font-size: 12px;
+                                font-weight: 750;
+                                line-height: 1.35;
+                            }
+
+                            .tl-event-tooltip__context {
+                                padding: 5px 7px;
+                                border-radius: 6px;
+                                background: #f8fafc;
+                                color: #475569;
+                                font-size: 11px;
+                                font-weight: 700;
+                                line-height: 1.4;
+                            }
+
+                            .tl-event-tooltip__daily-info {
+                                display: grid;
+                                gap: 4px;
+                            }
+
+                            .tl-event-tooltip__daily-info-row {
+                                display: flex;
+                                align-items: baseline;
+                                justify-content: space-between;
+                                gap: 12px;
+                                padding: 5px 7px;
+                                border-radius: 6px;
+                                background: #f8fafc;
+                                line-height: 1.35;
+                            }
+
+                            .tl-event-tooltip__daily-info-label {
+                                flex: 0 0 auto;
+                                color: #64748b;
+                                font-size: 10px;
+                                font-weight: 700;
+                            }
+
+                            .tl-event-tooltip__daily-info-value {
+                                min-width: 0;
+                                color: #334155;
+                                font-size: 10px;
+                                font-weight: 700;
+                                text-align: right;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .tl-event-tooltip__people {
+                                display: grid;
+                                grid-template-columns: repeat(2, minmax(0, 1fr));
+                                gap: 8px;
+                                padding: 7px 0;
+                                border-top: 1px solid #eef2f7;
+                                border-bottom: 1px solid #eef2f7;
+                            }
+
+                            .tl-event-tooltip__person {
+                                display: grid;
+                                min-width: 0;
+                                gap: 2px;
+                            }
+
+                            .tl-event-tooltip__person-label {
+                                color: #64748b;
+                                font-size: 9px;
+                                font-weight: 700;
+                            }
+
+                            .tl-event-tooltip__person-value {
+                                overflow-wrap: anywhere;
+                                color: #1e293b;
+                                font-size: 10px;
+                                font-weight: 650;
+                            }
+
+                            .tl-event-tooltip__meta,
+                            .tl-event-tooltip__actor {
+                                display: flex;
+                                align-items: flex-start;
+                                gap: 7px;
+                                color: #64748b;
+                                font-size: 10px;
+                                font-weight: 600;
+                            }
+
+                            .tl-event-tooltip__meta i,
+                            .tl-event-tooltip__actor i {
+                                flex: 0 0 13px;
+                                margin-top: 1px;
+                                color: #64748b;
+                            }
+
+                            .tl-event-tooltip__detail {
+                                padding-top: 7px;
+                                border-top: 1px solid #eef2f7;
+                                color: #334155;
+                                font-size: 11px;
+                                font-weight: 500;
+                                line-height: 1.5;
+                            }
+
+                            .tl-daily-event.is-tooltip-visible .tl-event-tooltip {
+                                opacity: 1;
+                                visibility: visible;
+                                transform: translate(-50%, 0);
+                            }
+
+                            .tl-daily-event.is-tooltip-visible {
+                                z-index: 30;
+                            }
+
+                            .tl-daily-event.is-tooltip-align-left .tl-event-tooltip {
+                                left: 0;
+                                transform: translateY(4px);
+                            }
+
+                            .tl-daily-event.is-tooltip-align-left.is-tooltip-visible .tl-event-tooltip {
+                                transform: translateY(0);
+                            }
+
+                            .tl-daily-event.is-tooltip-align-left .tl-event-tooltip::after {
+                                left: 18px;
+                            }
+
+                            .tl-daily-event.is-tooltip-align-right .tl-event-tooltip {
+                                right: 0;
+                                left: auto;
+                                transform: translateY(4px);
+                            }
+
+                            .tl-daily-event.is-tooltip-align-right.is-tooltip-visible .tl-event-tooltip {
+                                transform: translateY(0);
+                            }
+
+                            .tl-daily-event.is-tooltip-align-right .tl-event-tooltip::after {
+                                right: 18px;
+                                left: auto;
+                            }
+
+                            .tl-daily-event:focus-visible {
+                                outline: 2px solid #2563eb;
+                                outline-offset: 2px;
+                            }
+
+                            .tl-daily-event.is-daily-task-activity {
+                                border-left-width: 4px;
+                            }
+
+                            .tl-task-event strong {
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
+                            }
+
+                            .tl-task-event strong i {
+                                display: inline-grid;
+                                width: 18px;
+                                height: 18px;
+                                flex: 0 0 18px;
+                                place-items: center;
+                                border-radius: 50%;
+                                background: rgba(37, 99, 235, .12);
+                                font-size: 9px;
+                            }
+
+                            .tl-daily-event--deadline {
+                                border-color: #c4b5fd;
+                                background: #f5f3ff;
+                                color: #5b21b6;
+                            }
+
+                            .tl-daily-event--deadline strong {
+                                color: #6d28d9;
+                            }
+
+                            .tl-daily-event--in_progress,
+                            .tl-daily-event--pending,
+                            .tl-daily-event--planned,
+                            .tl-daily-event--update-submitted {
+                                border-color: #93c5fd;
+                                background: #eff6ff;
+                                color: #1e40af;
+                            }
+
+                            .tl-daily-event--on_hold {
+                                border-color: #fdba74;
+                                background: #fff7ed;
+                                color: #9a3412;
+                            }
+
+                            .tl-daily-event--completed {
+                                border-color: #86efac;
+                                background: #f0fdf4;
+                                color: #166534;
+                            }
+
+                            .tl-daily-event--cancelled,
+                            .tl-daily-event--missed {
+                                border-color: #fda4af;
+                                background: #fff1f2;
+                                color: #9f1239;
+                            }
+
+                            .tl-daily-event--late {
+                                border-color: #fdba74;
+                                background: #fff7ed;
+                                color: #9a3412;
+                            }
+
+                            .tl-daily-event--exempted {
+                                border-color: #cbd5e1;
+                                background: #f8fafc;
+                                color: #475569;
+                            }
+
+                            .tl-daily-event--reversed {
+                                border-color: #86efac;
+                                background: #f0fdf4;
+                                color: #166534;
+                            }
+
+                            .tl-daily-event.is-workflow-start {
+                                border-color: #93c5fd;
+                                background: #eff6ff;
+                            }
+
+                            .tl-daily-event.is-workflow-hold {
+                                border-color: #fdba74;
+                                background: #fff7ed;
+                                color: #9a3412;
+                            }
+
+                            .tl-daily-event.is-workflow-hold strong {
+                                color: #c2410c;
+                            }
+
+                            .tl-daily-event.is-workflow-resume {
+                                border-color: #86efac;
+                                background: #f0fdf4;
+                                color: #166534;
+                            }
+
+                            .tl-daily-event.is-workflow-resume strong {
+                                color: #15803d;
                             }
 
                             .tl-daily-event.is-daily-task-update {
-                                border-color: #a5b4fc;
-                                background: #eef2ff;
-                                color: #3730a3;
+                                border: 1px solid #cbd5e1;
+                                border-left: 3px solid #64748b;
+                                background: #f8fafc;
+                                color: #475569;
+                                box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
                             }
 
                             .tl-daily-event.is-daily-task-update strong {
-                                color: #4338ca;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 7px;
+                                color: #1e293b;
+                                font-weight: 600;
+                                letter-spacing: .01em;
+                            }
+
+                            .tl-daily-event.is-daily-task-update strong i {
+                                display: inline-grid;
+                                width: 19px;
+                                height: 19px;
+                                flex: 0 0 19px;
+                                place-items: center;
+                                border-radius: 6px;
+                                background: #e2e8f0;
+                                color: #475569;
+                                font-size: 10px;
                             }
 
                             .tl-daily-event.is-alert {
@@ -2270,9 +2857,9 @@
 
                             .tl-milestone {
                                 position: absolute;
+                                z-index: 2;
                                 top: 16px;
                                 left: calc(var(--tl-start) * var(--tl-cell) + 16px);
-                                z-index: 2;
                                 width: 15px;
                                 height: 15px;
                                 transform: rotate(45deg);
@@ -2358,79 +2945,6 @@
                                 white-space: nowrap;
                             }
 
-                            .tl-event-marker {
-                                position: absolute;
-                                top: var(--tl-event-top, 18px);
-                                left: calc(var(--tl-start) * var(--tl-cell) + 18px);
-                                display: grid;
-                                width: 13px;
-                                height: 13px;
-                                place-items: center;
-                                border: 2px solid #fff;
-                                border-radius: 50%;
-                                background: #2563eb;
-                                box-shadow: 0 1px 4px rgba(37, 99, 235, .35);
-                                color: #fff;
-                                font-size: 7px;
-                                cursor: pointer;
-                                z-index: 2;
-                            }
-
-                            .tl-event-marker--hold,
-                            .tl-event-marker--cancellation {
-                                background: #e11d48;
-                            }
-
-                            .tl-event-marker--completed,
-                            .tl-event-marker--review {
-                                background: #16a34a;
-                            }
-
-                            .tl-event-marker--assignment,
-                            .tl-event-marker--deadline {
-                                background: #d97706;
-                            }
-
-                            .tl-activity-card {
-                                position: absolute;
-                                top: 6px;
-                                left: calc((var(--tl-start) + 1) * var(--tl-cell) + 4px);
-                                z-index: 4;
-                                width: min(260px, calc(var(--tl-days) * var(--tl-cell) - (var(--tl-start) + 1) * var(--tl-cell)));
-                                padding: 8px 9px;
-                                border: 1px solid #dce5f3;
-                                border-radius: 9px;
-                                background: #fff;
-                                box-shadow: 0 8px 18px rgba(38, 57, 92, .15);
-                                color: #526178;
-                                font-size: 10px;
-                            }
-
-                            .tl-activity-card strong {
-                                display: block;
-                                overflow: hidden;
-                                color: #334155;
-                                text-overflow: ellipsis;
-                                white-space: nowrap;
-                            }
-
-                            .tl-activity-card__date {
-                                display: inline-flex;
-                                margin-top: 5px;
-                                padding: 2px 6px;
-                                border-radius: 999px;
-                                background: #e8eefb;
-                                color: #2563eb;
-                                font-size: 9px;
-                                font-weight: 800;
-                            }
-
-                            .tl-activity-card small {
-                                display: block;
-                                margin-top: 3px;
-                                color: #7a869a;
-                            }
-
                             .tl-recurring {
                                 position: absolute;
                                 top: 13px;
@@ -2484,8 +2998,8 @@
                             }
 
                             .tl-legend .upcoming {
-                                border: 1px dashed #2563eb;
-                                background: #dbeafe;
+                                border: 1px dashed #94a3b8;
+                                background: #e2e8f0;
                             }
 
                             .tl-legend .milestone {
@@ -2547,6 +3061,73 @@
                                     grid-template-columns: 190px max-content;
                                 }
                             }
+
+
+                            /* Professional, non-red palette for task timeline event badges. */
+                            .tl-task-event {
+                                border-color: #cbd5e1;
+                                background: #f8fafc;
+                                color: #475569;
+                                box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+                            }
+
+                            .tl-task-event strong {
+                                color: inherit;
+                            }
+
+                            .tl-task-event.tl-daily-event--created,
+                            .tl-task-event.tl-daily-event--assigned {
+                                    border-color: #c0daff;
+                                    background: #dbeafe;
+                                    color: #1d4ed8;
+                                }
+
+                            .tl-task-event.tl-daily-event--started {
+                                   border-color: #3cbff3;
+                                    background: #90dfff;
+                                    color: #00435f;
+                                }
+
+                            .tl-task-event.tl-daily-event--on_hold {
+                                border-color: #f5b621;
+                                background: #ffba18;
+                                color: #3f1800;
+                            }
+
+                            .tl-task-event.tl-daily-event--resumed {
+                                border-color: #99e6d5;
+                                background: #f0fdfa;
+                                color: #0f766e;
+                            }
+
+                            .tl-task-event.tl-daily-event--submitted {
+                                   border-color: #05cb96;
+                                    background: #35f1bf;
+                                    color: #00412f;
+                                }
+
+                            .tl-task-event.tl-daily-event--review {
+                                border-color: #d8b4fe;
+                                background: #faf5ff;
+                                color: #7e22ce;
+                            }
+
+                            .tl-task-event.tl-daily-event--completed {
+                                    border-color: #019b3d;
+                                    background: #01c100;
+                                    color: #000000;
+                                }
+
+                            .tl-task-event.tl-daily-event--cancelled,
+                            .tl-task-event.tl-daily-event--deadline,
+                            .tl-task-event.tl-daily-event--updated,
+                            .tl-task-event.tl-daily-event--progress,
+                            .tl-task-event.tl-daily-event--activity {
+                                border-color: #cbd5e1;
+                                background: #f8fafc;
+                                color: #475569;
+                            }
+
                         </style>
                         <div class="tl-timeline-header">
                             <button type="button" class="tl-expand-button" data-tl-expand
@@ -2781,7 +3362,7 @@
                                         <tr id="daily-task-{{ $dailyTask->id }}">
                                             <td>{{ $dailyTask->work_date?->format('M j, Y') ?? 'Date unavailable' }}</td>
                                             <td>{{ $dailyTask->assignee?->name ?? 'Former employee' }}</td>
-                                            <td>{{ $task->department?->name ?? '—' }}</td>
+                                            <td>{{ $dailyTask->assignee?->department?->name ?? '—' }}</td>
                                             <td>
                                                 <span class="d-block">
                                                     {{ $dailyTask->title }}
@@ -2793,7 +3374,7 @@
                                                 @endif
                                             </td>
                                             <td>
-                                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                                <div class="tf-daily-update-actions d-flex flex-wrap align-items-center gap-2">
                                                     @php
                                                         $dailyTaskStatusTone = match ($dailyTask->status) {
                                                             'completed' => 'text-bg-success',
@@ -2816,12 +3397,64 @@
                                                             };
                                                         @endphp
                                                         @foreach ($statusActions as $statusAction => $statusActionLabel)
-                                                            <form method="POST" action="{{ route('daily-tasks.action', [$task, $dailyTask, $statusAction]) }}">
+                                                            @php
+                                                                $statusActionTone = match ($statusAction) {
+                                                                    'hold' => 'warning',
+                                                                    'complete' => 'success',
+                                                                    'cancel' => 'danger',
+                                                                    default => 'primary',
+                                                                };
+                                                                $statusActionIcon = match ($statusAction) {
+                                                                    'start' => 'bi-play-fill',
+                                                                    'resume' => 'bi-play-circle',
+                                                                    'hold' => 'bi-pause-fill',
+                                                                    'complete' => 'bi-check-lg',
+                                                                    'cancel' => 'bi-x-lg',
+                                                                    default => 'bi-arrow-repeat',
+                                                                };
+                                                            @endphp
+                                                            <form class="tf-daily-update-action-form" method="POST"
+                                                                action="{{ route('daily-tasks.action', [$task, $dailyTask, $statusAction]) }}">
                                                                 @csrf
-                                                                <button class="btn btn-sm {{ $statusAction === 'cancel' ? 'btn-outline-danger' : 'btn-outline-primary' }}"
-                                                                    type="submit">{{ $statusActionLabel }}</button>
+                                                                <button class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--{{ $statusActionTone }}"
+                                                                    type="submit">
+                                                                    <i class="bi {{ $statusActionIcon }}" aria-hidden="true"></i>
+                                                                    {{ $statusActionLabel }}
+                                                                </button>
                                                             </form>
                                                         @endforeach
+                                                        @if (in_array($dailyTask->status, ['in_progress', 'on_hold'], true))
+                                                            <details class="tf-daily-update-composer w-100"
+                                                                @if ($errors->has('remarks') && (int) old('daily_task_id') === $dailyTask->id) open @endif>
+                                                                <summary class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--primary">
+                                                                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>
+                                                                    Submit Daily Update
+                                                                </summary>
+                                                                <form id="daily-task-update-form-{{ $dailyTask->id }}"
+                                                                    class="tf-daily-update-composer__form mt-2"
+                                                                    method="POST"
+                                                                    action="{{ route('daily-tasks.action', [$task, $dailyTask, 'update']) }}">
+                                                                    @csrf
+                                                                    <input type="hidden" name="daily_task_id" value="{{ $dailyTask->id }}">
+                                                                    <label class="form-label mb-0"
+                                                                        for="daily-task-update-remarks-{{ $dailyTask->id }}">Update description</label>
+                                                                    <textarea class="form-control" id="daily-task-update-remarks-{{ $dailyTask->id }}"
+                                                                        name="remarks" rows="3" maxlength="5000" required>{{ old('remarks') }}</textarea>
+                                                                    <label class="form-label mb-0"
+                                                                        for="daily-task-update-blockers-{{ $dailyTask->id }}">Blockers (optional)</label>
+                                                                    <textarea class="form-control" id="daily-task-update-blockers-{{ $dailyTask->id }}"
+                                                                        name="blockers" rows="2" maxlength="5000">{{ old('blockers') }}</textarea>
+                                                                    @if ($errors->has('remarks') && (int) old('daily_task_id') === $dailyTask->id)
+                                                                        <div class="small text-danger" role="alert">{{ $errors->first('remarks') }}</div>
+                                                                    @endif
+                                                                    <button class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--primary"
+                                                                        type="submit">
+                                                                        <i class="bi bi-send" aria-hidden="true"></i>
+                                                                        Save update
+                                                                    </button>
+                                                                </form>
+                                                            </details>
+                                                        @endif
                                                     @endcan
                                                 </div>
                                             </td>
@@ -3906,12 +4539,23 @@
             const initials = value => String(value || '?').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
             const dailyUpdates = Array.isArray(model.dailyUpdates) ? model.dailyUpdates : [];
             const taskActivities = Array.isArray(model.activities) ? model.activities : [];
-            const taskWorkflowActivities = taskActivities.filter(event => String(event.type || '').toLowerCase() !== 'daily_task_update');
-            const priorityWorkload = Array.isArray(model.priorityWorkload) ? model.priorityWorkload : [];
+            const subtaskActivities = Array.isArray(model.subtaskActivities) ? model.subtaskActivities : [];
+            const showSubtasks = Boolean(model.hasSubtasks) || subtaskActivities.length > 0;
             const recurrence = model.recurrence && Array.isArray(model.recurrence.occurrences)
                 ? model.recurrence
                 : null;
-            let baseCellWidth = 48;
+            const expandedDailyUpdates = new Set();
+            const expandedTaskActivities = new Set();
+            const expandedSubtaskActivities = new Set();
+            let baseCellWidth = 64;
+            let resizeFrame = 0;
+            const scheduleRender = () => {
+                if (resizeFrame) return;
+                resizeFrame = window.requestAnimationFrame(() => {
+                    resizeFrame = 0;
+                    render();
+                });
+            };
 
             expandButton?.addEventListener('click', () => {
                 const isExpanded = taskDetailGrid?.classList.toggle('is-timeline-expanded') ?? false;
@@ -3920,7 +4564,7 @@
                 expandButton.setAttribute('title', isExpanded ? 'Reduce timeline' : 'Expand timeline');
                 expandButton.querySelector('i')?.classList.toggle('bi-arrows-angle-contract', isExpanded);
                 expandButton.querySelector('i')?.classList.toggle('bi-arrows-angle-expand', !isExpanded);
-                window.requestAnimationFrame(render);
+                scheduleRender();
             });
 
             const fitTimelineToScroller = dayCount => {
@@ -3939,69 +4583,8 @@
                 });
             };
 
-            const updateState = (date, dayEvents) => {
-                const events = Array.isArray(dayEvents) ? dayEvents : [];
-                if (events.length) return 'submitted';
-
-                // Stop daily warnings before the planned start date.
-                if (date < model.task.start) return 'closed';
-
-                // Stop daily warnings after a task reaches a terminal state.
-                const priorEvents = taskWorkflowActivities
-                    .filter(event => event.date <= date)
-                    .sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`));
-                const latest = priorEvents.at(-1);
-                const latestType = String(latest?.type || '').toLowerCase();
-                const latestStatus = String(latest?.to || '').toLowerCase().replaceAll(' ', '_');
-                if (date > (latest?.date || '') && (
-                    ['cancellation', 'cancelled'].includes(latestType)
-                    || ['completed', 'cancelled'].includes(latestStatus)
-                )) return 'closed';
-
-                // An on-hold task is paused; do not raise missed-update warnings until it resumes.
-                let held = false;
-                priorEvents.forEach(event => {
-                    const type = String(event.type || '').toLowerCase();
-                    const target = String(event.to || '').toLowerCase().replaceAll(' ', '_');
-                    if (type === 'hold' || target === 'on_hold') held = true;
-                    if (type === 'resume' || ['in_progress', 'submitted_for_review'].includes(target)) held = false;
-                    if (type === 'cancellation' || ['completed', 'cancelled'].includes(target)) held = false;
-                });
-                if (held) return 'paused';
-
-                // If this employee has another active, higher-priority task on the same
-                // date, do not raise a false missed-update warning against this lower
-                // priority task. Priority order: Critical > High > Medium > Low; ties
-                // are resolved by the earlier deadline.
-                const priorityRank = { critical: 0, high: 1, medium: 2, low: 3 };
-                const currentPriority = priorityRank[String(model.task.priority || 'medium').toLowerCase()] ?? 2;
-                const currentAssigneeIds = (model.task.assigneeIds || []).map(Number);
-                const higherPriorityTask = priorityWorkload.find(other => {
-                    if (!other || !other.start || !other.due || date < other.start || date > other.due) return false;
-                    if (['completed', 'cancelled'].includes(String(other.status || '').toLowerCase())) return false;
-                    const sharesAssignee = (other.assigneeIds || []).some(id => currentAssigneeIds.includes(Number(id)));
-                    if (!sharesAssignee) return false;
-                    const otherPriority = priorityRank[String(other.priority || 'medium').toLowerCase()] ?? 2;
-                    return otherPriority < currentPriority
-                        || (otherPriority === currentPriority && (
-                            String(other.due) < String(model.task.due)
-                            || (String(other.due) === String(model.task.due)
-                                && Number(other.id) < Number(model.task.id))
-                        ));
-                });
-                if (higherPriorityTask) return 'deferred';
-
-                if (date < model.range.today) return 'missed';
-                if (date === model.range.today) {
-                    const now = new Date();
-                    const cutoff = new Date();
-                    cutoff.setHours(18, 0, 0, 0);
-                    return now >= cutoff ? 'missed' : 'open';
-                }
-                return 'upcoming';
-            };
-
             const render = () => {
+                const scrollLeft = scroller.scrollLeft;
                 const baseStart = model.range.today <= model.task.due
                     ? model.range.today
                     : model.task.due;
@@ -4017,30 +4600,99 @@
 
                 const historyDates = [model.range.start, model.range.end].filter(Boolean);
                 visibleRange = {
-                    start: [baseStart, ...milestoneDates, ...historyDates].sort()[0],
-                    end: [baseEnd, ...milestoneDates, ...historyDates].sort().at(-1),
+                    start: [baseStart, ...milestoneDates, ...subtaskActivities.map(event => event.date), ...historyDates].sort()[0],
+                    end: [baseEnd, ...milestoneDates, ...subtaskActivities.map(event => event.date), ...historyDates].sort().at(-1),
                 };
                 const days = buildDays();
                 const dayCount = days.length;
                 fitTimelineToScroller(dayCount);
-                const updatesByDate = new Map(dailyUpdates.map(update => [update.date, update]));
-                const activitiesByDate = new Map();
-                taskWorkflowActivities.forEach(event => {
+                const dailyActivitiesByDate = new Map();
+                dailyUpdates.forEach(event => {
                     if (!event.date) return;
-                    if (!activitiesByDate.has(event.date)) activitiesByDate.set(event.date, []);
-                    activitiesByDate.get(event.date).push(event);
+                    if (!dailyActivitiesByDate.has(event.date)) dailyActivitiesByDate.set(event.date, []);
+                    dailyActivitiesByDate.get(event.date).push(event);
                 });
-                const dailyTaskEventDates = new Set(taskActivities
-                    .filter(event => String(event.type || '').toLowerCase() === 'daily_task_update')
-                    .map(event => event.date));
-                const taskDays = days.filter(({ date }) =>
-                    (date >= model.task.start && date <= model.task.due) || dailyTaskEventDates.has(date)
+                // Add one daily-update row for every calendar date from today through
+                // the task deadline. Existing activity dates are retained as well.
+                // Completed/cancelled tasks do not generate new waiting placeholders.
+                const dailyTaskEventDates = new Set(dailyActivitiesByDate.keys());
+                const assigneeIds = (model.task.assigneeIds || []).map(Number);
+                const dailyTaskUpdateDates = new Set((model.dailyTaskUpdateDates || [])
+                    .filter(item => assigneeIds.includes(Number(item.employeeId)))
+                    .map(item => item.date));
+                const isTerminalTask = ['completed', 'cancelled'].includes(
+                    String(model.task.status || '').toLowerCase()
                 );
-                const updateRows = taskDays.map(({ date }) => {
-                    const dayEvents = (activitiesByDate.get(date) || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-                    return { date, update: updatesByDate.get(date), events: dayEvents, state: updateState(date, dayEvents) };
-                }).filter(row => row.state !== 'closed');
-                const isAtRisk = updateRows.some(row => row.state === 'missed');
+                const waitingStart = model.task.start > model.range.today
+                    ? model.task.start
+                    : model.range.today;
+                const waitingEnd = model.task.due;
+
+                if (!isTerminalTask && waitingStart && waitingEnd && waitingStart <= waitingEnd) {
+                    const cursor = parseDay(waitingStart);
+                    const lastDay = parseDay(waitingEnd);
+
+                    while (cursor <= lastDay) {
+                        dailyTaskEventDates.add(iso(cursor));
+                        cursor.setDate(cursor.getDate() + 1);
+                    }
+                }
+
+                const updateRows = [...dailyTaskEventDates].sort().map(date => {
+                    const events = (dailyActivitiesByDate.get(date) || [])
+                        .slice()
+                        .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+                    const types = new Set(events.map(event => String(event.type || '').toLowerCase()));
+                    const hasDailyTaskActivity = events.some(event =>
+                        event.isDailyTask === true && event.isAccountability !== true
+                    ) || dailyTaskUpdateDates.has(date);
+                    const hasMissedEvent = ['daily_accountability_missed', 'daily_task_missed']
+                        .some(type => types.has(type));
+                    const state = hasMissedEvent
+                        ? 'missed'
+                        : types.has('daily_task_completed')
+                            ? 'submitted'
+                            : date > model.range.today ? 'upcoming' : 'open';
+                    const noUpdateToday = !isTerminalTask
+                        && date === model.range.today
+                        && assigneeIds.length > 0
+                        && !hasDailyTaskActivity
+                        && !hasMissedEvent;
+
+                    return {
+                        date,
+                        events,
+                        state,
+                        noUpdateToday,
+                        waiting: !isTerminalTask
+                            && date > model.range.today
+                            && !hasDailyTaskActivity
+                            && ['upcoming'].includes(state),
+                    };
+                });
+                const missedUpdateRows = updateRows.filter(row => row.state === 'missed');
+                const taskActivitiesByDate = new Map();
+                taskActivities.forEach(event => {
+                    if (!event.date) return;
+                    if (!taskActivitiesByDate.has(event.date)) taskActivitiesByDate.set(event.date, []);
+                    taskActivitiesByDate.get(event.date).push(event);
+                });
+                const taskActivityRows = [...taskActivitiesByDate].sort(([first], [second]) => first.localeCompare(second))
+                    .map(([date, events]) => ({
+                        date,
+                        events: events.slice().sort((first, second) => Number(first.timestamp || 0) - Number(second.timestamp || 0)),
+                    }));
+                const subtaskActivitiesByDate = new Map();
+                subtaskActivities.forEach(event => {
+                    if (!event.date) return;
+                    if (!subtaskActivitiesByDate.has(event.date)) subtaskActivitiesByDate.set(event.date, []);
+                    subtaskActivitiesByDate.get(event.date).push(event);
+                });
+                const subtaskActivityRows = [...subtaskActivitiesByDate].sort(([first], [second]) => first.localeCompare(second))
+                    .map(([date, events]) => ({
+                        date,
+                        events: events.slice().sort((first, second) => Number(first.timestamp || 0) - Number(second.timestamp || 0)),
+                    }));
                 const todayIndex = days.find(day => day.date === model.range.today)?.index;
                 const monthSpans = [];
                 days.forEach(({ day }, index) => {
@@ -4057,23 +4709,65 @@
                     review: 'check-lg', completed: 'check-lg', cancellation: 'x-lg', assignment: 'person-plus-fill',
                     reassignment: 'people-fill', deadline: 'calendar-event-fill', progress: 'graph-up-arrow',
                     updated: 'pencil-fill', task_updated: 'pencil-square', status: 'arrow-left-right',
-                    work_update: 'clipboard-check', daily_task_update: 'clipboard-check', accepted: 'check-circle-fill'
+                    created: 'plus-circle-fill', deleted: 'trash-fill',
+                    work_update: 'clipboard-check', daily_task_update: 'clipboard-check', accepted: 'check-circle-fill',
+                    daily_task_created: 'plus-circle-fill', daily_task_assigned: 'person-plus-fill',
+                    daily_task_pending: 'clock-fill', daily_task_started: 'play-fill',
+                    daily_task_on_hold: 'pause-fill', daily_task_resumed: 'arrow-repeat',
+                    daily_task_progress_updated: 'graph-up-arrow', daily_task_update_submitted: 'clipboard-check',
+                    daily_task_reassigned: 'people-fill', daily_task_rescheduled: 'calendar-event',
+                    daily_task_completed: 'check-circle-fill', daily_task_cancelled: 'x-circle-fill',
+                    daily_task_missed: 'exclamation-circle-fill',
+                    daily_accountability_missed: 'exclamation-triangle-fill'
                 }[type] || 'circle-fill');
-                const eventLabel = type => ({
-                    start: 'Work started', hold: 'On Hold', resume: 'Unhold · Work resumed',
-                    submission: 'Work done · Submitted for review', review: 'Review completed',
-                    completed: 'Task completed', cancellation: 'Task cancelled',
-                    assignment: 'Task assigned', reassignment: 'Re-assigned',
+                const eventLabel = (type, event = null) => {
+                    if (type === 'review') {
+                        return String(event?.to || '').toLowerCase() === 'completed'
+                            ? 'Task Approved'
+                            : 'Changes Requested';
+                    }
+
+                    return ({
+                    start: 'Work Started', hold: 'On Hold', resume: 'Unhold · Work Resumed',
+                    submission: 'Task Submitted for Review', review: 'Task Approved',
+                    completed: 'Task Completed', cancellation: 'Task Cancelled',
+                    assignment: 'Task Assigned', reassignment: 'Re-assigned',
                     deadline: 'Deadline updated',
                     deadline_extension_requested: 'Deadline extension requested',
                     deadline_extension_approved: 'Deadline extension approved',
                     deadline_extension_rejected: 'Deadline extension rejected',
                     progress: 'Progress updated',
-                    updated: 'Task updated', task_updated: 'Task edited',
-                    status: 'Status updated', work_update: 'Daily work update',
-                    accepted: 'Task accepted', created: 'Task created',
-                    daily_task_update: 'Daily Task Update'
-                }[type] || String(type).replaceAll('_', ' '));
+                    updated: 'Task updated', task_updated: 'Task Edited',
+                    status: 'Status updated', work_update: 'Work Update',
+                    accepted: 'Task accepted', created: 'Task Created',
+                    daily_task_update: 'Daily Task Update',
+                    daily_task_created: 'Daily Task Created',
+                    daily_task_assigned: 'Daily Task Assigned',
+                    daily_task_pending: 'Daily Task Ready',
+                    daily_task_started: 'Daily Task · Work Started',
+                    daily_task_on_hold: 'Daily Task · On Hold',
+                    daily_task_resumed: 'Daily Task · Work Resumed',
+                    daily_task_progress_updated: 'Daily Task · Progress Updated',
+                    daily_task_update_submitted: 'Daily Update Submitted',
+                    daily_task_reassigned: 'Daily Task Re-assigned',
+                    daily_task_rescheduled: 'Daily Task Rescheduled',
+                    daily_task_completed: 'Daily Task · Completed',
+                    daily_task_cancelled: 'Daily Task · Cancelled',
+                    daily_task_missed: 'Daily Task · Missed',
+                    daily_accountability_missed: 'Daily Update Missing'
+                    })[type] || String(type).replaceAll('_', ' ');
+                };
+                const eventTooltip = (heading, timestamp, detail, actor, context = '', people = null, dailyInfo = null) => {
+                    const dailyInfoRows = dailyInfo
+                        ? [
+                            ['Progress', `${dailyInfo.progress ?? 0}%`],
+                            ['Work date', dailyInfo.workDate || '—'],
+                            ['Current status', dailyInfo.currentStatus || '—'],
+                        ].map(([label, value]) => `<span class="tl-event-tooltip__daily-info-row"><span class="tl-event-tooltip__daily-info-label">${label}</span><span class="tl-event-tooltip__daily-info-value">${escapeHtml(value)}</span></span>`).join('')
+                        : '';
+
+                    return `<span class="tl-event-tooltip" aria-hidden="true"><span class="tl-event-tooltip__heading">${escapeHtml(heading)}</span>${context ? `<span class="tl-event-tooltip__context">${people ? 'Daily Task: ' : ''}${escapeHtml(context)}</span>` : ''}${people ? `<span class="tl-event-tooltip__people"><span class="tl-event-tooltip__person"><span class="tl-event-tooltip__person-label">Employee</span><span class="tl-event-tooltip__person-value">${escapeHtml(people.employee || 'Unknown employee')}</span></span><span class="tl-event-tooltip__person"><span class="tl-event-tooltip__person-label">Department</span><span class="tl-event-tooltip__person-value">${escapeHtml(people.department || 'Unknown department')}</span></span></span>` : ''}${dailyInfoRows ? `<span class="tl-event-tooltip__daily-info">${dailyInfoRows}</span>` : ''}<span class="tl-event-tooltip__meta"><i class="bi bi-calendar3" aria-hidden="true"></i><span>${escapeHtml(timestamp)}</span></span>${detail ? `<span class="tl-event-tooltip__detail">${escapeHtml(detail)}</span>` : ''}<span class="tl-event-tooltip__actor"><i class="bi bi-person" aria-hidden="true"></i><span>${escapeHtml(actor || 'System')}</span></span></span>`;
+                };
 
                 const taskFieldLabels = {
                     title: 'Title', description: 'Description', priority: 'Priority',
@@ -4086,7 +4780,9 @@
                 const taskEventDetails = event => {
                     const type = String(event.type || '').toLowerCase();
                     if (type === 'assignment' || type === 'reassignment') {
-                        return event.to ? `${type === 'reassignment' ? 'Re-assigned to' : 'Assigned to'} ${event.to}` : 'Assignment updated';
+                        return event.to
+                            ? `${event.from ? `${event.from} → ` : ''}${type === 'reassignment' ? 'Re-assigned to ' : 'Assigned to '}${event.to}`
+                            : 'Assignment updated';
                     }
                     if (type === 'task_updated' || type === 'updated') {
                         try {
@@ -4107,6 +4803,9 @@
                     if (type === 'resume') return event.detail || 'Task resumed';
                     if (type === 'work_update') return event.detail || 'Work update recorded';
                     if (type === 'daily_task_update') return event.detail || 'Daily Task update recorded';
+                    if (event.isDailyTask) {
+                        return event.detail || `Daily Task: ${event.dailyTaskTitle || 'Untitled task'}`;
+                    }
                     if (type.startsWith('deadline_extension_')) {
                         const transition = event.from || event.to
                             ? `${event.from || 'Current deadline'} → ${event.to || 'Requested deadline'}`
@@ -4117,8 +4816,9 @@
                     if (type === 'review') return event.detail || (String(event.to) === 'completed' ? 'Work approved · Completed' : 'Review action recorded');
                     if (type === 'cancellation' || type === 'cancelled') return event.detail || 'Task cancelled';
                     if (type === 'status') return `${event.from || 'Status'} → ${event.to || 'Updated'}`;
-                    return event.detail || eventLabel(type);
+                    return event.detail || eventLabel(type, event);
                 };
+                const formatEventDate = date => parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
                 const prettySubtaskValue = value => String(value ?? '')
                     .replaceAll('_', ' ')
                     .replace(/\b\w/g, character => character.toUpperCase());
@@ -4242,128 +4942,204 @@
                     }
                     return { title: `Subtask ${prettySubtaskValue(type || 'activity')} by ${actor}`, changes };
                 };
-                const formatEventDate = date => parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                const eventMarkers = events => events.filter(event => event.date >= visibleRange.start && event.date <= visibleRange.end).map((event, index) => `<button type="button" class="tl-event-marker tl-event-marker--${escapeHtml(event.type)}" style="--tl-start:${dayIndex(event.date)};--tl-event-top:${10 + (index % 3) * 13}px" data-tl-event="${encodeURIComponent(JSON.stringify(event))}" aria-label="${escapeHtml(eventLabel(event.type))} by ${escapeHtml(event.actor)} on ${escapeHtml(formatEventDate(event.date))}"><i class="bi bi-${eventIcon(event.type)}"></i></button>`).join('');
+                const taskActivityTone = event => {
+                    const type = String(event.type || '').toLowerCase();
+                    const targetStatus = String(event.to || '').toLowerCase();
+
+                    // Give each task lifecycle event a distinct, accessible tone.
+                    // Avoid red for routine task history; reserve critical colors for alerts elsewhere.
+                    if (type === 'created') return 'created';
+                    if (type === 'start' || type === 'started') return 'started';
+                    if (type === 'hold') return 'on_hold';
+                    if (type === 'resume' || type === 'resumed') return 'resumed';
+                    if (type === 'submission' || type === 'submitted') return 'submitted';
+                    if (type === 'review') return targetStatus === 'completed' ? 'completed' : 'review';
+                    if (type === 'completed') return 'completed';
+                    if (type === 'cancellation' || type === 'cancelled') return 'cancelled';
+                    if (type.startsWith('deadline')) return 'deadline';
+                    if (type === 'assignment' || type === 'reassignment') return 'assigned';
+                    if (type === 'progress') return 'progress';
+                    if (type === 'task_updated' || type === 'updated') return 'updated';
+                    return 'activity';
+                };
                 const leftSections = [
-                    ['task', 'Task', 1 + taskActivities.length, `<i class="bi bi-check2-square"></i><span title="${escapeHtml(model.task.title)}">${escapeHtml(model.task.title)}</span>`],
-                    ['updates', 'Daily updates', updateRows.length, null],
                     ['milestones', 'Milestones', model.milestones.length, null],
+                    ['task', 'Task', taskActivities.length, null],
+                    ['subtasks', 'Subtasks', subtaskActivities.length, null],
+                    ['updates', 'Daily Task Update', updateRows.length, null],
                     ['recurring', 'Recurring details', recurrence?.occurrences.length || 0, null],
                 ];
-                const sectionLabel = ([key, title, count, content]) => `<div class="tl-label-section" data-tl-section="${key}"><button type="button" aria-expanded="true" aria-label="Toggle ${title}"><i class="bi bi-chevron-down"></i></button><strong>${title}</strong></div>${content ? `<div class="tl-label-row" data-tl-row="${key}">${content}</div>` : ''}`;
+                const sectionLabel = ([key, title, count, content]) => `<div class="tl-label-section" data-tl-section="${key}"><button type="button" aria-expanded="true" aria-label="Toggle ${title}"><i class="bi bi-chevron-down"></i></button><strong>${title}</strong>${key === 'task' ? `<span class="tl-task-section-title" title="${escapeHtml(model.task.title)}">${escapeHtml(model.task.title)}</span>` : ''}</div>${content ? `<div class="tl-label-row" data-tl-row="${key}">${content}</div>` : ''}`;
+                const taskActivityLabels = taskActivityRows.map(({ date, events }, index) => {
+                    const eventCount = events.length;
+                    // Keep the left label row exactly in step with its right-side calendar row.
+                    const rowHeight = eventCount > 0 ? 62 : 56;
+                    return `<div class="tl-label-row tl-task-label-row" data-tl-row="task" data-task-activity-index="${index}" style="min-height:${rowHeight}px"><i class="bi bi-activity"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${eventCount > 1 ? `<button type="button" class="tl-daily-expand" data-task-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} task activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>` : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '')}</div>`;
+                }).join('');
                 const updateLabels = updateRows.map(({ date, state, events }, index) => {
                     const eventCount = events.length;
-                    const rowHeight = eventCount > 1 ? 58 : 48;
-                    return `<div class="tl-label-row tl-daily-label-row" data-tl-row="updates" data-daily-index="${index}" style="min-height:${rowHeight}px"><i class="bi ${state === 'submitted' ? 'bi-calendar-check' : state === 'missed' ? 'bi-flag-fill' : 'bi-calendar3'}"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${eventCount > 1 ? `<button type="button" class="tl-daily-expand" data-daily-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>` : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '')}</div>`;
+                    // Keep the collapsed daily-task row compact; the expand control
+                    // increases both timeline columns when the remaining events show.
+                    const rowHeight = eventCount > 0 ? 62 : 56;
+                    const expandControl = eventCount > 1
+                        ? `<button type="button" class="tl-daily-expand" data-daily-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} daily task activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>`
+                        : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '');
+                    return `<div class="tl-label-row tl-daily-label-row" data-tl-row="updates" data-daily-index="${index}" style="min-height:${rowHeight}px"><i class="bi ${state === 'submitted' ? 'bi-calendar-check' : state === 'missed' ? 'bi-flag-fill' : state === 'exempted' ? 'bi-shield-check' : 'bi-calendar3'}"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${expandControl}</div>`;
                 }).join('');
-                const milestoneLabels = model.milestones.map(item => `<div class="tl-label-row" data-tl-row="milestones"><i class="bi bi-${item.type === 'deadline' ? 'diamond-fill' : 'bookmark-fill'}"></i><span title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span></div>`).join('');
+                const visibleMilestones = model.milestones.filter(item =>
+                    item.date >= visibleRange.start &&
+                    item.date <= visibleRange.end &&
+                    (item.type === 'deadline' || Boolean(item.badge))
+                );
+                const milestoneLabels = visibleMilestones.map(item => `<div class="tl-label-row" data-tl-row="milestones"><i class="bi bi-${item.type === 'deadline' ? 'diamond-fill' : 'bookmark-fill'}"></i><span title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span></div>`).join('');
+                const escalationLabel = missedUpdateRows.length >= 2
+                    ? `<div class="tl-label-row" data-tl-row="milestones"><i class="bi bi-exclamation-triangle-fill"></i><span>Daily update escalation</span></div>`
+                    : '';
+                const subtaskActivityLabels = subtaskActivityRows.map(({ date, events }, index) => {
+                    const eventCount = events.length;
+                    // Subtask activity rows use the same 62px/56px sizing as the calendar side.
+                    const rowHeight = eventCount > 0 ? 62 : 56;
+                    return `<div class="tl-label-row tl-task-label-row" data-tl-row="subtasks" data-subtask-activity-index="${index}" style="min-height:${rowHeight}px"><i class="bi bi-list-check"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${eventCount > 1 ? `<button type="button" class="tl-daily-expand" data-subtask-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} subtask activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>` : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '')}</div>`;
+                }).join('');
                 const recurrenceLabels = recurrence ? recurrence.occurrences.map(item => `<div class="tl-label-row" data-tl-row="recurring"><i class="bi bi-arrow-repeat"></i><span>${escapeHtml(item.title || 'Recurring occurrence')}</span></div>`).join('') : '';
-                const left = `<div class="tl-left"><div class="tl-item-head">ITEM</div>${sectionLabel(leftSections[0])}${sectionLabel(leftSections[1])}${updateLabels}${sectionLabel(leftSections[2])}${milestoneLabels}${recurrence ? sectionLabel(leftSections[3]) + recurrenceLabels : ''}</div>`;
+                const subtaskSection = showSubtasks
+                    ? `${sectionLabel(leftSections[2])}${subtaskActivityLabels}`
+                    : '';
+                const left = `<div class="tl-left"><div class="tl-item-head">ITEM</div>${sectionLabel(leftSections[0])}${milestoneLabels}${escalationLabel}${sectionLabel(leftSections[1])}${taskActivityLabels}${subtaskSection}${sectionLabel(leftSections[3])}${updateLabels}${recurrence ? sectionLabel(leftSections[4]) + recurrenceLabels : ''}</div>`;
                 const dateHeader = days.map(({ day, date, weekend }) => `<div class="tl-date ${weekend ? 'tl-weekend' : ''} ${date === model.range.today ? 'is-today' : ''}"><time datetime="${date}"><small>${day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>${day.getDate()}</time></div>`).join('');
                 const monthHeader = monthSpans.map(span => `<div class="tl-month" style="grid-column: ${span.start + 1} / span ${span.length}">${span.label}</div>`).join('');
-                const taskVisibleStart = model.task.start < visibleRange.start ? visibleRange.start : model.task.start;
-                const taskVisibleEnd = model.task.due > visibleRange.end ? visibleRange.end : model.task.due;
-                const taskStart = dayIndex(taskVisibleStart);
-                const taskLength = Math.max(1, daysBetween(taskVisibleStart, taskVisibleEnd) + 1);
-                // Render only workflow-stage markers on the main task bar.
-                // Daily update indicators and detailed activity cards stay in Daily Updates.
-                const workflowMarkerForEvent = event => {
-                    const type = String(event.type || '').toLowerCase();
-                    const target = String(event.to || '').toLowerCase().replaceAll(' ', '_');
-                    if (target === 'completed' || type === 'completed' || (type === 'review' && target === 'completed')) {
-                        return { key: 'completed', label: 'Completed', icon: 'check-lg', tone: 'completed' };
-                    }
-                    if (target === 'submitted_for_review' || ['submission', 'submitted_for_review'].includes(type) || (type === 'review' && target !== 'rework')) {
-                        return { key: 'review', label: 'Review', icon: 'eye', tone: 'review' };
-                    }
-                    if (target === 'notified' || target === 'unassigned' || ['notified', 'unassigned'].includes(type)) {
-                        const label = target === 'unassigned' || type === 'unassigned' ? 'Unassigned' : 'Notified';
-                        return { key: label.toLowerCase(), label, icon: label === 'Notified' ? 'bell' : 'person', tone: 'neutral' };
-                    }
-                    if (
-                        ['assignment', 'reassignment', 'accepted', 'start', 'resume'].includes(type)
-                        || ['assigned', 'in_progress', 'on_hold', 'rework'].includes(target)
-                    ) {
-                        const isStarted = type === 'start' || type === 'resume' || target === 'in_progress' || target === 'on_hold';
-                        const label = isStarted ? (target === 'on_hold' || type === 'hold' ? 'In Progress · On Hold' : 'In Progress') : 'Assigned';
-                        return { key: isStarted ? 'in_progress' : 'assigned', label, icon: isStarted ? 'play-fill' : 'person-check', tone: 'assigned' };
-                    }
-                    return null;
-                };
-
-                const workflowMarkers = [];
-                if (model.task.created && model.task.created >= model.task.start && model.task.created <= model.task.due) {
-                    workflowMarkers.push({
-                        date: model.task.created,
-                        key: 'notified',
-                        label: 'Notified',
-                        icon: 'bell',
-                        tone: 'neutral',
-                    });
-                }
-                taskActivities.forEach(event => {
-                    if (!event.date || event.date < model.task.start || event.date > model.task.due) return;
-                    const stage = workflowMarkerForEvent(event);
-                    if (stage) workflowMarkers.push({ ...stage, date: event.date });
-                });
-
-                const visibleWorkflowMarkers = workflowMarkers
-                    .filter(marker => marker.date >= visibleRange.start && marker.date <= visibleRange.end)
-                    .filter((marker, index, all) => all.findIndex(other =>
-                        other.date === marker.date && other.key === marker.key
-                    ) === index)
-                    .sort((a, b) => a.date.localeCompare(b.date));
-
-                const markersByDate = new Map();
-                visibleWorkflowMarkers.forEach(marker => {
-                    if (!markersByDate.has(marker.date)) markersByDate.set(marker.date, []);
-                    markersByDate.get(marker.date).push(marker);
-                });
-
-                const markerHtml = visibleWorkflowMarkers.map(marker => {
-                    const sameDayIndex = markersByDate.get(marker.date).indexOf(marker);
-                    const offset = daysBetween(model.task.start, marker.date);
-                    const markerTitle = `${marker.label} · ${formatEventDate(marker.date)}`;
-                    return `<span class="tl-workflow-marker tl-workflow-marker--${marker.tone}" style="--tl-offset:${offset};--tl-marker-shift:${sameDayIndex * 12}px" title="${escapeHtml(markerTitle)}" aria-label="${escapeHtml(markerTitle)}"><i class="bi bi-${marker.icon}" aria-hidden="true"></i></span>`;
-                }).join('');
-
-                const taskRow = `<div class="tl-row" data-tl-row="task"><div class="tl-bar tl-bar--task ${isAtRisk ? 'tl-bar--risk' : ''}" style="--tl-start:${taskStart};--tl-length:${taskLength}" aria-label="${escapeHtml(model.task.title)} from ${model.task.start} through ${model.task.due}">${markerHtml}</div></div>`;
-                const updateTimelineRows = updateRows.map(({ date, update, state, events }, index) => {
+                const taskTimelineRows = taskActivityRows.map(({ date, events }, index) => {
                     const eventLines = events.map((event, eventIndex) => {
-                        const label = eventLabel(String(event.type || '').toLowerCase());
+                        const type = String(event.type || '').toLowerCase().replaceAll(' ', '_');
+                        const label = eventLabel(type, event);
                         const detail = taskEventDetails(event);
                         const meta = event.actor || 'System';
-                        const isAlert = ['hold', 'cancellation', 'cancelled'].includes(String(event.type || '').toLowerCase());
-                        const isDailyTaskUpdate = String(event.type || '').toLowerCase() === 'daily_task_update';
-                        return `<span class="tl-daily-event ${isDailyTaskUpdate ? 'is-daily-task-update' : ''} ${isAlert ? 'is-alert' : ''} ${eventIndex > 0 ? 'is-daily-extra' : ''}" ${eventIndex > 0 ? 'hidden' : ''} title="${escapeHtml(`${label}: ${detail} · ${meta}`)}"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)} · ${escapeHtml(meta)}</small></span>`;
+                        const timestamp = `${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}${event.time ? ` · ${event.time}` : ''}`;
+                        const tooltip = eventTooltip(label, timestamp, detail, meta);
+                        return `<span class="tl-daily-event tl-task-event tl-daily-event--${taskActivityTone(event)} ${eventIndex > 0 ? 'is-task-extra' : ''}" ${eventIndex > 0 ? 'hidden' : ''} tabindex="0" aria-label="${escapeHtml([label, timestamp, detail, `By ${meta}`].filter(Boolean).join('. '))}"><strong><i class="bi bi-${eventIcon(type)}" aria-hidden="true"></i>${escapeHtml(label)}</strong>${tooltip}</span>`;
+                    }).join('');
+                    const eventsMarkup = eventLines ? `<span class="tl-daily-events tl-task-events">${eventLines}</span>` : '';
+                    const height = events.length > 0 ? 62 : 56;
+                    return `<div class="tl-row" data-tl-row="task" data-task-activity-index="${index}" style="min-height:${height}px">${eventsMarkup ? `<span class="tl-row-copy tl-row-copy--daily" style="--tl-start:${dayIndex(date)}">${eventsMarkup}</span>` : ''}</div>`;
+                }).join('');
+                const subtaskEventLabel = event => {
+                    const type = String(event.type || '').replace(/^subtask_/, '');
+                    return ({
+                        created: 'Subtask Created',
+                        deleted: 'Subtask Deleted',
+                        status: 'Status Updated',
+                        progress: 'Progress Updated',
+                        assignment: 'Assignee Updated',
+                        deadline: 'Dates Updated',
+                        conflict: 'Date Conflict',
+                        updated: 'Subtask Updated',
+                    })[type] || `Subtask ${prettySubtaskValue(type || 'Activity')}`;
+                };
+                const subtaskEventTone = event => {
+                    const type = String(event.type || '').toLowerCase();
+                    const status = String(event.to || '').toLowerCase();
+                    if (type.includes('deleted') || type.includes('cancel') || status === 'cancelled') return 'cancelled';
+                    if (status === 'completed' || type.includes('completed')) return 'completed';
+                    if (status === 'on_hold' || type.includes('hold')) return 'on_hold';
+                    return 'in_progress';
+                };
+                const subtaskTimelineRows = subtaskActivityRows.map(({ date, events }, index) => {
+                    const eventLines = events.map((event, eventIndex) => {
+                        const label = subtaskEventLabel(event);
+                        const transition = event.from || event.to
+                            ? `${prettySubtaskValue(event.from || '—')} → ${prettySubtaskValue(event.to || '—')}`
+                            : '';
+                        const detail = [transition, event.detail].filter(Boolean).join(' · ') || 'Activity recorded';
+                        const meta = event.actor || 'System';
+                        const timestamp = `${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}${event.time ? ` · ${event.time}` : ''}`;
+                        const badgeLabel = label.startsWith('Subtask ') ? label : `Subtask: ${label}`;
+                        const tooltip = eventTooltip(label, timestamp, detail, meta, event.subtaskTitle);
+                        return `<span class="tl-daily-event tl-task-event tl-daily-event--${subtaskEventTone(event)} ${eventIndex > 0 ? 'is-subtask-extra' : ''}" ${eventIndex > 0 ? 'hidden' : ''} tabindex="0" aria-label="${escapeHtml([event.subtaskTitle, label, timestamp, detail, `By ${meta}`].filter(Boolean).join('. '))}"><strong><i class="bi bi-${eventIcon(String(event.type || '').replace(/^subtask_/, ''))}" aria-hidden="true"></i>${escapeHtml(badgeLabel)}</strong>${tooltip}</span>`;
+                    }).join('');
+                    const eventsMarkup = eventLines ? `<span class="tl-daily-events tl-task-events">${eventLines}</span>` : '';
+                    const height = events.length > 0 ? 62 : 56;
+                    return `<div class="tl-row" data-tl-row="subtasks" data-subtask-activity-index="${index}" style="min-height:${height}px">${eventsMarkup ? `<span class="tl-row-copy tl-row-copy--daily" style="--tl-start:${dayIndex(date)}">${eventsMarkup}</span>` : ''}</div>`;
+                }).join('');
+                const updateTimelineRows = updateRows.map(({ date, state, events, waiting, noUpdateToday }, index) => {
+                    const eventLines = events.map((event, eventIndex) => {
+                        const type = String(event.type || '').toLowerCase().replaceAll(' ', '_');
+                        const label = eventLabel(type, event);
+                        const detail = taskEventDetails(event);
+                        const meta = event.actor || 'System';
+                        const isAlert = [
+                            'cancellation',
+                            'cancelled',
+                            'daily_task_cancelled',
+                            'daily_task_missed',
+                            'daily_accountability_missed',
+                        ].includes(type);
+                        const isDailyTaskActivity = Boolean(event.isDailyTask);
+                        const eventTone = event.isAccountability
+                            ? event.accountabilityTone
+                            : event.isDailyTask
+                            ? (type === 'daily_task_update_submitted' ? 'update-submitted' : event.eventStatus)
+                            : '';
+                        const workflowTone = type === 'start'
+                            ? 'is-workflow-start'
+                            : ['hold', 'on_hold'].includes(type)
+                                ? 'is-workflow-hold'
+                                : type === 'resume' ? 'is-workflow-resume' : '';
+                        const timestamp = `${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}${event.time ? ` · ${event.time}` : ''}`;
+                        const dailyInfo = isDailyTaskActivity && !event.isAccountability
+                            ? {
+                                progress: event.progress,
+                                workDate: event.workDate
+                                    ? parseDay(event.workDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : '—',
+                                currentStatus: event.currentStatus,
+                            }
+                            : null;
+                        const tooltip = eventTooltip(
+                            label,
+                            timestamp,
+                            detail,
+                            meta,
+                            event.dailyTaskTitle,
+                            isDailyTaskActivity ? { employee: event.employee, department: event.department } : null,
+                            dailyInfo,
+                        );
+                        const isDailyTaskUpdate = isDailyTaskActivity && ['daily_task_update_submitted', 'daily_task_update'].includes(type);
+                        const badgeIcon = isDailyTaskUpdate ? '<i class="bi bi-clipboard-check" aria-hidden="true"></i>' : '';
+                        const isExtraEvent = eventIndex > 0;
+                        return `<span class="tl-daily-event ${isDailyTaskActivity ? 'is-daily-task-activity' : ''} ${isDailyTaskUpdate ? 'is-daily-task-update' : ''} ${eventTone ? `tl-daily-event--${escapeHtml(eventTone)}` : ''} ${workflowTone} ${isAlert ? 'is-alert' : ''} ${isExtraEvent ? 'is-daily-extra' : ''}" ${isExtraEvent ? 'hidden' : ''} tabindex="0" aria-label="${escapeHtml([label, timestamp, detail, `By ${meta}`].filter(Boolean).join('. '))}"><strong>${badgeIcon}${escapeHtml(label)}</strong>${tooltip}</span>`;
                     }).join('');
                     const eventBlock = eventLines ? `<span class="tl-daily-events">${eventLines}</span>` : '';
-                    const copy = state === 'submitted'
-                        ? eventBlock
-                        : state === 'missed'
-                            ? `${eventBlock}<strong class="tl-daily-warning">No work update today</strong> <span>· ${escapeHtml(model.task.assignee || 'Assigned user')} has not recorded any task activity · Follow up needed</span>`
-                            : state === 'paused'
-                                ? `${eventBlock}<strong>Task is On Hold</strong> <span>· Daily update not expected until work resumes</span>`
-                                : state === 'deferred'
-                                    ? `${eventBlock}<strong>Update deferred</strong> <span>· Higher-priority task is scheduled for this assignee</span>`
-                                    : state === 'open'
-                                        ? eventBlock
-                                        : `${eventBlock}<span class="tl-daily-waiting"><i class="bi bi-clock" aria-hidden="true"></i><strong>Waiting for updates</strong></span>`;
-                    const dependency = index < updateRows.length - 1 ? '<span class="tl-dependency" aria-label="Dependency to the next daily update"><svg viewBox="0 0 55 30" aria-hidden="true"><path d="M0 0h21v18h27" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m45 14 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></span>' : '';
-                    // Submitted dates use the activity badges only; do not render the standalone blue check marker.
-                    const icon = state === 'submitted' ? '' : state === 'missed' ? 'flag-fill' : state === 'paused' ? 'pause-fill' : state === 'open' || state === 'upcoming' ? '' : state === 'deferred' ? 'layers' : 'clock';
+                    const copy = eventBlock;
+                    const dependency = index < updateRows.length - 1 ? '<span class="tl-dependency" aria-label="Dependency to the next daily update"></span>' : '';
+                    const icon = state === 'submitted' || state === 'open' || state === 'upcoming'
+                    ? ''
+                    : state === 'missed' ? 'flag-fill' : state === 'exempted' ? 'shield-check' : 'clock';
                     const marker = icon ? `<span class="tl-update tl-update--${state}" style="--tl-start:${dayIndex(date)}" aria-label="${state} work update"><i class="bi bi-${icon}"></i></span>` : '';
+                    const waitingBadge = waiting
+                        ? `<span class="tl-daily-waiting tl-daily-waiting--upcoming"
+                                style="--tl-start:${dayIndex(date)}"
+                                title="Upcoming Daily Task activity · ${escapeHtml(formatEventDate(date))}"
+                                aria-label="Upcoming Daily Task activity on ${escapeHtml(formatEventDate(date))}">
+                                <i class="bi bi-calendar-event" aria-hidden="true"></i>
+                                <strong>Upcoming</strong>
+                           </span>`
+                        : '';
+                    const noUpdateBadge = noUpdateToday
+                        ? `<span class="tl-daily-no-update"
+                                style="--tl-start:${dayIndex(date)}"
+                                title="No Daily Task status update recorded today for ${escapeHtml(model.task.assignee || 'the assigned employee')}"
+                                aria-label="No Daily Task updated today for ${escapeHtml(model.task.assignee || 'the assigned employee')}">
+                                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                                <strong>No task updated today</strong>
+                           </span>`
+                        : '';
                     const copyMarkup = copy ? `<span class="tl-row-copy tl-row-copy--daily" style="--tl-start:${dayIndex(date)}">${copy}</span>` : '';
-                    const collapsedHeight = events.length > 1 ? 58 : Math.max(48, events.length * 34 + 14);
-                    return `<div class="tl-row tl-row--daily-${state}" data-tl-row="updates" data-daily-index="${index}" style="min-height:${collapsedHeight}px">${marker}${copyMarkup}${dependency}</div>`;
+                    // Match the compact default state; the existing data-daily-expand
+                    // handler recalculates the row height when the user expands it.
+                    const rowHeight = events.length > 0 ? 62 : 56;
+                    return `<div class="tl-row tl-row--daily-${state}${noUpdateToday ? ' tl-row--daily-warning' : ''}" data-tl-row="updates" data-daily-index="${index}" style="min-height:${rowHeight}px">${marker}${waitingBadge}${noUpdateBadge}${copyMarkup}${dependency}</div>`;
                 }).join('');
-                const milestoneRows = model.milestones
-                    .filter(item =>
-                        item.date >= visibleRange.start &&
-                        item.date <= visibleRange.end &&
-                        (item.type === 'deadline' || Boolean(item.badge))
-                    )
-                    .map(item => {
+                const milestoneRows = visibleMilestones.map(item => {
                         const dateLabel = formatEventDate(item.date);
 
                         // The deadline is shown as a continuous red dotted line ending
@@ -4382,10 +5158,39 @@
                         return `<div class="tl-row${item.type === 'deadline' ? ' tl-row--deadline' : ''}" data-tl-row="milestones" ${item.type === 'deadline' ? `style="--tl-start:${dayIndex(item.date)}"` : ''}>${milestoneDisplay}</div>`;
                     }).join('');
                 const recurringRows = recurrence ? recurrence.occurrences.filter(item => item.date >= visibleRange.start && item.date <= visibleRange.end).map(item => `<div class="tl-row" data-tl-row="recurring"><span class="tl-recurring tl-recurring--${escapeHtml(item.status)}" style="--tl-start:${dayIndex(item.date)}" aria-label="${escapeHtml(item.status)} recurring occurrence"><i class="bi bi-arrow-repeat"></i></span><span class="tl-row-copy" style="--tl-start:${dayIndex(item.date)}"><strong>${escapeHtml(item.title || 'Recurring occurrence')}</strong> <span>· ${escapeHtml(item.status.replaceAll('_', ' '))}</span></span></div>`).join('') : '';
-                const missed = updateRows.filter(row => row.state === 'missed');
-                const escalation = missed.length >= 2 ? `<div class="tl-row" data-tl-row="milestones"><span class="tl-escalation" style="--tl-start:${dayIndex(missed[1].date)}"><i class="bi bi-diamond-fill"></i> Escalated to DM Manager · 2 missed days in a row</span></div>` : '';
-                const calendar = `<div class="tl-calendar" style="--tl-days:${dayCount}"><div class="tl-months">${monthHeader}</div><div class="tl-dates">${dateHeader}</div>${todayIndex === undefined ? '' : `<span class="tl-today-column" style="left: calc(${todayIndex} * var(--tl-cell))"></span>`}<div class="tl-section-row"></div>${taskRow}<div class="tl-section-row"></div>${updateTimelineRows}<div class="tl-section-row"></div>${milestoneRows}${escalation}${recurrence ? `<div class="tl-section-row"></div>${recurringRows}` : ''}</div>`;
+                const escalation = missedUpdateRows.length >= 2 ? `<div class="tl-row" data-tl-row="milestones"><span class="tl-escalation" style="--tl-start:${dayIndex(missedUpdateRows[1].date)}"><i class="bi bi-diamond-fill"></i> Escalated to DM Manager · 2 missed days in a row</span></div>` : '';
+                const calendar = `<div class="tl-calendar" style="--tl-days:${dayCount}"><div class="tl-months">${monthHeader}</div><div class="tl-dates">${dateHeader}</div>${todayIndex === undefined ? '' : `<span class="tl-today-column" style="left: calc(${todayIndex} * var(--tl-cell))"></span>`}<div class="tl-section-row"></div>${milestoneRows}${escalation}<div class="tl-section-row"></div>${taskTimelineRows}${showSubtasks ? `<div class="tl-section-row"></div>${subtaskTimelineRows}` : ''}<div class="tl-section-row"></div>${updateTimelineRows}${recurrence ? `<div class="tl-section-row"></div>${recurringRows}` : ''}</div>`;
                 grid.innerHTML = left + calendar;
+                scroller.scrollLeft = scrollLeft;
+                grid.querySelectorAll('.tl-daily-event').forEach(badge => {
+                    const positionTooltip = () => {
+                        const tooltip = badge.querySelector('.tl-event-tooltip');
+                        if (!tooltip) return;
+                        badge.classList.add('is-tooltip-visible');
+                        requestAnimationFrame(() => {
+                            const scrollerRect = scroller.getBoundingClientRect();
+                            const timelineStart = grid.querySelector('.tl-left')?.getBoundingClientRect().width || 0;
+                            const tooltipRect = tooltip.getBoundingClientRect();
+                            const calendarLeft = scrollerRect.left + timelineStart + 6;
+
+                            badge.classList.remove('is-tooltip-align-left', 'is-tooltip-align-right');
+                            if (tooltipRect.left < calendarLeft) {
+                                badge.classList.add('is-tooltip-align-left');
+                            } else if (tooltipRect.right > scrollerRect.right - 6) {
+                                badge.classList.add('is-tooltip-align-right');
+                            }
+                        });
+                    };
+                    const hideTooltip = () => {
+                        if (badge.matches(':hover, :focus')) return;
+                        badge.classList.remove('is-tooltip-visible', 'is-tooltip-align-left', 'is-tooltip-align-right');
+                    };
+
+                    badge.addEventListener('pointerenter', positionTooltip);
+                    badge.addEventListener('focus', positionTooltip);
+                    badge.addEventListener('pointerleave', hideTooltip);
+                    badge.addEventListener('blur', hideTooltip);
+                });
                 grid.querySelectorAll('[data-tl-section] button').forEach(button => {
                     button.addEventListener('click', () => {
                         const key = button.closest('[data-tl-section]').dataset.tlSection;
@@ -4395,62 +5200,115 @@
                     });
                 });
                 grid.querySelectorAll('[data-daily-expand]').forEach(button => {
-                    button.addEventListener('click', () => {
-                        const index = button.dataset.dailyExpand;
-                        const expanded = button.getAttribute('aria-expanded') === 'true';
+                    const index = Number(button.dataset.dailyExpand);
+                    const setExpanded = nextExpanded => {
                         const labelRow = grid.querySelector(`.tl-daily-label-row[data-daily-index="${index}"]`);
-                        const timelineRow = grid.querySelector(`.tl-row--daily-submitted[data-daily-index="${index}"], .tl-row--daily-missed[data-daily-index="${index}"], .tl-row--daily-paused[data-daily-index="${index}"], .tl-row--daily-upcoming[data-daily-index="${index}"]`);
+                        const timelineRow = grid.querySelector(`.tl-row[data-tl-row="updates"][data-daily-index="${index}"]`);
                         const extras = timelineRow?.querySelectorAll('.is-daily-extra') || [];
-                        extras.forEach(item => { item.hidden = expanded; });
-                        const nextExpanded = !expanded;
+                        extras.forEach(item => { item.hidden = !nextExpanded; });
+                        if (nextExpanded) {
+                            expandedDailyUpdates.add(index);
+                        } else {
+                            expandedDailyUpdates.delete(index);
+                        }
                         button.setAttribute('aria-expanded', String(nextExpanded));
                         button.innerHTML = `<span>${nextExpanded ? 'Hide' : `${extras.length + 1} events`}</span><i class="bi bi-chevron-down"></i>`;
+                        button.setAttribute('aria-label', `${nextExpanded ? 'Hide' : 'Show'} ${extras.length + 1} activities`);
                         const eventsContainer = timelineRow?.querySelector('.tl-daily-events');
                         const applyRowHeight = () => {
-                            // Measure the actual rendered activity cards (including wrapped text),
-                            // instead of estimating a fixed height per event. This prevents a busy
-                            // date such as 30 Oct from spilling into the following date row.
                             const measuredContentHeight = eventsContainer
                                 ? Math.ceil(eventsContainer.getBoundingClientRect().height)
                                 : 0;
+                            const hasWaitingBadge = Boolean(timelineRow?.querySelector('.tl-daily-waiting--below'));
+                            const collapsedHeight = hasWaitingBadge ? 82 : 62;
                             const newHeight = nextExpanded
-                                ? Math.max(58, measuredContentHeight + 24)
-                                : 58;
+                                ? Math.max(collapsedHeight, measuredContentHeight + 20)
+                                : collapsedHeight;
                             if (labelRow) labelRow.style.minHeight = `${newHeight}px`;
                             if (timelineRow) timelineRow.style.minHeight = `${newHeight}px`;
                         };
-                        if (nextExpanded) {
-                            requestAnimationFrame(() => requestAnimationFrame(applyRowHeight));
-                        } else {
-                            applyRowHeight();
-                        }
-                    });
-                });
-                grid.querySelectorAll('[data-tl-event]').forEach(marker => {
-                    const showActivityCard = () => {
-                        const row = marker.closest('.tl-row');
-                        row.querySelector('.tl-activity-card')?.remove();
-                        const event = JSON.parse(decodeURIComponent(marker.dataset.tlEvent));
-                        const card = document.createElement('div');
-                        card.className = 'tl-activity-card';
-                        card.style.setProperty('--tl-start', dayIndex(event.date));
-                        card.innerHTML = `<strong>${escapeHtml(eventLabel(event.type))}</strong><span class="tl-activity-card__date">${escapeHtml(formatEventDate(event.date))}</span><small>${escapeHtml(event.actor)}${event.time ? ` · ${escapeHtml(event.time)}` : ''}${event.from || event.to ? ` · ${escapeHtml(event.from || '—')} → ${escapeHtml(event.to || '—')}` : ''}</small>${event.detail ? `<small>${escapeHtml(event.detail)}</small>` : ''}`;
-                        row.append(card);
+                        applyRowHeight();
                     };
-                    const removeActivityCard = () => marker.closest('.tl-row').querySelector('.tl-activity-card')?.remove();
-
-                    marker.addEventListener('mouseenter', showActivityCard);
-                    marker.addEventListener('mouseleave', removeActivityCard);
-                    marker.addEventListener('focus', showActivityCard);
-                    marker.addEventListener('blur', removeActivityCard);
-                    marker.addEventListener('click', showActivityCard);
+                    button.addEventListener('click', () => {
+                        setExpanded(!expandedDailyUpdates.has(index));
+                    });
+                    if (expandedDailyUpdates.has(index)) setExpanded(true);
+                });
+                grid.querySelectorAll('[data-task-expand]').forEach(button => {
+                    const index = Number(button.dataset.taskExpand);
+                    const setExpanded = nextExpanded => {
+                        const labelRow = grid.querySelector(`.tl-task-label-row[data-task-activity-index="${index}"]`);
+                        const timelineRow = grid.querySelector(`.tl-row[data-tl-row="task"][data-task-activity-index="${index}"]`);
+                        const extras = timelineRow?.querySelectorAll('.is-task-extra') || [];
+                        extras.forEach(item => { item.hidden = !nextExpanded; });
+                        if (nextExpanded) {
+                            expandedTaskActivities.add(index);
+                        } else {
+                            expandedTaskActivities.delete(index);
+                        }
+                        button.setAttribute('aria-expanded', String(nextExpanded));
+                        button.innerHTML = `<span>${nextExpanded ? 'Hide' : `${extras.length + 1} events`}</span><i class="bi bi-chevron-down"></i>`;
+                        button.setAttribute('aria-label', `${nextExpanded ? 'Hide' : 'Show'} ${extras.length + 1} task activities`);
+                        const eventsContainer = timelineRow?.querySelector('.tl-task-events');
+                        const applyRowHeight = () => {
+                            const measuredContentHeight = eventsContainer
+                                ? Math.ceil(eventsContainer.getBoundingClientRect().height)
+                                : 0;
+                            const newHeight = nextExpanded ? Math.max(62, measuredContentHeight + 20) : 62;
+                            if (labelRow) labelRow.style.minHeight = `${newHeight}px`;
+                            if (timelineRow) timelineRow.style.minHeight = `${newHeight}px`;
+                        };
+                        applyRowHeight();
+                    };
+                    button.addEventListener('click', () => {
+                        setExpanded(!expandedTaskActivities.has(index));
+                    });
+                    if (expandedTaskActivities.has(index)) setExpanded(true);
+                });
+                grid.querySelectorAll('[data-subtask-expand]').forEach(button => {
+                    const index = Number(button.dataset.subtaskExpand);
+                    const setExpanded = nextExpanded => {
+                        const labelRow = grid.querySelector(`.tl-task-label-row[data-subtask-activity-index="${index}"]`);
+                        const timelineRow = grid.querySelector(`.tl-row[data-tl-row="subtasks"][data-subtask-activity-index="${index}"]`);
+                        const extras = timelineRow?.querySelectorAll('.is-subtask-extra') || [];
+                        extras.forEach(item => { item.hidden = !nextExpanded; });
+                        if (nextExpanded) {
+                            expandedSubtaskActivities.add(index);
+                        } else {
+                            expandedSubtaskActivities.delete(index);
+                        }
+                        button.setAttribute('aria-expanded', String(nextExpanded));
+                        button.innerHTML = `<span>${nextExpanded ? 'Hide' : `${extras.length + 1} events`}</span><i class="bi bi-chevron-down"></i>`;
+                        button.setAttribute('aria-label', `${nextExpanded ? 'Hide' : 'Show'} ${extras.length + 1} subtask activities`);
+                        const eventsContainer = timelineRow?.querySelector('.tl-task-events');
+                        const applyRowHeight = () => {
+                            const measuredContentHeight = eventsContainer
+                                ? Math.ceil(eventsContainer.getBoundingClientRect().height)
+                                : 0;
+                            const newHeight = nextExpanded ? Math.max(62, measuredContentHeight + 20) : 62;
+                            if (labelRow) labelRow.style.minHeight = `${newHeight}px`;
+                            if (timelineRow) timelineRow.style.minHeight = `${newHeight}px`;
+                        };
+                        applyRowHeight();
+                    };
+                    button.addEventListener('click', () => {
+                        setExpanded(!expandedSubtaskActivities.has(index));
+                    });
+                    if (expandedSubtaskActivities.has(index)) setExpanded(true);
                 });
             };
 
             if ('ResizeObserver' in window) {
-                new ResizeObserver(render).observe(scroller);
+                let lastTimelineWidth = timeline.getBoundingClientRect().width;
+                new ResizeObserver(entries => {
+                    const timelineWidth = entries[0]?.contentRect.width;
+                    if (timelineWidth !== undefined && Math.abs(timelineWidth - lastTimelineWidth) >= 1) {
+                        lastTimelineWidth = timelineWidth;
+                        scheduleRender();
+                    }
+                }).observe(timeline);
             } else {
-                window.addEventListener('resize', render);
+                window.addEventListener('resize', scheduleRender);
             }
             render();
             window.requestAnimationFrame(() => {

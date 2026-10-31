@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreTaskRequest;
 use App\Http\Requests\UpdateTaskRequest;
 use App\Models\Company;
+use App\Models\DailyAccountabilityEvent;
 use App\Models\Department;
 use App\Models\Task;
 use App\Models\TaskAssignment;
@@ -281,12 +282,29 @@ class TaskController extends Controller
         $dailyTasks = $task->dailyTasks()
             ->visibleTo($request->user())
             ->with([
-                'assignee:id,name',
+                'assignee:id,name,department_id',
+                'assignee.department:id,name',
                 'subtask:id,task_id,title',
                 'milestone:id,task_id,title',
-                'activity.changedBy:id,name',
+                'activity.changedBy:id,name,department_id',
+                'activity.changedBy.department:id,name',
                 'activity.attachments',
             ])
+            ->get();
+        $accountabilityEvents = DailyAccountabilityEvent::query()
+            ->where('task_id', $task->id)
+            ->with('employee.department')
+            ->where('event_type', 'missed')
+            ->when(
+                ! $request->user()->hasAssignedRole('Admin')
+                    && ! $request->user()->hasAssignedRole('CEO')
+                    && ! $request->user()->hasAssignedRole('Manager')
+                    && ! $request->user()->hasAssignedRole('Team Leader')
+                    && ! $request->user()->can('daily_tasks.view_team'),
+                fn (Builder $query) => $query->where('employee_id', $request->user()->id),
+            )
+            ->orderBy('report_date')
+            ->orderBy('created_at')
             ->get();
         if (! $request->user()->hasAssignedRole('Admin')
             && ! $request->user()->hasAssignedRole('CEO')
@@ -326,31 +344,6 @@ class TaskController extends Controller
             )
             ->get();
 
-        // Load other active tasks assigned to at least one of this task's current assignees.
-        // The timeline uses this data only to avoid false missed-update warnings on a
-        // lower-priority task while the same employee has a higher-priority task scheduled.
-        $currentAssigneeIds = $task->activeAssignees->pluck('id')->all();
-        $priorityWorkload = $currentAssigneeIds === []
-            ? collect()
-            : Task::query()
-                ->where('id', '!=', $task->id)
-                ->whereNotIn('status', ['completed', 'cancelled'])
-                ->whereHas('activeAssignees', fn (Builder $query) => $query->whereIn('users.id', $currentAssigneeIds))
-                ->with('activeAssignees:id,name')
-                ->get(['id', 'task_code', 'title', 'priority', 'start_date', 'due_date', 'status'])
-                ->map(fn (Task $otherTask): array => [
-                    'id' => $otherTask->id,
-                    'title' => $otherTask->title,
-                    'taskCode' => $otherTask->task_code,
-                    'priority' => strtolower((string) $otherTask->priority),
-                    'start' => $otherTask->start_date?->toDateString(),
-                    'due' => $otherTask->due_date?->toDateString(),
-                    'status' => $otherTask->status,
-                    'assigneeIds' => $otherTask->activeAssignees->pluck('id')->values()->all(),
-                ])
-                ->values()
-                ->all();
-
         return view('tasks.show', compact(
             'task',
             'companies',
@@ -358,6 +351,7 @@ class TaskController extends Controller
             'employees',
             'milestones',
             'dailyTasks',
+            'accountabilityEvents',
             'statusOptions',
             'canFlagRisk',
             'canReviewSubmission',
@@ -371,7 +365,6 @@ class TaskController extends Controller
             'resumeToReview',
             'canReviewDeadlineExtensions',
             'deadlineExtensionRequests',
-            'priorityWorkload',
         ));
     }
 

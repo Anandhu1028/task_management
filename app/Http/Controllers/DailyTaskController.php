@@ -162,7 +162,7 @@ class DailyTaskController extends Controller
         abort_unless(in_array($action, ['start', 'hold', 'resume', 'progress', 'update', 'reassign', 'reschedule', 'complete', 'cancel'], true), 404);
 
         $validated = $request->validate([
-            'remarks' => ['nullable', 'string', 'max:5000'],
+            'remarks' => [$action === 'update' ? 'required' : 'nullable', 'string', 'max:5000'],
             'blockers' => ['nullable', 'string', 'max:5000'],
             'progress_percentage' => ['nullable', 'integer', 'min:0', 'max:100'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],

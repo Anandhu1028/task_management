@@ -55,50 +55,121 @@ class DashboardService
     /**
      * Parse date range selection into carbon start and end.
      *
-     * @return array{start: Carbon, end: Carbon, label: string, key: string}
+     * @return array{start: Carbon, end: Carbon, label: string, key: string, period_type: string, period_date: string}
      */
-    public function resolveDateRange(string $rangeKey, ?string $from = null, ?string $to = null): array
-    {
+    public function resolveDateRange(
+        string $rangeKey,
+        ?string $from = null,
+        ?string $to = null,
+        ?string $periodType = null,
+        ?string $periodDate = null
+    ): array {
         $now = now();
 
-        return match ($rangeKey) {
-            'today' => [
-                'start' => $now->copy()->startOfDay(),
-                'end' => $now->copy()->endOfDay(),
-                'label' => 'Today',
-                'key' => 'today',
-            ],
-            'this_week' => [
-                'start' => $now->copy()->startOfWeek(),
-                'end' => $now->copy()->endOfWeek(),
-                'label' => 'This Week',
-                'key' => 'this_week',
-            ],
-            'this_month' => [
-                'start' => $now->copy()->startOfMonth(),
-                'end' => $now->copy()->endOfMonth(),
-                'label' => 'This Month',
-                'key' => 'this_month',
-            ],
-            'last_30_days' => [
-                'start' => $now->copy()->subDays(29)->startOfDay(),
-                'end' => $now->copy()->endOfDay(),
-                'label' => 'Last 30 Days',
-                'key' => 'last_30_days',
-            ],
-            'custom' => [
-                'start' => $from ? Carbon::parse($from)->startOfDay() : $now->copy()->subDays(6)->startOfDay(),
-                'end' => $to ? Carbon::parse($to)->endOfDay() : $now->copy()->endOfDay(),
-                'label' => 'Custom Range',
-                'key' => 'custom',
-            ],
-            default => [
-                'start' => $now->copy()->subDays(6)->startOfDay(),
-                'end' => $now->copy()->endOfDay(),
-                'label' => 'Last 7 Days',
-                'key' => 'last_7_days',
-            ],
-        };
+        // 1. If explicit legacy rangeKey without period_date override, preserve legacy key
+        if (! $periodDate && in_array($rangeKey, ['today', 'this_week', 'this_month', 'last_30_days', 'custom', 'last_7_days'], true) && ! in_array($periodType, ['daily', 'weekly', 'monthly'], true)) {
+            return match ($rangeKey) {
+                'today' => [
+                    'start' => $now->copy()->startOfDay(),
+                    'end' => $now->copy()->endOfDay(),
+                    'label' => 'Today',
+                    'key' => 'today',
+                    'period_type' => 'daily',
+                    'period_date' => $now->toDateString(),
+                ],
+                'this_week' => [
+                    'start' => $now->copy()->startOfWeek(),
+                    'end' => $now->copy()->endOfWeek(),
+                    'label' => 'This Week',
+                    'key' => 'this_week',
+                    'period_type' => 'weekly',
+                    'period_date' => $now->startOfWeek()->format('o-\WW'),
+                ],
+                'this_month' => [
+                    'start' => $now->copy()->startOfMonth(),
+                    'end' => $now->copy()->endOfMonth(),
+                    'label' => 'This Month',
+                    'key' => 'this_month',
+                    'period_type' => 'monthly',
+                    'period_date' => $now->format('Y-m'),
+                ],
+                'last_30_days' => [
+                    'start' => $now->copy()->subDays(29)->startOfDay(),
+                    'end' => $now->copy()->endOfDay(),
+                    'label' => 'Last 30 Days',
+                    'key' => 'last_30_days',
+                    'period_type' => 'monthly',
+                    'period_date' => $now->format('Y-m'),
+                ],
+                'custom' => [
+                    'start' => $from ? Carbon::parse($from)->startOfDay() : $now->copy()->subDays(6)->startOfDay(),
+                    'end' => $to ? Carbon::parse($to)->endOfDay() : $now->copy()->endOfDay(),
+                    'label' => 'Custom Range',
+                    'key' => 'custom',
+                    'period_type' => 'monthly',
+                    'period_date' => $now->format('Y-m'),
+                ],
+                default => [
+                    'start' => $now->copy()->subDays(6)->startOfDay(),
+                    'end' => $now->copy()->endOfDay(),
+                    'label' => 'Last 7 Days',
+                    'key' => 'last_7_days',
+                    'period_type' => 'weekly',
+                    'period_date' => $now->startOfWeek()->format('o-\WW'),
+                ],
+            };
+        }
+
+        $effectiveType = $periodType ?: (in_array($rangeKey, ['daily', 'weekly', 'monthly'], true) ? $rangeKey : 'monthly');
+
+        if ($effectiveType === 'daily') {
+            $date = $periodDate ? Carbon::parse($periodDate) : ($from ? Carbon::parse($from) : $now->copy());
+
+            return [
+                'start' => $date->copy()->startOfDay(),
+                'end' => $date->copy()->endOfDay(),
+                'label' => $date->format('M d, Y'),
+                'key' => in_array($rangeKey, ['today', 'daily'], true) ? $rangeKey : 'daily',
+                'period_type' => 'daily',
+                'period_date' => $date->toDateString(),
+            ];
+        }
+
+        if ($effectiveType === 'weekly') {
+            if ($periodDate && preg_match('/^(\d{4})-W(\d{2})$/', $periodDate, $m)) {
+                $date = Carbon::now()->setISODate((int) $m[1], (int) $m[2]);
+            } else {
+                $date = $periodDate ? Carbon::parse($periodDate) : $now->copy();
+            }
+
+            $start = $date->copy()->startOfWeek();
+            $end = $date->copy()->endOfWeek();
+
+            return [
+                'start' => $start,
+                'end' => $end,
+                'label' => 'Week '.$start->format('W, Y').' ('.$start->format('M d').' - '.$end->format('M d').')',
+                'key' => in_array($rangeKey, ['this_week', 'weekly'], true) ? $rangeKey : 'weekly',
+                'period_type' => 'weekly',
+                'period_date' => $start->format('o-\WW'),
+            ];
+        }
+
+        // monthly
+        if ($periodDate && preg_match('/^(\d{4})-(\d{2})$/', $periodDate, $m)) {
+            $date = Carbon::createFromDate((int) $m[1], (int) $m[2], 1);
+        } else {
+            $date = $periodDate ? Carbon::parse($periodDate) : $now->copy();
+        }
+
+        return [
+            'start' => $date->copy()->startOfMonth(),
+            'end' => $date->copy()->endOfMonth(),
+            'label' => $date->format('F Y'),
+            'key' => in_array($rangeKey, ['this_month', 'monthly'], true) ? $rangeKey : 'monthly',
+            'period_type' => 'monthly',
+            'period_date' => $date->format('Y-m'),
+        ];
     }
 
     /**
@@ -109,11 +180,14 @@ class DashboardService
      */
     public function getDashboardData(User $user, string $role, array $params = []): array
     {
-        $dateRangeKey = (string) ($params['date_range'] ?? 'last_7_days');
+        $defaultRange = $role === 'CEO' ? 'this_month' : 'last_7_days';
+        $dateRangeKey = (string) ($params['date_range'] ?? $defaultRange);
         $dateRange = $this->resolveDateRange(
             $dateRangeKey,
             isset($params['from_date']) ? (string) $params['from_date'] : null,
-            isset($params['to_date']) ? (string) $params['to_date'] : null
+            isset($params['to_date']) ? (string) $params['to_date'] : null,
+            isset($params['period_type']) ? (string) $params['period_type'] : null,
+            isset($params['period_date']) ? (string) $params['period_date'] : null
         );
 
         $greeting = $this->getGreeting();
@@ -330,12 +404,22 @@ class DashboardService
         }
         $filterEmployees = $filterEmployees->orderBy('name')->get(['id', 'name', 'department_id', 'company_id']);
 
+        $ceoMetrics = $this->buildCeoExecutiveMetrics($dateRange, $companyId);
+
         return [
             'role' => $role,
             'greeting' => $greeting,
             'user' => $user,
             'kpis' => $kpis,
             'dateRange' => $dateRange,
+            'period' => [
+                'type' => $dateRange['period_type'] ?? 'monthly',
+                'date' => $dateRange['period_date'] ?? null,
+                'label' => $dateRange['label'],
+                'start' => $dateRange['start'],
+                'end' => $dateRange['end'],
+            ],
+            ...$ceoMetrics,
             'completionChart' => $completionChart,
             'statusDistribution' => $statusDistribution,
             'priorityDistribution' => $priorityDistribution,
@@ -350,6 +434,8 @@ class DashboardService
             'overdueTasks' => $overdueTasks,
             'selectedFilters' => [
                 'date_range' => $dateRange['key'],
+                'period_type' => $dateRange['period_type'] ?? 'monthly',
+                'period_date' => $dateRange['period_date'] ?? null,
                 'from_date' => $params['from_date'] ?? null,
                 'to_date' => $params['to_date'] ?? null,
                 'company_id' => $companyId,
@@ -1364,6 +1450,426 @@ class DashboardService
             'labels' => $labels,
             'values' => $values,
             'totalThisWeek' => $totalWeek,
+        ];
+    }
+
+    /**
+     * Build CEO Executive Metrics including Company Overview, Scoped Task Performance,
+     * High-Performance and Low-Performance Department analysis.
+     *
+     * @param  array{start: Carbon, end: Carbon, label: string, key: string, period_type?: string, period_date?: string}  $dateRange
+     * @return array<string, mixed>
+     */
+    public function buildCeoExecutiveMetrics(array $dateRange, ?int $selectedCompanyId = null): array
+    {
+        $periodStart = $dateRange['start'];
+        $periodEnd = $dateRange['end'];
+        $today = today()->toDateString();
+        $overdueCutoff = $periodEnd->isPast() ? $periodEnd->toDateString() : $today;
+
+        // 1. Company Overview Cards (All active companies)
+        $companies = Company::query()
+            ->where('companies.status', 'active')
+            ->orderBy('companies.name')
+            ->get(['id', 'name']);
+
+        $companyStats = DB::table('companies')
+            ->where('companies.status', 'active')
+            ->leftJoin('tasks', function ($join) {
+                $join->on('tasks.company_id', '=', 'companies.id')
+                    ->whereNull('tasks.deleted_at');
+            })
+            ->selectRaw('
+                companies.id,
+                companies.name,
+                COUNT(DISTINCT CASE WHEN tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) BETWEEN ? AND ? THEN tasks.id END) as completed_count,
+                COUNT(DISTINCT CASE WHEN (tasks.status NOT IN ("completed", "cancelled") AND tasks.created_at <= ?) OR (tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) > ? AND tasks.created_at <= ?) THEN tasks.id END) as pending_count,
+                COUNT(DISTINCT CASE WHEN tasks.status = "in_progress" AND tasks.created_at <= ? AND (tasks.completed_at IS NULL OR tasks.completed_at > ?) THEN tasks.id END) as in_progress_count,
+                COUNT(DISTINCT CASE WHEN tasks.status NOT IN ("completed", "cancelled") AND COALESCE(tasks.due_date, tasks.original_deadline) < ? AND tasks.created_at <= ? THEN tasks.id END) as overdue_count
+            ', [
+                $periodStart, $periodEnd,
+                $periodEnd, $periodEnd, $periodEnd,
+                $periodEnd, $periodEnd,
+                $overdueCutoff, $periodEnd,
+            ])
+            ->groupBy('companies.id', 'companies.name')
+            ->orderBy('companies.name')
+            ->get()
+            ->keyBy('id');
+
+        $companyCards = [];
+        $totalOrgTasks = 0;
+        $totalOrgCompleted = 0;
+        $totalOrgPending = 0;
+        $totalOrgInProgress = 0;
+        $totalOrgOverdue = 0;
+
+        foreach ($companies as $comp) {
+            $stat = $companyStats->get($comp->id);
+            $completed = (int) ($stat?->completed_count ?? 0);
+            $pending = (int) ($stat?->pending_count ?? 0);
+            $inProgress = (int) ($stat?->in_progress_count ?? 0);
+            $overdue = (int) ($stat?->overdue_count ?? 0);
+            $total = $completed + $pending;
+            $rate = $total > 0 ? round(($completed / $total) * 100, 1) : 0.0;
+
+            $totalOrgTasks += $total;
+            $totalOrgCompleted += $completed;
+            $totalOrgPending += $pending;
+            $totalOrgInProgress += $inProgress;
+            $totalOrgOverdue += $overdue;
+
+            $companyCards[] = [
+                'id' => (int) $comp->id,
+                'name' => (string) $comp->name,
+                'total_tasks' => $total,
+                'completed' => $completed,
+                'pending' => $pending,
+                'in_progress' => $inProgress,
+                'overdue' => $overdue,
+                'completion_rate' => $rate,
+                'is_selected' => $selectedCompanyId === (int) $comp->id,
+            ];
+        }
+
+        // 2. Company-Wise Task Analytics (Scoped to selected company or overall organization)
+        $selectedCompany = $selectedCompanyId ? $companies->firstWhere('id', $selectedCompanyId) : null;
+        if ($selectedCompany) {
+            $selectedStat = $companyStats->get($selectedCompany->id);
+            $scopedCompleted = (int) ($selectedStat?->completed_count ?? 0);
+            $scopedPending = (int) ($selectedStat?->pending_count ?? 0);
+            $scopedInProgress = (int) ($selectedStat?->in_progress_count ?? 0);
+            $scopedOverdue = (int) ($selectedStat?->overdue_count ?? 0);
+            $scopedTotal = $scopedCompleted + $scopedPending;
+            $scopedRate = $scopedTotal > 0 ? round(($scopedCompleted / $scopedTotal) * 100, 1) : 0.0;
+        } else {
+            $scopedCompleted = $totalOrgCompleted;
+            $scopedPending = $totalOrgPending;
+            $scopedInProgress = $totalOrgInProgress;
+            $scopedOverdue = $totalOrgOverdue;
+            $scopedTotal = $totalOrgTasks;
+            $scopedRate = $scopedTotal > 0 ? round(($scopedCompleted / $scopedTotal) * 100, 1) : 0.0;
+        }
+
+        $companyTaskAnalytics = [
+            'scope_name' => $selectedCompany ? $selectedCompany->name : 'All Companies',
+            'is_filtered' => (bool) $selectedCompanyId,
+            'company_id' => $selectedCompanyId,
+            'total_tasks' => $scopedTotal,
+            'completed' => $scopedCompleted,
+            'pending' => $scopedPending,
+            'in_progress' => $scopedInProgress,
+            'overdue' => $scopedOverdue,
+            'completion_rate' => $scopedRate,
+            'chart_completed_vs_pending' => [
+                'completed' => $scopedCompleted,
+                'pending' => $scopedPending,
+                'in_progress' => $scopedInProgress,
+                'overdue' => $scopedOverdue,
+            ],
+        ];
+
+        // 3. Department Performance (A: High-Performance, B: Low-Performance)
+        $deptQuery = DB::table('departments')
+            ->join('companies', 'companies.id', '=', 'departments.company_id')
+            ->leftJoin('tasks', function ($join) {
+                $join->on('tasks.department_id', '=', 'departments.id')
+                    ->whereNull('tasks.deleted_at');
+            })
+            ->where('departments.status', 'active')
+            ->where('companies.status', 'active');
+
+        if ($selectedCompanyId) {
+            $deptQuery->where('departments.company_id', $selectedCompanyId);
+        }
+
+        $deptRows = $deptQuery
+            ->selectRaw('
+                departments.id,
+                departments.name as department_name,
+                companies.id as company_id,
+                companies.name as company_name,
+                COUNT(DISTINCT CASE WHEN tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) BETWEEN ? AND ? THEN tasks.id END) as completed_count,
+                COUNT(DISTINCT CASE WHEN (tasks.status NOT IN ("completed", "cancelled") AND tasks.created_at <= ?) OR (tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) > ? AND tasks.created_at <= ?) THEN tasks.id END) as pending_count,
+                COUNT(DISTINCT CASE WHEN tasks.status = "in_progress" AND tasks.created_at <= ? AND (tasks.completed_at IS NULL OR tasks.completed_at > ?) THEN tasks.id END) as in_progress_count,
+                COUNT(DISTINCT CASE WHEN tasks.status NOT IN ("completed", "cancelled") AND COALESCE(tasks.due_date, tasks.original_deadline) < ? AND tasks.created_at <= ? THEN tasks.id END) as overdue_count
+            ', [
+                $periodStart, $periodEnd,
+                $periodEnd, $periodEnd, $periodEnd,
+                $periodEnd, $periodEnd,
+                $overdueCutoff, $periodEnd,
+            ])
+            ->groupBy('departments.id', 'departments.name', 'companies.id', 'companies.name')
+            ->get();
+
+        $highPerformingDepartments = [];
+        $lowPerformingDepartments = [];
+        $allActiveDepartments = [];
+
+        foreach ($deptRows as $row) {
+            $completed = (int) $row->completed_count;
+            $pending = (int) $row->pending_count;
+            $inProgress = (int) $row->in_progress_count;
+            $overdue = (int) $row->overdue_count;
+            $total = $completed + $pending;
+            $rate = $total > 0 ? round(($completed / $total) * 100, 1) : 0.0;
+
+            $deptData = [
+                'id' => (int) $row->id,
+                'name' => (string) $row->department_name,
+                'company_id' => (int) $row->company_id,
+                'company_name' => (string) $row->company_name,
+                'total_tasks' => $total,
+                'completed' => $completed,
+                'pending' => $pending,
+                'in_progress' => $inProgress,
+                'overdue' => $overdue,
+                'completion_rate' => $rate,
+            ];
+
+            if ($total > 0) {
+                $allActiveDepartments[] = $deptData;
+            }
+
+            // High Performance: At least 1 task, all tasks completed, zero pending
+            if ($total > 0 && $pending === 0 && $completed === $total) {
+                $deptData['status'] = 'High Performance';
+                $deptData['status_label'] = '100% Completed';
+                $deptData['status_badge'] = 'success';
+                $highPerformingDepartments[] = $deptData;
+            } elseif ($pending > 0) {
+                // Low Performance: Has pending tasks, ranked by pending count descending
+                if ($overdue > 0 || $rate < 50.0) {
+                    $deptData['status'] = 'Critical Attention';
+                    $deptData['status_badge'] = 'danger';
+                } elseif ($pending >= 5 || $rate < 75.0) {
+                    $deptData['status'] = 'Attention Required';
+                    $deptData['status_badge'] = 'warning';
+                } else {
+                    $deptData['status'] = 'In Progress';
+                    $deptData['status_badge'] = 'orange';
+                }
+                $lowPerformingDepartments[] = $deptData;
+            }
+        }
+
+        // High-Performing departments sorted by total tasks descending
+        usort($highPerformingDepartments, fn ($a, $b) => $b['total_tasks'] <=> $a['total_tasks']);
+
+        // Low-Performing departments sorted by pending tasks DESCENDING, then overdue DESCENDING
+        usort($lowPerformingDepartments, function ($a, $b) {
+            if ($b['pending'] !== $a['pending']) {
+                return $b['pending'] <=> $a['pending'];
+            }
+
+            return $b['overdue'] <=> $a['overdue'];
+        });
+
+        // 4. Trend Chart Data (Daily / Weekly / Monthly intervals)
+        $trendsChart = $this->buildPeriodTrendsData($dateRange, $selectedCompanyId);
+
+        // 5. Company-Wise Completion Comparison Chart Data
+        $companyComparisonChart = [
+            'labels' => array_column($companyCards, 'name'),
+            'totals' => array_column($companyCards, 'total_tasks'),
+            'completed' => array_column($companyCards, 'completed'),
+            'pending' => array_column($companyCards, 'pending'),
+            'overdue' => array_column($companyCards, 'overdue'),
+            'rates' => array_column($companyCards, 'completion_rate'),
+        ];
+
+        // 6. Department Performance Comparison Chart Data (top active depts)
+        usort($allActiveDepartments, fn ($a, $b) => $b['total_tasks'] <=> $a['total_tasks']);
+        $chartDepts = array_slice($allActiveDepartments, 0, 10);
+        $departmentComparisonChart = [
+            'labels' => array_map(fn ($d) => $d['company_name'].' - '.$d['name'], $chartDepts),
+            'completed' => array_column($chartDepts, 'completed'),
+            'pending' => array_column($chartDepts, 'pending'),
+            'overdue' => array_column($chartDepts, 'overdue'),
+            'rates' => array_column($chartDepts, 'completion_rate'),
+        ];
+
+        // 7. Company Period Breakdown for Daily, Weekly, and Monthly task tables
+        $now = now();
+        $periods = [
+            'daily' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
+            'weekly' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()],
+            'monthly' => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
+        ];
+
+        $companyPeriodBreakdown = [];
+        foreach ($periods as $pKey => [$pStart, $pEnd]) {
+            $pCutoff = $pEnd->isPast() ? $pEnd->toDateString() : $today;
+            $pStats = DB::table('companies')
+                ->where('companies.status', 'active')
+                ->leftJoin('tasks', function ($join) {
+                    $join->on('tasks.company_id', '=', 'companies.id')
+                        ->whereNull('tasks.deleted_at');
+                })
+                ->selectRaw('
+                    companies.id,
+                    companies.name,
+                    COUNT(DISTINCT CASE WHEN tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) BETWEEN ? AND ? THEN tasks.id END) as completed_count,
+                    COUNT(DISTINCT CASE WHEN (tasks.status NOT IN ("completed", "cancelled") AND tasks.created_at <= ?) OR (tasks.status = "completed" AND COALESCE(tasks.completed_at, tasks.updated_at) > ? AND tasks.created_at <= ?) THEN tasks.id END) as pending_count,
+                    COUNT(DISTINCT CASE WHEN tasks.status = "in_progress" AND tasks.created_at <= ? AND (tasks.completed_at IS NULL OR tasks.completed_at > ?) THEN tasks.id END) as in_progress_count,
+                    COUNT(DISTINCT CASE WHEN tasks.status NOT IN ("completed", "cancelled") AND COALESCE(tasks.due_date, tasks.original_deadline) < ? AND tasks.created_at <= ? THEN tasks.id END) as overdue_count
+                ', [
+                    $pStart, $pEnd,
+                    $pEnd, $pEnd, $pEnd,
+                    $pEnd, $pEnd,
+                    $pCutoff, $pEnd,
+                ])
+                ->groupBy('companies.id', 'companies.name')
+                ->orderBy('companies.name')
+                ->get();
+
+            $companyPeriodBreakdown[$pKey] = $pStats->map(function ($row) {
+                $completed = (int) $row->completed_count;
+                $pending = (int) $row->pending_count;
+                $inProgress = (int) $row->in_progress_count;
+                $overdue = (int) $row->overdue_count;
+                $total = $completed + $pending;
+                $rate = $total > 0 ? round(($completed / $total) * 100, 1) : 0.0;
+
+                return [
+                    'id' => (int) $row->id,
+                    'name' => (string) $row->name,
+                    'total_tasks' => $total,
+                    'completed' => $completed,
+                    'pending' => $pending,
+                    'in_progress' => $inProgress,
+                    'overdue' => $overdue,
+                    'completion_rate' => $rate,
+                ];
+            })->all();
+        }
+
+        // 8. Detailed Task Records for Company-Wise Task List (Pending vs Completed by Period)
+        $companyTasksByPeriod = [];
+        foreach ($periods as $pKey => [$pStart, $pEnd]) {
+            $baseTaskQ = Task::query()
+                ->with(['company:id,name', 'department:id,name', 'assignee:id,name,designation']);
+
+            if ($selectedCompanyId) {
+                $baseTaskQ->where('tasks.company_id', $selectedCompanyId);
+            }
+
+            $pendingTasks = (clone $baseTaskQ)
+                ->whereNotIn('tasks.status', ['completed', 'cancelled'])
+                ->where('tasks.created_at', '<=', $pEnd)
+                ->latest('tasks.updated_at')
+                ->limit(30)
+                ->get();
+
+            $completedTasks = (clone $baseTaskQ)
+                ->where('tasks.status', 'completed')
+                ->whereBetween(DB::raw('COALESCE(tasks.completed_at, tasks.updated_at)'), [$pStart, $pEnd])
+                ->latest(DB::raw('COALESCE(tasks.completed_at, tasks.updated_at)'))
+                ->limit(30)
+                ->get();
+
+            $companyTasksByPeriod[$pKey] = [
+                'pending' => $pendingTasks,
+                'completed' => $completedTasks,
+            ];
+        }
+
+        return [
+            'companyCards' => $companyCards,
+            'companyPeriodBreakdown' => $companyPeriodBreakdown,
+            'companyTasksByPeriod' => $companyTasksByPeriod,
+            'companyTaskAnalytics' => $companyTaskAnalytics,
+            'highPerformingDepartments' => $highPerformingDepartments,
+            'lowPerformingDepartments' => $lowPerformingDepartments,
+            'trendsChart' => $trendsChart,
+            'companyComparisonChart' => $companyComparisonChart,
+            'departmentComparisonChart' => $departmentComparisonChart,
+        ];
+    }
+
+    /**
+     * Build time-series trends data based on the reporting period.
+     *
+     * @param  array{start: Carbon, end: Carbon, period_type?: string}  $dateRange
+     * @return array{labels: array<string>, completed: array<int>, created: array<int>}
+     */
+    private function buildPeriodTrendsData(array $dateRange, ?int $companyId = null): array
+    {
+        $start = $dateRange['start']->copy();
+        $end = $dateRange['end']->copy();
+        $type = $dateRange['period_type'] ?? 'monthly';
+
+        $baseCompleted = Task::query()
+            ->where('tasks.status', 'completed');
+        $baseCreated = Task::query()
+            ->where('tasks.status', '!=', 'cancelled');
+
+        if ($companyId) {
+            $baseCompleted->where('tasks.company_id', $companyId);
+            $baseCreated->where('tasks.company_id', $companyId);
+        }
+
+        $labels = [];
+        $completedCounts = [];
+        $createdCounts = [];
+
+        if ($type === 'daily') {
+            for ($h = 0; $h < 24; $h += 3) {
+                $slotStart = $start->copy()->addHours($h);
+                $slotEnd = $start->copy()->addHours($h + 3)->subSecond();
+                $labels[] = $slotStart->format('g A');
+
+                $completedCounts[] = (clone $baseCompleted)
+                    ->whereBetween(DB::raw('COALESCE(tasks.completed_at, tasks.updated_at)'), [$slotStart, $slotEnd])
+                    ->count('tasks.id');
+
+                $createdCounts[] = (clone $baseCreated)
+                    ->whereBetween('tasks.created_at', [$slotStart, $slotEnd])
+                    ->count('tasks.id');
+            }
+        } elseif ($type === 'weekly') {
+            $curr = $start->copy();
+            while ($curr->lte($end)) {
+                $dayStart = $curr->copy()->startOfDay();
+                $dayEnd = $curr->copy()->endOfDay();
+                $labels[] = $curr->format('D, M d');
+
+                $completedCounts[] = (clone $baseCompleted)
+                    ->whereBetween(DB::raw('COALESCE(tasks.completed_at, tasks.updated_at)'), [$dayStart, $dayEnd])
+                    ->count('tasks.id');
+
+                $createdCounts[] = (clone $baseCreated)
+                    ->whereBetween('tasks.created_at', [$dayStart, $dayEnd])
+                    ->count('tasks.id');
+
+                $curr->addDay();
+            }
+        } else {
+            // Monthly: split into weeks
+            $curr = $start->copy();
+            $weekNum = 1;
+            while ($curr->lte($end)) {
+                $wStart = $curr->copy();
+                $wEnd = $curr->copy()->endOfWeek()->min($end);
+                $labels[] = 'Wk '.$weekNum.' ('.$wStart->format('M d').'-'.$wEnd->format('M d').')';
+
+                $completedCounts[] = (clone $baseCompleted)
+                    ->whereBetween(DB::raw('COALESCE(tasks.completed_at, tasks.updated_at)'), [$wStart->startOfDay(), $wEnd->endOfDay()])
+                    ->count('tasks.id');
+
+                $createdCounts[] = (clone $baseCreated)
+                    ->whereBetween('tasks.created_at', [$wStart->startOfDay(), $wEnd->endOfDay()])
+                    ->count('tasks.id');
+
+                $curr = $wEnd->copy()->addDay()->startOfDay();
+                $weekNum++;
+            }
+        }
+
+        return [
+            'labels' => $labels,
+            'completed' => $completedCounts,
+            'created' => $createdCounts,
         ];
     }
 

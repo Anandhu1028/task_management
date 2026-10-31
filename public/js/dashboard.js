@@ -1241,4 +1241,574 @@
             first.focus();
         }
     });
+    // =========================================================================
+    // CEO Enterprise Dashboard Interactivity & Charts
+    // =========================================================================
+    const ceoFilterForm = document.getElementById('ceoFilterForm');
+    if (ceoFilterForm) {
+        const periodTypeInput = document.getElementById('ceoPeriodTypeInput');
+        const periodUnifiedInput = document.getElementById('ceoPeriodDateUnified');
+        const dailyGroup = document.getElementById('ceoDailyInputGroup');
+        const weeklyGroup = document.getElementById('ceoWeeklyInputGroup');
+        const monthlyGroup = document.getElementById('ceoMonthlyInputGroup');
+        const dailyDateInput = document.getElementById('ceoDailyDate');
+        const weeklyDateInput = document.getElementById('ceoWeeklyDate');
+        const monthlyDateInput = document.getElementById('ceoMonthlyDate');
+        const companySelect = document.getElementById('ceoCompanySelect');
+
+        // Period tab switcher: Daily, Weekly, Monthly
+        document.querySelectorAll('[data-ceo-period]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const period = btn.dataset.ceoPeriod;
+                document.querySelectorAll('[data-ceo-period]').forEach(b => b.classList.remove('is-active'));
+                btn.classList.add('is-active');
+
+                if (periodTypeInput) periodTypeInput.value = period;
+
+                dailyGroup?.classList.add('d-none');
+                weeklyGroup?.classList.add('d-none');
+                monthlyGroup?.classList.add('d-none');
+
+                if (period === 'daily') {
+                    dailyGroup?.classList.remove('d-none');
+                    if (periodUnifiedInput && dailyDateInput) periodUnifiedInput.value = dailyDateInput.value;
+                } else if (period === 'weekly') {
+                    weeklyGroup?.classList.remove('d-none');
+                    if (periodUnifiedInput && weeklyDateInput) periodUnifiedInput.value = weeklyDateInput.value;
+                } else {
+                    monthlyGroup?.classList.remove('d-none');
+                    if (periodUnifiedInput && monthlyDateInput) periodUnifiedInput.value = monthlyDateInput.value;
+                }
+
+                ceoFilterForm.submit();
+            });
+        });
+
+        // Date inputs change listeners
+        dailyDateInput?.addEventListener('change', () => {
+            if (periodUnifiedInput) periodUnifiedInput.value = dailyDateInput.value;
+            ceoFilterForm.submit();
+        });
+
+        weeklyDateInput?.addEventListener('change', () => {
+            if (periodUnifiedInput) periodUnifiedInput.value = weeklyDateInput.value;
+            ceoFilterForm.submit();
+        });
+
+        monthlyDateInput?.addEventListener('change', () => {
+            if (periodUnifiedInput) periodUnifiedInput.value = monthlyDateInput.value;
+            ceoFilterForm.submit();
+        });
+
+        // Company dropdown change listener
+        companySelect?.addEventListener('change', () => {
+            ceoFilterForm.submit();
+        });
+
+        // Company-Wise Tasks Section Filter Tabs: Daily, Weekly, Monthly
+        document.querySelectorAll('[data-cwt-tab]').forEach(tabBtn => {
+            tabBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const period = tabBtn.dataset.cwtTab;
+                document.querySelectorAll('[data-cwt-tab]').forEach(b => b.classList.remove('is-active'));
+                tabBtn.classList.add('is-active');
+
+                // Toggle visibility of rows
+                ['daily', 'weekly', 'monthly'].forEach(p => {
+                    const rows = document.querySelectorAll(`.cwt-row-${p}`);
+                    rows.forEach(r => {
+                        if (p === period) {
+                            r.classList.remove('d-none');
+                        } else {
+                            r.classList.add('d-none');
+                        }
+                    });
+                });
+            });
+        });
+
+        // Company card click behavior
+        document.querySelectorAll('[data-company-card]').forEach(card => {
+            card.addEventListener('click', () => {
+                const companyId = card.dataset.companyId;
+                if (!companySelect) return;
+
+                if (companySelect.value === companyId) {
+                    companySelect.value = ''; // toggle off
+                } else {
+                    companySelect.value = companyId;
+                }
+
+                ceoFilterForm.submit();
+            });
+
+            card.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    card.click();
+                }
+            });
+        });
+
+        // Initialize CEO Charts if Chart.js is loaded
+        if (window.Chart) {
+            // 1. Completed vs Pending Donut Chart
+            const completedVsPendingEl = document.getElementById('ceoCompletedVsPendingChart');
+            if (completedVsPendingEl) {
+                const comp = parseInt(completedVsPendingEl.dataset.completed || '0', 10);
+                const inProg = parseInt(completedVsPendingEl.dataset.inProgress || '0', 10);
+                const overdue = parseInt(completedVsPendingEl.dataset.overdue || '0', 10);
+                const totalPending = parseInt(completedVsPendingEl.dataset.pending || '0', 10);
+                const otherPending = Math.max(0, totalPending - inProg - overdue);
+
+                new Chart(completedVsPendingEl, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Completed', 'In Progress', 'Overdue', 'Other Pending'],
+                        datasets: [{
+                            data: [comp, inProg, overdue, otherPending],
+                            backgroundColor: ['#10b981', '#f59e0b', '#ef4444', '#64748b'],
+                            borderColor: '#ffffff',
+                            borderWidth: 2,
+                            hoverOffset: 4,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#0f172a',
+                                callbacks: {
+                                    label: (ctx) => ` ${ctx.label}: ${ctx.parsed} tasks`,
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+
+            // 2. Task Trends Chart (Daily/Weekly/Monthly)
+            const taskTrendsEl = document.getElementById('ceoTaskTrendsChart');
+            if (taskTrendsEl) {
+                try {
+                    const labels = JSON.parse(taskTrendsEl.dataset.labels || '[]');
+                    const completed = JSON.parse(taskTrendsEl.dataset.completed || '[]');
+                    const created = JSON.parse(taskTrendsEl.dataset.created || '[]');
+
+                    new Chart(taskTrendsEl, {
+                        type: 'line',
+                        data: {
+                            labels,
+                            datasets: [
+                                {
+                                    label: 'Completed Tasks',
+                                    data: completed,
+                                    borderColor: '#10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    fill: true,
+                                    tension: 0.35,
+                                    pointRadius: 3,
+                                    pointHoverRadius: 6,
+                                    borderWidth: 2.5,
+                                },
+                                {
+                                    label: 'Created Tasks',
+                                    data: created,
+                                    borderColor: '#2563eb',
+                                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                                    fill: true,
+                                    tension: 0.35,
+                                    pointRadius: 3,
+                                    pointHoverRadius: 6,
+                                    borderWidth: 2,
+                                    borderDash: [4, 4],
+                                },
+                            ],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: { backgroundColor: '#0f172a' },
+                            },
+                            scales: {
+                                x: {
+                                    grid: { display: false },
+                                    ticks: { font: { size: 10, family: 'Inter' } },
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: { precision: 0, font: { size: 10, family: 'Inter' } },
+                                    grid: { color: 'rgba(148, 163, 184, 0.15)' },
+                                },
+                            },
+                        },
+                    });
+                } catch (e) {
+                    console.error('Error initializing CEO trends chart', e);
+                }
+            }
+
+            // 3. Company-Wise Completion Comparison Chart
+            const ceoCompEl = document.getElementById('ceoCompanyComparisonChart');
+            if (ceoCompEl) {
+                try {
+                    const labels = JSON.parse(ceoCompEl.dataset.labels || '[]');
+                    const totals = JSON.parse(ceoCompEl.dataset.totals || '[]');
+                    const completed = JSON.parse(ceoCompEl.dataset.completed || '[]');
+                    const pending = JSON.parse(ceoCompEl.dataset.pending || '[]');
+                    const rates = JSON.parse(ceoCompEl.dataset.rates || '[]');
+
+                    new Chart(ceoCompEl, {
+                        type: 'bar',
+                        data: {
+                            labels,
+                            datasets: [
+                                {
+                                    label: 'Completed Tasks',
+                                    data: completed,
+                                    backgroundColor: '#10b981',
+                                    borderRadius: 4,
+                                    maxBarThickness: 28,
+                                },
+                                {
+                                    label: 'Pending Tasks',
+                                    data: pending,
+                                    backgroundColor: '#ef4444',
+                                    borderRadius: 4,
+                                    maxBarThickness: 28,
+                                },
+                            ],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'top',
+                                    labels: { boxWidth: 10, font: { size: 10.5, family: 'Inter' } },
+                                },
+                                tooltip: {
+                                    backgroundColor: '#0f172a',
+                                    callbacks: {
+                                        afterBody: (items) => {
+                                            const idx = items[0].dataIndex;
+                                            return `Completion Rate: ${rates[idx]}% (Total: ${totals[idx]})`;
+                                        },
+                                    },
+                                },
+                            },
+                            scales: {
+                                x: {
+                                    grid: { display: false },
+                                    ticks: { font: { size: 10.5, family: 'Inter', weight: 600 } },
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: { precision: 0, font: { size: 10 } },
+                                    grid: { color: 'rgba(148, 163, 184, 0.15)' },
+                                },
+                            },
+                        },
+                    });
+                } catch (e) {
+                    console.error('Error initializing company comparison chart', e);
+                }
+            }
+        }
+    }
+
+    // ─── Department Completed vs Pending Chart (blue theme) ──────────────────
+    // Runs on its own so it works whether or not the CEO filter form exists.
+    (function initDeptComparisonChart() {
+        const canvas = document.getElementById('ceoDeptComparisonChart');
+        if (!canvas || !window.Chart) return;
+
+        try {
+            const labels = JSON.parse(canvas.dataset.labels || '[]');
+            const completed = JSON.parse(canvas.dataset.completed || '[]');
+            const pending = JSON.parse(canvas.dataset.pending || '[]');
+            const rates = JSON.parse(canvas.dataset.rates || '[]');
+            if (!labels.length) return;
+
+            // Give each department room: 34px per row, never shorter than 250px
+            const wrap = document.getElementById('ceoDeptChartWrap');
+            if (wrap) wrap.style.height = `${Math.max(250, labels.length * 34 + 60)}px`;
+
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Completed', data: completed, backgroundColor: '#2563eb', hoverBackgroundColor: '#1d4ed8', borderRadius: 6, borderSkipped: false, maxBarThickness: 20 },
+                        { label: 'Pending', data: pending, backgroundColor: '#bfdbfe', hoverBackgroundColor: '#93c5fd', borderRadius: 6, borderSkipped: false, maxBarThickness: 20 },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    interaction: { mode: 'index', intersect: false },
+                    datasets: { bar: { categoryPercentage: 0.7, barPercentage: 0.85 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e3a8a',
+                            titleColor: '#fff',
+                            bodyColor: '#dbeafe',
+                            padding: 10,
+                            cornerRadius: 10,
+                            boxPadding: 4,
+                            usePointStyle: true,
+                            callbacks: {
+                                label: (c) => ` ${c.dataset.label}: ${c.parsed.x} task${c.parsed.x === 1 ? '' : 's'}`,
+                                afterBody: (items) => (rates[items[0].dataIndex] !== undefined ? `Rate: ${rates[items[0].dataIndex]}%` : ''),
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            beginAtZero: true,
+                            border: { display: false },
+                            ticks: { precision: 0, color: '#94a3b8', font: { size: 10.5, family: 'Inter' } },
+                            grid: { color: '#eef2f7', drawTicks: false },
+                        },
+                        y: {
+                            stacked: true,
+                            border: { display: false },
+                            grid: { display: false },
+                            ticks: { color: '#475569', font: { size: 11, family: 'Inter', weight: 500 } },
+                        },
+                    },
+                },
+            });
+        } catch (e) {
+            console.error('Error initializing department comparison chart', e);
+        }
+    })();
+
+    // ─── Company-Wise Task Graph (cwt2*) — smooth area line, blue theme ──────
+    (function initCwt2Chart() {
+        const canvas = document.getElementById('cwt2Chart');
+        const dataEl = document.getElementById('cwt2Data');
+        if (!canvas || !dataEl || !window.Chart) return;
+
+        let allData = {};
+        try { allData = JSON.parse(dataEl.textContent); } catch (_) { return; }
+
+        const metrics = {
+            completed:   { label: 'completed',   sub: 'Completed tasks by company',   total: 'total_completed',   line: '#2563eb', top: 'rgba(37, 99, 235, 0.28)',  bottom: 'rgba(37, 99, 235, 0)' },
+            in_progress: { label: 'in progress', sub: 'In-progress tasks by company', total: 'total_in_progress', line: '#0ea5e9', top: 'rgba(14, 165, 233, 0.26)', bottom: 'rgba(14, 165, 233, 0)' },
+            pending:     { label: 'pending',     sub: 'Pending tasks by company',     total: 'total_pending',     line: '#60a5fa', top: 'rgba(96, 165, 250, 0.30)', bottom: 'rgba(96, 165, 250, 0)' },
+        };
+
+        let activePeriod = canvas.dataset.active || 'monthly';
+        let activeMetric = 'completed';
+        let chartInstance = null;
+
+        const noDataEl = document.getElementById('cwt2NoData');
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        function buildChart() {
+            const pd = allData[activePeriod] || { labels: [] };
+            const m = metrics[activeMetric];
+            const values = pd[activeMetric] || [];
+            const hasData = Array.isArray(pd.labels) && pd.labels.length > 0;
+
+            setText('cwt2BadgeVal', pd[m.total] ?? 0);
+            setText('cwt2BadgeLabel', m.label);
+            setText('cwt2Sub', m.sub);
+            noDataEl?.classList.toggle('d-none', hasData);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            if (!hasData) return;
+
+            const yMax = Math.max(...values, 4);
+
+            chartInstance = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: pd.labels,
+                    datasets: [{
+                        label: m.label.charAt(0).toUpperCase() + m.label.slice(1),
+                        data: values,
+                        borderColor: m.line,
+                        borderWidth: 2.5,
+                        tension: 0.42,
+                        fill: true,
+                        backgroundColor: (ctx) => {
+                            const { chart } = ctx;
+                            const area = chart.chartArea;
+                            if (!area) return m.top;
+                            const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+                            g.addColorStop(0, m.top);
+                            g.addColorStop(1, m.bottom);
+                            return g;
+                        },
+                        pointRadius: values.map((v) => (v > 0 ? 5 : 0)),
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: m.line,
+                        pointBorderWidth: 2.5,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 8, left: 6, right: 14 } },
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e3a8a',
+                            titleColor: '#fff',
+                            bodyColor: '#dbeafe',
+                            padding: 10,
+                            cornerRadius: 10,
+                            displayColors: false,
+                            titleFont: { size: 12, family: 'Inter', weight: '600' },
+                            bodyFont: { size: 11.5, family: 'Inter' },
+                            callbacks: {
+                                label: (c) => `${c.parsed.y} task${c.parsed.y === 1 ? '' : 's'} ${m.label}`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            border: { display: false },
+                            ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter', weight: 500 }, maxRotation: 0, autoSkip: true },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            suggestedMax: Math.ceil(yMax * 1.25),
+                            border: { display: false },
+                            ticks: { display: false, precision: 0, stepSize: Math.max(1, Math.ceil(yMax / 3)) },
+                            grid: { color: '#eef2f7', drawTicks: false },
+                        },
+                    },
+                },
+            });
+        }
+
+        buildChart();
+
+        document.querySelectorAll('[data-cwt2-tab]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                activePeriod = btn.dataset.cwt2Tab;
+                document.querySelectorAll('[data-cwt2-tab]').forEach((b) => {
+                    const on = b.dataset.cwt2Tab === activePeriod;
+                    b.classList.toggle('is-active', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                buildChart();
+            });
+        });
+
+        document.querySelectorAll('[data-cwt2-metric]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                activeMetric = btn.dataset.cwt2Metric;
+                document.querySelectorAll('[data-cwt2-metric]').forEach((b) => {
+                    const on = b.dataset.cwt2Metric === activeMetric;
+                    b.classList.toggle('is-active', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                buildChart();
+            });
+        });
+    })();
+
+    // ─── Company-Wise Task Table: Period × Status Tab Switching ─────────────
+    (function initCwtTabs() {
+        const section = document.getElementById('cwtSection');
+        if (!section) return;
+
+        const countsEl = document.getElementById('cwtCounts');
+        if (!countsEl) return;
+
+        let counts = {};
+        try { counts = JSON.parse(countsEl.textContent); } catch (_) { counts = {}; }
+
+        let activePeriod = 'monthly';
+        let activeStatus = 'pending';
+
+        /**
+         * Show only rows whose data-cwt-period & data-cwt-status match the active selection.
+         * All other rows are hidden with d-none.
+         */
+        function applyFilters() {
+            const allRows = section.querySelectorAll('tr.cwt-task-row');
+            allRows.forEach(row => {
+                const match =
+                    row.dataset.cwtPeriod === activePeriod &&
+                    row.dataset.cwtStatus === activeStatus;
+                row.classList.toggle('d-none', !match);
+            });
+
+            // Update badge counts in status tabs
+            document.querySelectorAll('[data-cwt-status-tab]').forEach(btn => {
+                const sKey = btn.dataset.cwtStatusTab;
+                const countEl = document.getElementById('cwtTabCount_' + sKey);
+                if (countEl && counts[activePeriod] !== undefined) {
+                    countEl.textContent = counts[activePeriod][sKey] ?? 0;
+                }
+            });
+
+            // Update the count-column header label to match current status
+            const countHeader = document.getElementById('cwtCountHeader');
+            if (countHeader) {
+                countHeader.textContent = activeStatus === 'pending' ? 'Pending Count' : 'Completed Count';
+            }
+        }
+
+        /** Mark one tab as active, aria-pressed=true, others false. */
+        function setActiveTab(tabGroup, activeAttr, activeValue) {
+            tabGroup.querySelectorAll('button').forEach(btn => {
+                const isCurrent = btn.dataset[activeAttr] === activeValue;
+                btn.classList.toggle('is-active', isCurrent);
+                btn.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
+            });
+        }
+
+        // Period tab clicks
+        const periodTabs = document.getElementById('cwtPeriodTabs');
+        if (periodTabs) {
+            periodTabs.addEventListener('click', e => {
+                const btn = e.target.closest('[data-cwt-period-btn]');
+                if (!btn) return;
+                activePeriod = btn.dataset.cwtPeriodBtn;
+                setActiveTab(periodTabs, 'cwtPeriodBtn', activePeriod);
+                applyFilters();
+            });
+        }
+
+        // Status tab clicks
+        const statusTabs = document.getElementById('cwtStatusTabs');
+        if (statusTabs) {
+            statusTabs.addEventListener('click', e => {
+                const btn = e.target.closest('[data-cwt-status-tab]');
+                if (!btn) return;
+                activeStatus = btn.dataset.cwtStatusTab;
+                setActiveTab(statusTabs, 'cwtStatusTab', activeStatus);
+                applyFilters();
+            });
+        }
+
+        // Initial render (monthly + pending are visible from server; sync counts display)
+        applyFilters();
+    })();
 })();

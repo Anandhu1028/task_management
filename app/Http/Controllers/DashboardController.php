@@ -75,10 +75,13 @@ class DashboardController extends Controller
      */
     private function validateAndAuthorizeFilters(Request $request, User $user, string $role): array
     {
-        $allowedDateRanges = ['today', 'this_week', 'last_7_days', 'this_month', 'last_30_days', 'custom'];
+        $allowedDateRanges = ['today', 'this_week', 'last_7_days', 'this_month', 'last_30_days', 'custom', 'daily', 'weekly', 'monthly'];
+        $allowedPeriods = ['daily', 'weekly', 'monthly'];
 
         $validated = $request->validate([
             'date_range' => ['nullable', 'string', 'in:'.implode(',', $allowedDateRanges)],
+            'period_type' => ['nullable', 'string', 'in:'.implode(',', $allowedPeriods)],
+            'period_date' => ['nullable', 'string', 'max:50'],
             'from_date' => ['nullable', 'date'],
             'to_date' => ['nullable', 'date'],
             'company_id' => ['nullable', 'integer'],
@@ -87,11 +90,33 @@ class DashboardController extends Controller
             'employee_id' => ['nullable', 'integer'],
         ]);
 
+        $defaultRange = $role === 'CEO' ? 'this_month' : 'last_7_days';
+        $defaultPeriod = $role === 'CEO' ? 'monthly' : null;
+
         $filters = [
-            'date_range' => $validated['date_range'] ?? 'last_7_days',
+            'date_range' => $validated['date_range'] ?? $defaultRange,
+            'period_type' => $validated['period_type'] ?? $defaultPeriod,
+            'period_date' => $validated['period_date'] ?? null,
             'from_date' => $validated['from_date'] ?? null,
             'to_date' => $validated['to_date'] ?? null,
         ];
+
+        // Synchronize period_type and date_range if one is provided
+        if (! empty($filters['period_type']) && empty($validated['date_range'])) {
+            $filters['date_range'] = match ($filters['period_type']) {
+                'daily' => 'today',
+                'weekly' => 'this_week',
+                'monthly' => 'this_month',
+                default => $filters['date_range'],
+            };
+        } elseif (! empty($filters['date_range']) && empty($filters['period_type'])) {
+            $filters['period_type'] = match ($filters['date_range']) {
+                'today', 'daily' => 'daily',
+                'this_week', 'weekly' => 'weekly',
+                'this_month', 'monthly' => 'monthly',
+                default => 'monthly',
+            };
+        }
 
         if (in_array($role, ['Admin', 'CEO'], true)) {
             $filters['company_id'] = ! empty($validated['company_id']) ? (int) $validated['company_id'] : null;

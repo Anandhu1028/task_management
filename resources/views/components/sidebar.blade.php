@@ -34,7 +34,7 @@
         $usersNavigationIsActive = request()->routeIs('users.*');
         $companyNavigationIsActive = request()->routeIs('companies.*');
         $departmentNavigationIsActive = request()->routeIs('departments.*');
-        $settingsNavigationIsActive = request()->routeIs('roles.*');
+        $settingsNavigationIsActive = request()->routeIs('roles.*', 'daily-accountability.settings.*');
     @endphp
 
     <nav class="tf-nav">
@@ -120,6 +120,7 @@
             <a class="tf-nav__item {{ request()->routeIs('reports.*') ? 'is-active' : '' }}" href="{{ route('reports.index') }}">
                 <i class="bi bi-bar-chart-line"></i><span>Reports</span>
             </a>
+            
         @endif
 
         @if ($canViewRoles)
@@ -140,6 +141,12 @@
                         <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
                         <span>Role Management</span>
                     </a>
+                    @if (auth()->user()->hasAssignedRole('Admin'))
+                        <a class="tf-nav__subitem {{ request()->routeIs('daily-accountability.settings.*') ? 'is-active' : '' }}" href="{{ route('daily-accountability.settings.index') }}">
+                            <span class="tf-nav__subitem-dot" aria-hidden="true"></span>
+                            <span>Missing Update Warnings</span>
+                        </a>
+                    @endif
                 </div>
             </div>
         @endif

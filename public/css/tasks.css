@@ -7291,3 +7291,95 @@
 .daily-task-create-dialog[hidden] {
     display: none;
 }
+
+.tf-daily-update-action-form {
+    margin: 0;
+}
+
+.tf-daily-update-composer {
+    flex-basis: 100%;
+}
+
+.tf-daily-update-composer > summary {
+    display: inline-flex;
+    list-style: none;
+    cursor: pointer;
+}
+
+.tf-daily-update-composer > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tf-daily-update-composer__form {
+    display: grid;
+    gap: 8px;
+    max-width: 420px;
+    padding: 12px;
+    border: 1px solid #dbe5f5;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.tf-daily-update-action {
+    gap: 5px;
+    border-radius: 8px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.tf-daily-update-action > i {
+    font-size: 12px;
+}
+
+.tf-daily-update-action--primary {
+    border-color: var(--tf-primary-border);
+    background: var(--tf-primary-soft);
+    color: var(--tf-primary-hover);
+}
+
+.tf-daily-update-action--primary:hover {
+    border-color: var(--tf-primary);
+    background: var(--tf-primary);
+    color: #fff;
+}
+
+.tf-daily-update-action--warning {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.tf-daily-update-action--warning:hover {
+    border-color: #f97316;
+    background: #f97316;
+    color: #fff;
+}
+
+.tf-daily-update-action--success {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.tf-daily-update-action--success:hover {
+    border-color: #10b981;
+    background: #10b981;
+    color: #fff;
+}
+
+.tf-daily-update-action--danger {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.tf-daily-update-action--danger:hover {
+    border-color: #ef4444;
+    background: #ef4444;
+    color: #fff;
+}
+
+.tf-daily-update-action:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, .25);
+    outline-offset: 2px;
+}

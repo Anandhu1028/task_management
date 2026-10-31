@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\DailyAccountabilityController;
+use App\Http\Controllers\DailyAccountabilitySettingsController;
 use App\Http\Controllers\DailyTaskController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
@@ -26,6 +28,16 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');
+    Route::get('/daily-accountability', [DailyAccountabilityController::class, 'index'])
+        ->name('daily-accountability.index');
+
+    Route::prefix('settings/daily-accountability')->name('daily-accountability.settings.')->group(function (): void {
+        Route::get('/', [DailyAccountabilitySettingsController::class, 'index'])->name('index');
+        Route::put('/', [DailyAccountabilitySettingsController::class, 'update'])->name('update');
+        Route::post('/exemptions', [DailyAccountabilitySettingsController::class, 'storeExemption'])->name('exemptions.store');
+        Route::patch('/exemptions/{exemption}/deactivate', [DailyAccountabilitySettingsController::class, 'deactivateExemption'])
+            ->name('exemptions.deactivate');
+    });
 
     Route::prefix('settings/roles')->name('roles.')->group(function (): void {
         Route::get('/', [RoleController::class, 'index'])->middleware('can:roles.view')->name('index');

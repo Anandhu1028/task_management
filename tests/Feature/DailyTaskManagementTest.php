@@ -9,8 +9,10 @@ use App\Models\Milestone;
 use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\User;
+use App\Services\DailyTaskWorkflowService;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -109,9 +111,19 @@ class DailyTaskManagementTest extends TestCase
             ->assertRedirect($returnUrl);
         $this->post(route('daily-tasks.action', [$task, $dailyTask, 'hold']))
             ->assertRedirect($returnUrl);
-        $this->get(route('tasks.show', $task))
+        $heldTaskResponse = $this->get(route('tasks.show', $task))
             ->assertSee('Unhold')
-            ->assertSee('Status: On Hold', false);
+            ->assertDontSee('Status: On Hold', false);
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $heldTaskResponse->getContent(), $heldTimelineMatch));
+        $heldTimelineModel = json_decode(
+            html_entity_decode($heldTimelineMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $this->assertSame(
+            'On Hold',
+            collect($heldTimelineModel['dailyUpdates'])->firstWhere('dailyTaskId', $dailyTask->id)['currentStatus'],
+        );
         $this->post(route('daily-tasks.action', [$task, $dailyTask, 'resume']))
             ->assertRedirect($returnUrl);
 
@@ -121,11 +133,51 @@ class DailyTaskManagementTest extends TestCase
         ]);
 
         $this->get(route('tasks.show', $task))
+            ->assertSee('id="daily-task-update-form-'.$dailyTask->id.'"', false);
+        $this->from(route('tasks.show', $task))
+            ->post(route('daily-tasks.action', [$task, $dailyTask, 'update']), [
+                'blockers' => 'Still waiting on credentials.',
+            ])
+            ->assertSessionHasErrors('remarks');
+        $this->assertDatabaseMissing('task_status_histories', [
+            'daily_task_id' => $dailyTask->id,
+            'event_type' => 'daily_task_update_submitted',
+        ]);
+
+        $this->post(route('daily-tasks.action', [$task, $dailyTask, 'update']), [
+            'remarks' => 'API contract verified.',
+            'blockers' => 'Credentials are now available.',
+        ])->assertRedirect($returnUrl);
+
+        $this->assertDatabaseHas('task_status_histories', [
+            'daily_task_id' => $dailyTask->id,
+            'event_type' => 'daily_task_update_submitted',
+            'remarks' => 'API contract verified.',
+        ]);
+        $this->assertDatabaseHas('daily_tasks', [
+            'id' => $dailyTask->id,
+            'status' => 'in_progress',
+            'blockers' => 'Credentials are now available.',
+        ]);
+
+        $updatedTaskResponse = $this->get(route('tasks.show', $task))
             ->assertSee('Reconcile support queue')
             ->assertSee('On Hold')
-            ->assertSee('Daily Task: Reconcile support queue', false)
-            ->assertSee('Status: On Hold', false)
-            ->assertSee('Daily Task Update');
+            ->assertSee('Daily Task: ', false)
+            ->assertSee('Current status', false)
+            ->assertDontSee('Status: On Hold', false)
+            ->assertSee('daily_task_update_submitted')
+            ->assertSee('Update: API contract verified.');
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $updatedTaskResponse->getContent(), $updatedTimelineMatch));
+        $updatedTimelineModel = json_decode(
+            html_entity_decode($updatedTimelineMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $this->assertSame(
+            'In Progress',
+            collect($updatedTimelineModel['dailyUpdates'])->firstWhere('dailyTaskId', $dailyTask->id)['currentStatus'],
+        );
     }
 
     public function test_employee_assigned_through_the_legacy_task_assignee_field_sees_add_daily_task_button(): void
@@ -413,10 +465,181 @@ class DailyTaskManagementTest extends TestCase
         $mainTimeline = substr($html, $mainTimelineStart, $mainTimelineEnd - $mainTimelineStart);
         $this->assertStringNotContainsString('Milestone-only activity marker.', $mainTimeline);
         $this->assertStringContainsString('Daily-task-only activity marker.', $mainTimeline);
-        $this->assertStringContainsString('Daily Task: Review reconciliation', $mainTimeline);
-        $this->assertStringContainsString('Status: Pending', $mainTimeline);
+        $this->assertStringContainsString('Review reconciliation', $mainTimeline);
+        $this->assertStringContainsString('Daily Task: ', $mainTimeline);
+        $this->assertStringNotContainsString('Status: Pending', $mainTimeline);
+        $this->assertStringContainsString('.tl-event-tooltip__daily-info-row', $mainTimeline);
         $this->assertStringNotContainsString('Subtask-only activity marker.', $mainTimeline);
         $this->assertStringNotContainsString('data-tl-row="subtasks"', $mainTimeline);
+    }
+
+    public function test_timeline_shows_daily_task_history_chronologically_with_employee_and_department(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createAssignedTask($employee);
+        $workDate = today()->toDateString();
+        $dailyTask = $task->dailyTasks()->create([
+            'assigned_to' => $employee->id,
+            'created_by' => $employee->id,
+            'title' => 'Build the user profile endpoint',
+            'description' => 'Implement and verify the endpoint.',
+            'work_date' => $workDate,
+            'planned_start_time' => '09:00',
+            'planned_end_time' => '17:00',
+            'original_work_date' => $workDate,
+            'original_planned_start_time' => '09:00',
+            'original_planned_end_time' => '17:00',
+            'status' => 'completed',
+        ]);
+        $secondEmployee = $this->createEmployee();
+        $secondDepartment = Department::factory()->create(['company_id' => $this->company->id]);
+        $secondEmployee->update(['department_id' => $secondDepartment->id]);
+        $eventTimes = [
+            'daily_task_started' => ['09:30', 'pending', 'in_progress', null],
+            'daily_task_update_submitted' => ['11:00', 'in_progress', 'in_progress', 'Profile endpoint is implemented.'],
+            'daily_task_progress_updated' => ['12:00', '20', '55', 'Progress recorded.'],
+            'daily_task_on_hold' => ['14:00', 'in_progress', 'on_hold', 'Waiting for API credentials.'],
+            'daily_task_resumed' => ['15:00', 'on_hold', 'in_progress', null],
+            'daily_task_completed' => ['16:30', 'in_progress', 'completed', 'Endpoint verified.'],
+        ];
+
+        foreach ($eventTimes as $eventType => [$time, $oldStatus, $newStatus, $remarks]) {
+            $history = $dailyTask->activity()->create([
+                'task_id' => $task->id,
+                'changed_by' => $employee->id,
+                'event_type' => $eventType,
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+                'remarks' => $remarks,
+            ]);
+            $history->forceFill([
+                'created_at' => Carbon::parse($workDate.' '.$time),
+                'updated_at' => Carbon::parse($workDate.' '.$time),
+            ])->save();
+        }
+
+        $secondDailyTask = $task->dailyTasks()->create([
+            'assigned_to' => $secondEmployee->id,
+            'created_by' => $secondEmployee->id,
+            'title' => 'Document the API response',
+            'work_date' => $workDate,
+            'planned_start_time' => '13:00',
+            'planned_end_time' => '14:00',
+            'original_work_date' => $workDate,
+            'original_planned_start_time' => '13:00',
+            'original_planned_end_time' => '14:00',
+            'status' => 'pending',
+        ]);
+        $secondTaskHistory = $secondDailyTask->activity()->create([
+            'task_id' => $task->id,
+            'changed_by' => $secondEmployee->id,
+            'event_type' => 'daily_task_created',
+            'new_status' => 'pending',
+        ]);
+        $secondTaskHistory->forceFill([
+            'created_at' => Carbon::parse($workDate.' 08:45'),
+            'updated_at' => Carbon::parse($workDate.' 08:45'),
+        ])->save();
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.show', $task))->assertOk();
+        $response->assertSee($secondDepartment->name);
+        $html = $response->getContent();
+        $timelineStart = strpos($html, 'id="panel-timeline"');
+        $timelineEnd = strpos($html, 'id="panel-milestones"');
+        $this->assertNotFalse($timelineStart);
+        $this->assertNotFalse($timelineEnd);
+        $timeline = substr($html, $timelineStart, $timelineEnd - $timelineStart);
+
+        $this->assertStringContainsString('const hasDailyTaskActivity = events.some(event => event.isDailyTask === true);', $html);
+        $this->assertStringContainsString('&& !hasDailyTaskActivity', $html);
+        $this->assertStringContainsString('top: 50%;', $html);
+        $this->assertStringContainsString('const rowHeight = eventCount > 0 ? (waiting ? 82 : 62) : 56;', $html);
+
+        foreach ([
+            'daily_task_started',
+            'daily_task_update_submitted',
+            'daily_task_progress_updated',
+            'daily_task_on_hold',
+            'daily_task_resumed',
+            'daily_task_completed',
+            'Update: Profile endpoint is implemented.',
+        ] as $expectedText) {
+            $this->assertStringContainsString($expectedText, $timeline);
+        }
+
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $timeline, $timelineModelMatch));
+        $timelineModel = json_decode(
+            html_entity_decode($timelineModelMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $dailyTimelineActivities = collect($timelineModel['dailyUpdates']);
+        $mainTimelineActivities = collect($timelineModel['activities']);
+        $this->assertEqualsCanonicalizing(
+            ['Build the user profile endpoint', 'Document the API response'],
+            $dailyTimelineActivities->pluck('dailyTaskTitle')->unique()->values()->all(),
+        );
+        $dailyTaskActivity = $dailyTimelineActivities->firstWhere('dailyTaskId', $dailyTask->id);
+        $this->assertSame('Completed', $dailyTaskActivity['currentStatus']);
+        $this->assertSame((int) $dailyTask->progress_percentage, $dailyTaskActivity['progress']);
+        $this->assertSame($workDate, $dailyTaskActivity['workDate']);
+        $this->assertStringNotContainsString('Status: Completed', $dailyTaskActivity['detail']);
+        $this->assertFalse($mainTimelineActivities->contains(
+            fn (array $activity): bool => str_starts_with((string) $activity['type'], 'daily_task_')
+                || str_starts_with((string) $activity['type'], 'daily_accountability_'),
+        ));
+        $this->assertTrue($dailyTimelineActivities->contains(
+            fn (array $activity): bool => str_contains((string) $activity['detail'], 'Progress: 20% → 55%'),
+        ));
+        $chronologicalDailyEventTypes = $dailyTimelineActivities
+            ->whereIn('type', array_keys($eventTimes))
+            ->sortBy('timestamp')
+            ->pluck('type')
+            ->values()
+            ->all();
+        $this->assertSame(array_keys($eventTimes), $chronologicalDailyEventTypes);
+        $this->assertTrue($dailyTimelineActivities->contains(
+            fn (array $activity): bool => $activity['employee'] === $employee->name
+                && $activity['department'] === $this->department->name,
+        ));
+        $this->assertTrue($dailyTimelineActivities->contains(
+            fn (array $activity): bool => $activity['employee'] === $secondEmployee->name
+                && $activity['department'] === $secondDepartment->name,
+        ));
+    }
+
+    public function test_becoming_pending_is_recorded_as_a_daily_task_status_transition(): void
+    {
+        $employee = $this->createEmployee();
+        $task = $this->createAssignedTask($employee);
+        $dailyTask = $task->dailyTasks()->create([
+            'assigned_to' => $employee->id,
+            'created_by' => $employee->id,
+            'title' => 'Start scheduled work',
+            'work_date' => today()->toDateString(),
+            'planned_start_time' => '09:00',
+            'planned_end_time' => '10:00',
+            'original_work_date' => today()->toDateString(),
+            'original_planned_start_time' => '09:00',
+            'original_planned_end_time' => '10:00',
+            'status' => 'planned',
+        ]);
+
+        $updates = app(DailyTaskWorkflowService::class)->refreshDueStatuses(
+            Carbon::parse(today()->toDateString().' 08:00'),
+        );
+
+        $this->assertSame(1, $updates);
+        $this->assertDatabaseHas('daily_tasks', [
+            'id' => $dailyTask->id,
+            'status' => 'pending',
+        ]);
+        $this->assertDatabaseHas('task_status_histories', [
+            'daily_task_id' => $dailyTask->id,
+            'event_type' => 'daily_task_pending',
+            'old_status' => 'planned',
+            'new_status' => 'pending',
+        ]);
     }
 
     public function test_ceo_and_team_leader_can_view_daily_updates_but_cannot_change_status_or_reassign(): void

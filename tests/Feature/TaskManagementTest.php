@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
@@ -95,7 +96,14 @@ class TaskManagementTest extends TestCase
         $this->assertStringNotContainsString('Subtask Timeline (Gantt View)', $html);
         $this->assertStringNotContainsString('tf-gantt-', $html);
         $this->assertStringContainsString('id="subtasks-table"', $html);
-        $this->assertStringNotContainsString('data-tl-row="subtasks"', $html);
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $html, $timelineModelMatch));
+        $timelineModel = json_decode(
+            html_entity_decode($timelineModelMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $this->assertFalse($timelineModel['hasSubtasks']);
+        $this->assertSame([], $timelineModel['subtaskActivities']);
         $this->assertStringContainsString('data-activity-view="overview"', $html);
         $this->assertStringContainsString("taskDetails.hidden = target !== 'overview';", $html);
 
@@ -142,10 +150,79 @@ class TaskManagementTest extends TestCase
         $response->assertOk()
             ->assertSee('Task Created By')
             ->assertSee('Created by '.$this->admin->name)
-            ->assertSee('Assigned to Anandhu')
-            ->assertSee('\\u0022date\\u0022:\\u00222026-01-12\\u0022', false)
-            ->assertSee('\\u0022date\\u0022:\\u00222026-01-15\\u0022', false)
-            ->assertSee('\\u0022date\\u0022:\\u00222026-01-22\\u0022', false);
+            ->assertSee('tl-task-event')
+            ->assertDontSee('tl-bar--task');
+
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $response->getContent(), $timelineModelMatch));
+        $timelineModel = json_decode(
+            html_entity_decode($timelineModelMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $activities = collect($timelineModel['activities']);
+        $this->assertTrue($activities->contains(
+            fn (array $activity): bool => $activity['type'] === 'created'
+                && $activity['date'] === '2026-01-12',
+        ));
+        $this->assertTrue($activities->contains(
+            fn (array $activity): bool => $activity['type'] === 'assignment'
+                && $activity['to'] === 'Anandhu'
+                && $activity['date'] === '2026-01-15',
+        ));
+        $this->assertSame('2026-01-22', $timelineModel['task']['due']);
+    }
+
+    public function test_task_timeline_includes_subtask_history_in_its_own_section(): void
+    {
+        $task = $this->createWorkflowTask();
+        $subtask = Subtask::create([
+            'task_id' => $task->id,
+            'created_by' => $this->admin->id,
+            'title' => 'Build timeline renderer',
+            'status' => 'in_progress',
+        ]);
+        TaskStatusHistory::create([
+            'task_id' => $task->id,
+            'subtask_id' => $subtask->id,
+            'changed_by' => $this->admin->id,
+            'old_status' => 'todo',
+            'new_status' => 'in_progress',
+            'event_type' => 'subtask_status',
+            'remarks' => 'Implementation started.',
+        ]);
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $html, $timelineModelMatch));
+        $timelineModel = json_decode(
+            html_entity_decode($timelineModelMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        $this->assertTrue($timelineModel['hasSubtasks']);
+        $this->assertSame('Build timeline renderer', $timelineModel['subtaskActivities'][0]['subtaskTitle']);
+        $this->assertSame('Implementation started.', $timelineModel['subtaskActivities'][0]['detail']);
+        $this->assertStringContainsString('class="tl-event-tooltip"', $html);
+        $this->assertStringContainsString('bottom: calc(100% + 8px);', $html);
+        $this->assertStringContainsString('.tl-event-tooltip__detail', $html);
+        $this->assertStringContainsString('.tl-event-tooltip__people', $html);
+        $this->assertStringContainsString('Daily Task: ', $html);
+        $this->assertStringContainsString('employee: event.employee, department: event.department', $html);
+        $this->assertStringContainsString('is-tooltip-align-left', $html);
+        $this->assertStringContainsString('is-tooltip-align-right', $html);
+        $this->assertStringContainsString('background: #fff;', $html);
+
+        $milestonesPosition = strpos($html, "['milestones', 'Milestones'");
+        $taskPosition = strpos($html, "['task', 'Task'");
+        $subtasksPosition = strpos($html, "['subtasks', 'Subtasks'");
+        $dailyUpdatesPosition = strpos($html, "['updates', 'Daily Task Update'");
+        $this->assertNotFalse($milestonesPosition);
+        $this->assertNotFalse($taskPosition);
+        $this->assertNotFalse($subtasksPosition);
+        $this->assertNotFalse($dailyUpdatesPosition);
+        $this->assertTrue($milestonesPosition < $taskPosition);
+        $this->assertTrue($taskPosition < $subtasksPosition);
+        $this->assertTrue($subtasksPosition < $dailyUpdatesPosition);
     }
 
     public function test_notification_poll_returns_only_the_signed_in_users_latest_notifications(): void
@@ -1625,7 +1702,8 @@ class TaskManagementTest extends TestCase
             ->where('task_id', $task->id)
             ->where('event_type', 'work_update')
             ->firstOrFail();
-        $this->assertSame('2026-06-14', $workUpdate->created_at->toDateString());
+        $this->assertSame('2026-06-14', $workUpdate->activity_date?->toDateString());
+        $this->assertSame(now()->toDateString(), $workUpdate->created_at?->toDateString());
         $attachment = TaskAttachment::query()->where('task_id', $task->id)->firstOrFail();
         Storage::disk('local')->assertExists($attachment->path);
         $this->assertDatabaseHas('notifications', [
@@ -1649,6 +1727,37 @@ class TaskManagementTest extends TestCase
             'task_id' => $task->id,
             'event_type' => 'work_update',
         ]);
+    }
+
+    public function test_work_update_stores_selected_activity_date_and_actual_submission_time(): void
+    {
+        $task = $this->createWorkflowTask(['status' => 'in_progress']);
+        $submittedDate = now()->toDateString();
+
+        $this->post(route('tasks.work-updates.store', $task), [
+            'note' => 'Work completed on the selected date.',
+            'update_date' => '2026-06-14',
+        ])->assertRedirect(route('tasks.show', $task));
+
+        $workUpdate = TaskStatusHistory::query()
+            ->where('task_id', $task->id)
+            ->where('event_type', 'work_update')
+            ->firstOrFail();
+
+        $this->assertSame('2026-06-14', $workUpdate->activity_date?->toDateString());
+        $this->assertSame($submittedDate, $workUpdate->created_at?->toDateString());
+
+        $timelineHtml = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+        $this->assertSame(1, preg_match("/data-timeline-model='([^']+)'/", $timelineHtml, $timelineModelMatch));
+        $timelineModel = json_decode(
+            html_entity_decode($timelineModelMatch[1], ENT_QUOTES | ENT_HTML5),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $this->assertTrue(collect($timelineModel['activities'])->contains(
+            fn (array $activity): bool => $activity['type'] === 'work_update',
+        ));
+        $this->assertSame([], $timelineModel['dailyUpdates']);
     }
 
     public function test_resuming_a_held_task_restores_its_previous_workflow_status(): void

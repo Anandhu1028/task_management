@@ -114,10 +114,30 @@ class RoleBasedDashboardTest extends TestCase
         $response->assertDontSee('Department Overview');
         $response->assertDontSee('Team Leader Performance');
         $response->assertDontSee('Employee Performance');
-        $response->assertSee('Task Code & Title', false);
+        $response->assertSee('Assigned Users');
+        $response->assertSee('Pending Count');
         $response->assertSee('Recent Organizational Tasks');
         $response->assertDontSee('Upcoming Deadlines');
-        $this->assertDashboardSectionsAreOrdered($response->getContent());
+        $this->assertCeoDashboardSectionsAreOrdered($response->getContent());
+    }
+
+    private function assertCeoDashboardSectionsAreOrdered(string $dashboardHtml): void
+    {
+        $sectionPositions = array_map(
+            fn (string $section): int|false => strpos($dashboardHtml, $section),
+            [
+                'Total Companies',
+                'Company Overview',
+                'Task Completion Trends',
+                'Department-wise performance',
+                'Employees by company',
+                'Recent Organizational Tasks',
+            ],
+        );
+        $sortedPositions = $sectionPositions;
+        sort($sortedPositions);
+
+        $this->assertSame($sortedPositions, $sectionPositions);
     }
 
     private function assertDashboardSectionsAreOrdered(string $dashboardHtml): void

@@ -12,3 +12,8 @@ Schedule::command('tasks:generate-recurring-occurrences')
     ->everyMinute()
     ->withoutOverlapping(10)
     ->appendOutputTo(storage_path('logs/recurring-task-generation.log'));
+
+Schedule::command('daily-accountability:process')
+    ->everyMinute()
+    ->withoutOverlapping(10)
+    ->appendOutputTo(storage_path('logs/daily-accountability.log'));

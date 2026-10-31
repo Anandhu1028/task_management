@@ -17,8 +17,16 @@ class TaskStatusHistory extends Model
         'old_status',
         'new_status',
         'event_type',
+        'activity_date',
         'remarks',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'activity_date' => 'date',
+        ];
+    }
 
     public function task(): BelongsTo
     {
