@@ -62,7 +62,7 @@ class SubtaskDwrTest extends TestCase
     public function test_dashboard_orders_critical_main_task_subtasks_first(): void
     {
         $criticalTask = $this->createTask($this->employee);
-        $criticalTask->update(['priority' => 'critical']);
+        $criticalTask->update(['priority' => 'critical', 'status' => 'in_progress']);
         $criticalSubtask = $this->createSubtask($criticalTask, $this->employee, 'Resolve critical blocker');
 
         $highPriorityTask = $this->createTask($this->employee);
@@ -78,6 +78,9 @@ class SubtaskDwrTest extends TestCase
             ->assertSee($criticalSubtask->title)
             ->assertDontSee('<table', false);
 
+        $response->assertSee('tf-dwr-task-status--in_progress', false)
+            ->assertSee('In Progress</span>', false)
+            ->assertSee('tf-dwr-priority--critical', false);
         $response->assertSeeInOrder([$criticalSubtask->title, $highPrioritySubtask->title]);
     }
 

@@ -225,6 +225,7 @@
                 @forelse ($mainTaskSummaries as $taskSummary)
                     @php
                         $summaryPriority = $taskSummary->task_priority ?? 'low';
+                        $summaryTaskStatus = $taskSummary->task_status ?? 'unassigned';
                         $summaryTotal = (int) $taskSummary->total_subtasks;
                     @endphp
                     <article class="tf-dwr-main-task-summary">
@@ -239,6 +240,9 @@
                                     <span class="tf-dwr-code">{{ $taskSummary->task_code }}</span>
                                     <strong>{{ $taskSummary->task_title }}</strong>
                                 </a>
+                                <span class="tf-dwr-task-status tf-dwr-task-status--{{ $summaryTaskStatus }}">
+                                    {{ \App\Models\Task::STATUS_LABELS[$summaryTaskStatus] ?? ucwords(str_replace('_', ' ', $summaryTaskStatus)) }}
+                                </span>
                                 <span class="tf-dwr-priority tf-dwr-priority--{{ $summaryPriority }}">
                                     {{ $priorityLabels[$summaryPriority] ?? 'Low' }} priority
                                 </span>

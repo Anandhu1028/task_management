@@ -423,6 +423,26 @@
 .tf-dwr-status--assigned { background: #e0f2fe; color: #0369a1; }
 .tf-dwr-status--pending { background: #f1f5f9; color: #475569; }
 
+.tf-dwr-task-status {
+    display: inline-flex;
+    align-items: center;
+    padding: .24rem .6rem;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: .68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.tf-dwr-task-status--completed { background: #dcfce7; color: #15803d; }
+.tf-dwr-task-status--in_progress { background: #dbeafe; color: #1d4ed8; }
+.tf-dwr-task-status--on_hold { background: #ffedd5; color: #c2410c; }
+.tf-dwr-task-status--submitted_for_review { background: #e0e7ff; color: #4338ca; }
+.tf-dwr-task-status--rework { background: #fef3c7; color: #a16207; }
+.tf-dwr-task-status--cancelled,
+.tf-dwr-task-status--missed { background: #fee2e2; color: #b91c1c; }
+
 /* ---------- Update cell / actions ---------- */
 
 .tf-dwr-update-cell { min-width: 190px; }

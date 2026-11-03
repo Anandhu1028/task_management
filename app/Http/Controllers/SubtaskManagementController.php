@@ -94,6 +94,7 @@ class SubtaskManagementController extends Controller
                 'dwr_summary_tasks.task_code',
                 'dwr_summary_tasks.title as task_title',
                 'dwr_summary_tasks.priority as task_priority',
+                'dwr_summary_tasks.status as task_status',
             ])
             ->selectRaw('COUNT(subtasks.id) as total_subtasks');
 
@@ -110,6 +111,7 @@ class SubtaskManagementController extends Controller
                 'dwr_summary_tasks.task_code',
                 'dwr_summary_tasks.title',
                 'dwr_summary_tasks.priority',
+                'dwr_summary_tasks.status',
             )
             ->orderByRaw("CASE dwr_summary_tasks.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
             ->orderBy('dwr_summary_tasks.title')
