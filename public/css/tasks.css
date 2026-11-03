@@ -1090,7 +1090,6 @@
     .tf-task-detail__priority-label--low { color: #15803d !important; }
 
     .tf-task-detail__progress {
-        display: block;
         width: 100%;
         height: 4px;
         overflow: hidden;
@@ -7104,6 +7103,77 @@
     width: calc(100% - 30px);
 }
 
+.tf-task-detail__workflow-progress .tf-task-workflow__steps {
+    align-items: flex-start;
+    padding: 10px 16px 8px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step {
+    flex: 1 1 0;
+    min-width: 70px;
+    gap: 4px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step:not(:last-child)::after {
+    top: 7px;
+    left: calc(50% + 9px);
+    width: calc(100% - 18px);
+    height: 2px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step-marker {
+    width: 16px;
+    height: 16px;
+    flex-basis: 16px;
+    border-width: 1px;
+    font-size: 8px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step.is-complete .tf-task-workflow__step-marker {
+    font-size: 9px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step-inner-ring {
+    width: 6px;
+    height: 6px;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step-label {
+    max-width: 100%;
+    color: #475569;
+    font-size: 9px;
+    line-height: 1.25;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step.is-complete .tf-task-workflow__step-label {
+    color: #334155;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step.is-current .tf-task-workflow__step-label {
+    color: #1d4ed8;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step-meta {
+    display: block;
+    width: 100%;
+    min-height: 31px;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 8px;
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: center;
+    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+.tf-task-detail__workflow-progress .tf-task-workflow__step.is-current .tf-task-workflow__step-meta {
+    color: #475569;
+}
+
 .tf-task-detail__main > [data-task-detail-panel="overview"] > section[aria-labelledby="task-description-title"] .tf-task-detail__card-header h2, .tf-task-detail__main > [data-task-detail-panel="overview"] > .tf-task-detail__people-cards > .tf-task-detail__card .tf-task-detail__card-header h2, .tf-task-detail__main > [data-task-detail-panel="files"] > .tf-task-detail__card .tf-task-detail__card-header h2 {
     font-size: 13px;
 }
@@ -7238,10 +7308,19 @@
     display: contents;
 }
 
-.tf-task-detail__grid[data-activity-view="overview"] .tf-activity-tabs-card,
+.tf-task-detail__grid[data-activity-view="overview"] .tf-activity-tabs-card {
+    grid-area: tabs;
+}
+
 .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) .tf-activity-tabs-card {
     grid-column: 1;
     grid-row: 1;
+}
+
+@media (min-width: 761px) {
+    .tf-task-detail__grid[data-activity-view="overview"] > .tf-task-detail__sidebar > .task-overview-sidebar-cards {
+        grid-area: details;
+    }
 }
 
 .tf-task-detail__grid[data-activity-view="overview"] .tf-task-detail__main > [data-task-detail-panel="overview"] > section {
@@ -7408,4 +7487,179 @@
 .tf-daily-update-action:focus-visible {
     outline: 3px solid rgba(37, 99, 235, .25);
     outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Assignment history popover + task detail grid spacing fix
+   Keep the history panel out of document flow so opening it cannot stretch
+   the grid rows or create vertical gaps in the left-hand task panels.
+   -------------------------------------------------------------------------- */
+
+.tf-task-detail__grid,
+.tf-task-detail__grid > .tf-task-detail__sidebar,
+.tf-task-detail__sidebar > .task-overview-sidebar-cards {
+    overflow: visible;
+}
+
+.tf-task-detail__grid[data-activity-view] .task-overview-details {
+    position: relative;
+    z-index: 20;
+    overflow: visible;
+}
+
+/* Keep the current assignee list and history toggle aligned on one row. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__person--assignee
+.task-overview-details__person-copy {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-rows: auto;
+    align-items: start;
+    gap: 7px 8px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-current-list {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history {
+    position: relative;
+    z-index: 30;
+    display: block;
+    width: 22px;
+    min-width: 22px;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+}
+
+/* The expanded details element remains the same size as its toggle.
+   Only the history panel grows, as an overlay aligned to the right edge. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history[open] {
+    position: relative;
+    width: 22px;
+    min-width: 22px;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-list {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    z-index: 1085;
+    display: grid;
+    width: min(370px, calc(100vw - 32px));
+    min-width: min(290px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    max-height: min(360px, 55vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    gap: 7px;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid #dbe3ed;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .16);
+}
+
+/* Keep each history row readable when the popover is wider than the sidebar. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-person {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px 9px;
+    gap: 9px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-name-row {
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-name-row strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-copy > small {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+/* Explicitly prevent the open popover from changing the left grid tracks. */
+@media (min-width: 761px) {
+    .tf-task-detail__grid[data-activity-view="overview"] {
+        align-items: start;
+        align-content: start;
+        grid-auto-rows: min-content;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__sidebar
+    > .task-overview-sidebar-cards {
+        align-self: start;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__sidebar
+    > .tf-activity-tabs-card {
+        align-self: start;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__main {
+        align-self: start;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .tf-task-detail__grid[data-activity-view]
+    .task-overview-details__assignee-history-list {
+        width: min(340px, calc(100vw - 28px));
+        min-width: min(260px, calc(100vw - 28px));
+        max-width: calc(100vw - 28px);
+        right: 0;
+    }
+}
+
+@media (max-width: 420px) {
+    .tf-task-detail__grid[data-activity-view]
+    .task-overview-details__assignee-history-list {
+        width: calc(100vw - 24px);
+        min-width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        right: -2px;
+        padding: 8px;
+    }
 }

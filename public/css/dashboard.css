@@ -2394,7 +2394,6 @@
     justify-content: space-between;
     gap: 10px;
     padding: 14px 16px;
-    background: #f3f8ff;
     border-bottom: 1px solid #e3edff;
 }
 
@@ -2513,7 +2512,7 @@
     color: #7a93bd;
     font-size: 12.5px;
 }
-.dpf-empty i { display: block; margin-bottom: 6px; font-size: 12px; color: #bfdbfe; }
+.dpf-empty i { display: block; margin-bottom: 6px; font-size: 12px; color: #aeb9c5; }
 .dpf-empty--block { border: 1px dashed #dbeafe; border-radius: 14px; }
 
 /* Small screens (phones / small tablets): allow horizontal swipe instead of squashing */

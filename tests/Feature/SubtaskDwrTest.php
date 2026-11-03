@@ -109,6 +109,102 @@ class SubtaskDwrTest extends TestCase
             });
     }
 
+    public function test_main_task_status_card_counts_visible_tasks_by_workflow_status(): void
+    {
+        $initialTaskStatusCounts = Task::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+        $initialTaskCount = Task::query()->count();
+
+        foreach (Task::STATUSES as $status) {
+            $task = $this->createTask($this->employee, 'DWR-STATUS-'.strtoupper($status));
+            $task->update(['status' => $status]);
+        }
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('dwr.index'))
+            ->assertOk()
+            ->assertViewHas('mainTaskStatusCountTotal', $initialTaskCount + count(Task::STATUSES))
+            ->assertViewHas('mainTaskStatusBreakdown', function ($statusBreakdown) use ($initialTaskStatusCounts): bool {
+                foreach (Task::STATUSES as $status) {
+                    $this->assertSame(
+                        (int) ($initialTaskStatusCounts[$status] ?? 0) + 1,
+                        $statusBreakdown[$status],
+                        "Unexpected count for {$status} main tasks.",
+                    );
+                }
+
+                return true;
+            });
+
+        $content = $response->getContent();
+        $priorityPosition = strpos($content, '<h2>Main Task Priority</h2>');
+        $taskStatusPosition = strpos($content, '<h2>Main Task Status</h2>');
+        $subtaskStatusPosition = strpos($content, '<h2>Subtask Status</h2>');
+        $this->assertNotFalse($priorityPosition);
+        $this->assertNotFalse($taskStatusPosition);
+        $this->assertNotFalse($subtaskStatusPosition);
+        $this->assertLessThan($taskStatusPosition, $priorityPosition);
+        $this->assertLessThan($subtaskStatusPosition, $taskStatusPosition);
+        $statusLabelsPosition = strpos($content, '<h2>Main Task Status</h2>');
+        $statusSection = substr($content, $statusLabelsPosition, $subtaskStatusPosition - $statusLabelsPosition);
+        $this->assertStringContainsString('tf-dwr-task-status-rows', $statusSection);
+        $this->assertStringContainsString('tf-dwr-task-status-row__plot', $statusSection);
+        $this->assertStringNotContainsString('dwrMainTaskStatusChart', $content);
+        $this->assertStringNotContainsString('dwrMainTaskStatusValueLabels', $content);
+
+        $expectedStatuses = [
+            'assigned' => 'Assigned',
+            'in_progress' => 'In-progress',
+            'on_hold' => 'On-hold',
+            'submitted_for_review' => 'Review',
+            'rework' => 'Rework',
+            'completed' => 'Completed',
+            'cancelled' => 'Canceled',
+            'unassigned' => 'Unassigned',
+            'notified' => 'Notified',
+            'missed' => 'Missed',
+        ];
+        $statusCounts = array_map(
+            fn (string $status): int => (int) ($initialTaskStatusCounts[$status] ?? 0) + 1,
+            Task::STATUSES,
+        );
+        $expectedMaxCount = max($statusCounts);
+        $lastLabelPosition = -1;
+
+        foreach ($expectedStatuses as $status => $label) {
+            $labelPosition = strpos($statusSection, '<strong>'.$label.'</strong>');
+            $this->assertNotFalse($labelPosition, "Missing {$label} task status row.");
+            $this->assertGreaterThan($lastLabelPosition, $labelPosition, "{$label} is out of order.");
+            $lastLabelPosition = $labelPosition;
+
+            $statusCount = (int) ($initialTaskStatusCounts[$status] ?? 0) + 1;
+            $statusPercent = round(($statusCount / $expectedMaxCount) * 86);
+            $this->assertStringContainsString(
+                'aria-label="'.$label.' main tasks"',
+                $statusSection,
+            );
+            $this->assertStringContainsString(
+                'aria-valuenow="'.$statusCount.'"',
+                $statusSection,
+            );
+            $this->assertStringContainsString(
+                'aria-valuemax="'.$expectedMaxCount.'"',
+                $statusSection,
+            );
+            $minimumWidth = $statusCount > 0 ? '14px' : '0';
+            $this->assertStringContainsString(
+                'style="width: '.$statusPercent.'%; min-width: '.$minimumWidth.'"',
+                $statusSection,
+            );
+            $this->assertStringContainsString(
+                'style="left: max(20px, calc('.$statusPercent.'% + 6px))"',
+                $statusSection,
+            );
+        }
+    }
+
     public function test_dashboard_metric_cards_show_filtered_task_and_subtask_totals(): void
     {
         $completedCriticalTask = $this->createTask($this->employee);
@@ -206,10 +302,10 @@ class SubtaskDwrTest extends TestCase
             ->assertSee('tf-dwr-status-icon--pending', false);
 
         $mainTaskSectionStart = strpos($content, '<h2>Subtasks by Main Task</h2>');
-        $workSectionStart = strpos($content, '<h2>Work by Main Task</h2>');
+        $mainTaskSectionEnd = strpos($content, '</section>', $mainTaskSectionStart);
         $this->assertNotFalse($mainTaskSectionStart);
-        $this->assertNotFalse($workSectionStart);
-        $mainTaskSection = substr($content, $mainTaskSectionStart, $workSectionStart - $mainTaskSectionStart);
+        $this->assertNotFalse($mainTaskSectionEnd);
+        $mainTaskSection = substr($content, $mainTaskSectionStart, $mainTaskSectionEnd - $mainTaskSectionStart);
         preg_match_all(
             '/tf-dwr-main-task-summary__status--(completed|on_hold|in_progress|pending).*?aria-valuenow="(\d+)".*?<strong>(\d+)<\/strong>/s',
             $mainTaskSection,
@@ -228,6 +324,73 @@ class SubtaskDwrTest extends TestCase
         $this->assertStringContainsString('class="tf-dwr-main-task-summary__order"', $mainTaskSection);
         $this->assertStringContainsString('class="tf-dwr-main-task-summary__subtask-count"', $mainTaskSection);
         $this->assertStringContainsString('tf-dwr-priority--critical', $mainTaskSection);
+    }
+
+    public function test_main_task_summary_lists_multiple_subtasks_in_status_priority_order(): void
+    {
+        $task = $this->createTask($this->employee);
+        $task->update(['priority' => 'critical']);
+
+        foreach ([
+            'Completed work' => 'completed',
+            'Paused work' => 'on_hold',
+            'Active work' => 'in_progress',
+            'Todo work' => 'todo',
+            'Assigned work' => 'assigned',
+            'Review work' => 'in_review',
+        ] as $title => $status) {
+            $subtask = $this->createSubtask($task, $this->employee, $title);
+            $subtask->update(['status' => $status]);
+        }
+
+        $response = $this->actingAs($this->employee)
+            ->get(route('dwr.index'))
+            ->assertOk()
+            ->assertSee('tf-dwr-main-task-summary__subtasks', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--completed', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--on_hold', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--in_progress', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--todo', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--assigned', false)
+            ->assertSee('tf-dwr-main-task-summary__subtask--in_review', false)
+            ->assertSee('Completed work')
+            ->assertSee('Paused work')
+            ->assertSee('Active work')
+            ->assertSee('Todo work')
+            ->assertSee('Assigned work')
+            ->assertSee('Review work');
+
+        $content = $response->getContent();
+        $summaryStart = strpos($content, '<h2>Subtasks by Main Task</h2>');
+        $summaryEnd = strpos($content, '</section>', $summaryStart);
+        $this->assertNotFalse($summaryStart);
+        $this->assertNotFalse($summaryEnd);
+        $summarySection = substr($content, $summaryStart, $summaryEnd - $summaryStart);
+        $this->assertStringContainsString('class="tf-dwr-main-task-summary__subtask-status"', $summarySection);
+        $this->assertStringContainsString('<span>Subtask:</span>', $summarySection);
+        $this->assertSame(6, substr_count($summarySection, 'class="tf-dwr-main-task-summary__subtask-connector"'));
+        foreach (['Completed', 'On Hold', 'In Progress', 'Pending', 'Assigned', 'In Review'] as $label) {
+            $this->assertStringContainsString($label, $summarySection);
+        }
+        $this->assertSame(6, substr_count($summarySection, 'class="tf-dwr-main-task-summary__subtask-parent"'));
+        $this->assertStringContainsString('Main task</span>', $summarySection);
+        $this->assertStringContainsString($task->task_code.' · '.$task->title, $summarySection);
+
+        $subtaskPositions = array_map(
+            fn (string $title): int|false => strpos($summarySection, $title),
+            [
+                'Completed work',
+                'Paused work',
+                'Active work',
+                'Todo work',
+                'Assigned work',
+                'Review work',
+            ],
+        );
+        $this->assertNotContains(false, $subtaskPositions, true);
+        $orderedPositions = $subtaskPositions;
+        sort($orderedPositions);
+        $this->assertSame($orderedPositions, $subtaskPositions);
     }
 
     public function test_main_task_summary_date_tracks_custom_dashboard_filter(): void
@@ -488,9 +651,10 @@ class SubtaskDwrTest extends TestCase
         return $employee;
     }
 
-    private function createTask(User $employee): Task
+    private function createTask(User $employee, ?string $taskCode = null): Task
     {
         $task = Task::factory()->create([
+            ...($taskCode === null ? [] : ['task_code' => $taskCode]),
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
             'assigned_to' => $employee->id,

@@ -12,6 +12,57 @@
             'medium' => 'bi-layers',
             'low' => 'bi-chevron-double-down',
         ];
+        $taskStatusColors = [
+            'notified' => '#8b5cf6',
+            'unassigned' => '#94a3b8',
+            'assigned' => '#94a3b8',
+            'in_progress' => '#f87171',
+            'on_hold' => '#f59e0b',
+            'submitted_for_review' => '#60a5fa',
+            'rework' => '#a855f7',
+            'completed' => '#22c55e',
+            'cancelled' => '#94a3b8',
+            'progress' => '#64748b',
+        ];
+        $mainTaskStatusLabels = [
+            'assigned' => 'Assigned',
+            'in_progress' => 'In-progress',
+            'on_hold' => 'On-hold',
+            'submitted_for_review' => 'Review',
+            'rework' => 'Rework',
+            'completed' => 'Completed',
+            'cancelled' => 'Canceled',
+            'unassigned' => 'Unassigned',
+            'progress' => 'Progress',
+            'notified' => 'Notified',
+        ];
+        $mainTaskStatusMaxCount = (int) max($mainTaskStatusBreakdown->all() ?: [0]);
+
+        // Build a readable, data-driven horizontal axis starting at zero.
+        // Round the maximum up to a sensible interval and leave room for value labels.
+        $rawAxisStep = max(1, (int) ceil($mainTaskStatusMaxCount / 4));
+        $axisMagnitude = 10 ** (int) floor(log10($rawAxisStep));
+        $normalizedAxisStep = $rawAxisStep / $axisMagnitude;
+
+        $niceAxisMultiplier = match (true) {
+            $normalizedAxisStep <= 1 => 1,
+            $normalizedAxisStep <= 2 => 2,
+            $normalizedAxisStep <= 2.5 => 2.5,
+            $normalizedAxisStep <= 4 => 4,
+            $normalizedAxisStep <= 5 => 5,
+            default => 10,
+        };
+
+        $mainTaskStatusAxisStep = max(1, (int) round($niceAxisMultiplier * $axisMagnitude));
+        $mainTaskStatusAxisMax = max(
+            $mainTaskStatusAxisStep * 4,
+            (int) (ceil($mainTaskStatusMaxCount / $mainTaskStatusAxisStep) * $mainTaskStatusAxisStep)
+        );
+
+        // Five axis labels: zero, three intermediate values, and the calculated maximum.
+        $mainTaskStatusAxisTicks = collect(range(0, 4))->map(
+            fn (int $tick): int => (int) round(($mainTaskStatusAxisMax / 4) * $tick)
+        );
         $dashboardStatusGroups = [
             'completed' => ['label' => 'Completed', 'icon' => 'bi-check-circle', 'statuses' => ['completed']],
             'on_hold' => ['label' => 'On Hold', 'icon' => 'bi-pause-circle', 'statuses' => ['on_hold']],
@@ -152,8 +203,8 @@
             </section>
         @endif
 
-        {{-- Priority + Status breakdown --}}
-        <section class="tf-dwr-overviews" aria-label="Subtask breakdown">
+        {{-- Main task priority (left) and main task status (right) --}}
+        <section class="tf-dwr-overviews" aria-label="Main task priority and status">
             <article class="tf-dwr-panel tf-dwr-breakdown">
                 <div class="tf-dwr-panel__heading">
                     <div><h2>Main Task Priority</h2><p>Critical priority tasks are highlighted first.</p></div>
@@ -173,7 +224,7 @@
                             </span>
                             <strong class="tf-dwr-priority-label">{{ $label }}</strong>
                             <span class="tf-dwr-priority-percent">{{ $priorityPercent }}%</span>
-                            <div class="tf-dwr-bar" role="progressbar" aria-label="{{ $label }} priority subtasks" aria-valuenow="{{ $priorityPercent }}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="tf-dwr-bar" role="progressbar" aria-label="{{ $label }} priority tasks" aria-valuenow="{{ $priorityPercent }}" aria-valuemin="0" aria-valuemax="100">
                                 <span style="width: {{ $priorityPercent }}%"></span>
                             </div>
                             <strong>{{ number_format($priorityCount) }}</strong>
@@ -182,11 +233,59 @@
                 @endforeach
             </article>
 
-            <article class="tf-dwr-panel tf-dwr-breakdown">
-                <div class="tf-dwr-panel__heading">
-                    <div><h2>Subtask Status</h2><p>See how work is progressing across the selected filters.</p></div>
-                    <span>{{ number_format($metrics['total_subtasks']) }} total</span>
+            {{-- Main Task Status: right-side horizontal bar chart --}}
+            <article class="tf-dwr-panel tf-dwr-breakdown tf-dwr-task-status-breakdown" aria-label="Main task status breakdown">
+            <div class="tf-dwr-panel__heading">
+                <div>
+                    <h2>Main Task Status</h2>
+                    <p>Distribution of main tasks by workflow status.</p>
                 </div>
+                <span>{{ number_format($mainTaskStatusCountTotal) }} {{ \Illuminate\Support\Pluralizer::plural('Task', $mainTaskStatusCountTotal) }}</span>
+            </div>
+
+            <div class="tf-dwr-task-status-chart" role="img" aria-label="Horizontal bar chart showing the number of main tasks in each status">
+                <div class="tf-dwr-task-status-chart__rows">
+                    @foreach ($mainTaskStatusLabels as $taskStatus => $taskStatusLabel)
+                        @php
+                            $taskStatusCount = (int) ($mainTaskStatusBreakdown[$taskStatus] ?? 0);
+                            $taskStatusPercent = $mainTaskStatusAxisMax > 0
+                                ? round(($taskStatusCount / $mainTaskStatusAxisMax) * 100, 2)
+                                : 0;
+                        @endphp
+                        <div class="tf-dwr-task-status-chart__row"
+                             style="--tf-dwr-task-status-color: {{ $taskStatusColors[$taskStatus] ?? '#64748b' }}">
+                            <span class="tf-dwr-task-status-chart__label">{{ $taskStatusLabel }}</span>
+                            <div class="tf-dwr-task-status-chart__plot">
+                                <span class="tf-dwr-task-status-chart__bar"
+                                      style="width: {{ $taskStatusPercent }}%"
+                                      role="presentation"></span>
+                                <strong class="tf-dwr-task-status-chart__value"
+                                        style="left: calc({{ $taskStatusPercent }}% + 5px)">{{ number_format($taskStatusCount) }}</strong>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <div class="tf-dwr-task-status-chart__axis" aria-hidden="true">
+                    <span class="tf-dwr-task-status-chart__axis-spacer"></span>
+                    <div class="tf-dwr-task-status-chart__axis-plot">
+                        @foreach ($mainTaskStatusAxisTicks as $tick)
+                            <span>{{ number_format($tick) }}</span>
+                        @endforeach
+                    </div>
+                </div>
+                <div class="tf-dwr-task-status-chart__axis-title">Number of main tasks</div>
+                </div>
+            </article>
+        </section>
+
+        {{-- Subtask status --}}
+        <section class="tf-dwr-panel tf-dwr-breakdown tf-dwr-subtask-status-breakdown" aria-label="Subtask status breakdown">
+            <div class="tf-dwr-panel__heading">
+                <div><h2>Subtask Status</h2><p>See how work is progressing across the selected filters.</p></div>
+                <span>{{ number_format($metrics['total_subtasks']) }} total</span>
+            </div>
+            <div class="tf-dwr-subtask-status-rows">
                 @foreach ($dashboardStatusGroups as $status => $statusGroup)
                     @php
                         $statusCount = collect($statusGroup['statuses'])
@@ -209,66 +308,126 @@
                         </div>
                     </div>
                 @endforeach
-            </article>
+            </div>
         </section>
 
         {{-- Subtasks by Main Task --}}
-        <section class="tf-dwr-panel">
-            <div class="tf-dwr-panel__heading">
+        <section class="tf-dwr-panel tf-dwr-main-task-panel" aria-labelledby="dwr-main-subtasks-title">
+            <div class="tf-dwr-panel__heading tf-dwr-main-task-panel__heading">
                 <div>
-                    <h2>Subtasks by Main Task</h2>
-                    <p>Subtask status by main task for <strong>{{ $summaryDate }}</strong>.</p>
+                    <h2 id="dwr-main-subtasks-title">Subtasks by Main Task</h2>
+                    <p>Priority, progress and workflow status of every subtask for <strong>{{ $summaryDate }}</strong>.</p>
                 </div>
                 <span>{{ number_format($mainTaskSummaries->count()) }} {{ \Illuminate\Support\Pluralizer::plural('main task', $mainTaskSummaries->count()) }}</span>
             </div>
-            <div class="tf-dwr-main-task-summaries">
+
+            <div class="tf-dwr-main-task-list">
                 @forelse ($mainTaskSummaries as $taskSummary)
                     @php
-                        $summaryPriority = $taskSummary->task_priority ?? 'low';
-                        $summaryTotal = (int) $taskSummary->total_subtasks;
-                    @endphp
-                    <article class="tf-dwr-main-task-summary">
-                        <div class="tf-dwr-main-task-summary__content">
-                            <header class="tf-dwr-main-task-summary__header">
-                                <span class="tf-dwr-main-task-summary__order" aria-label="Task {{ $loop->iteration }}">#{{ $loop->iteration }}</span>
-                                <span class="tf-dwr-main-task-summary__subtask-count">
-                                    <strong>{{ number_format($summaryTotal) }}</strong>
-                                    <span>{{ \Illuminate\Support\Pluralizer::plural('subtask', $summaryTotal) }}</span>
-                                </span>
-                                <a href="{{ route('tasks.show', ['task' => $taskSummary->task_id]) }}">
-                                    <span class="tf-dwr-code">{{ $taskSummary->task_code }}</span>
-                                    <strong>{{ $taskSummary->task_title }}</strong>
-                                </a>
-                                <span class="tf-dwr-priority tf-dwr-priority--{{ $summaryPriority }}">
-                                    {{ $priorityLabels[$summaryPriority] ?? 'Low' }} priority
-                                </span>
-                            </header>
+                        $summaryPriority = strtolower($taskSummary->task_priority ?? 'low');
+                        $taskSubtasks = $mainTaskSubtasks
+                            ->get($taskSummary->task_id, collect())
+                            ->sortBy(function ($subtask) {
+                                $priorityOrder = ['critical' => 1, 'high' => 2, 'medium' => 3, 'low' => 4];
 
-                            <div class="tf-dwr-main-task-summary__statuses">
-                                @foreach ($dashboardStatusGroups as $status => $statusGroup)
-                                    @php
-                                        $statusCount = collect($statusGroup['statuses'])
-                                            ->sum(fn (string $subtaskStatus): int => (int) $taskSummary->{'status_'.$subtaskStatus});
-                                        $statusPercent = $summaryTotal > 0
-                                            ? round(($statusCount / $summaryTotal) * 100)
-                                            : 0;
-                                    @endphp
-                                    <div class="tf-dwr-main-task-summary__status tf-dwr-main-task-summary__status--{{ $status }} {{ $statusCount > 0 ? 'has-subtasks' : '' }}">
-                                        <span>{{ $statusGroup['label'] }}</span>
-                                        <div
-                                            class="tf-dwr-main-task-summary__status-progress"
-                                            role="progressbar"
-                                            aria-label="{{ $statusGroup['label'] }} subtasks"
-                                            aria-valuenow="{{ $statusPercent }}"
-                                            aria-valuemin="0"
-                                            aria-valuemax="100"
-                                        >
-                                            <span style="width: {{ $statusPercent }}%"></span>
-                                        </div>
-                                        <strong>{{ number_format($statusCount) }}</strong>
-                                    </div>
-                                @endforeach
+                                return sprintf(
+                                    '%02d-%010d',
+                                    $priorityOrder[strtolower($subtask->priority ?? 'low')] ?? 5,
+                                    (int) $subtask->id
+                                );
+                            })
+                            ->values();
+
+                        $summaryTotal = $taskSubtasks->count();
+                        $summaryCompleted = $taskSubtasks->where('status', 'completed')->count();
+                        $summaryProgress = $summaryTotal > 0
+                            ? (int) round(($summaryCompleted / $summaryTotal) * 100)
+                            : 0;
+                    @endphp
+
+                    <article class="tf-dwr-main-task-card">
+                        <header class="tf-dwr-main-task-card__header">
+                            <span class="tf-dwr-main-task-card__number" aria-label="Main task {{ $loop->iteration }}">
+                                #{{ $loop->iteration }}
+                            </span>
+
+                            <a class="tf-dwr-main-task-card__identity"
+                               href="{{ route('tasks.show', ['task' => $taskSummary->task_id]) }}">
+                                <span class="tf-dwr-code">{{ $taskSummary->task_code }}</span>
+                                <span class="tf-dwr-main-task-card__title">{{ $taskSummary->task_title }}</span>
+                            </a>
+
+                            <div class="tf-dwr-main-task-card__progress"
+                                 role="img"
+                                 aria-label="{{ $summaryCompleted }} of {{ $summaryTotal }} subtasks completed">
+                                <div class="tf-dwr-main-task-card__progress-label">
+                                    <strong>{{ $summaryCompleted }} / {{ $summaryTotal }} subtasks</strong>
+                                    <span>{{ $summaryProgress }}%</span>
+                                </div>
+                                <div class="tf-dwr-main-task-card__progress-track">
+                                    <span style="width: {{ $summaryProgress }}%"></span>
+                                </div>
                             </div>
+
+                            <span class="tf-dwr-priority tf-dwr-priority--{{ in_array($summaryPriority, ['critical', 'high', 'medium', 'low'], true) ? $summaryPriority : 'low' }}">
+                                <i class="bi {{ $priorityIcons[$summaryPriority] ?? 'bi-chevron-double-down' }}" aria-hidden="true"></i>
+                                {{ $priorityLabels[$summaryPriority] ?? 'Low' }} priority
+                            </span>
+                        </header>
+
+                        <div class="tf-dwr-main-task-card__body">
+                            @if ($taskSubtasks->isNotEmpty())
+                                <div class="tf-dwr-subtask-table-wrap">
+                                    <table class="tf-dwr-subtask-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="tf-dwr-subtask-table__number-heading">#</th>
+                                                <th scope="col">Subtask title</th>
+                                                <th scope="col">Priority</th>
+                                                <th scope="col">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($taskSubtasks as $summarySubtask)
+                                                @php
+                                                    $subtaskPriority = strtolower($summarySubtask->priority ?? 'low');
+                                                    $subtaskStatus = strtolower($summarySubtask->status ?? 'pending');
+                                                    $subtaskStatusLabel = \App\Models\Subtask::STATUS_LABELS[$subtaskStatus]
+                                                        ?? \Illuminate\Support\Str::headline($subtaskStatus);
+                                                @endphp
+                                                <tr>
+                                                    <td class="tf-dwr-subtask-table__number">
+                                                        {{ $loop->parent->iteration }}.{{ $loop->iteration }}
+                                                    </td>
+                                                    <td class="tf-dwr-subtask-table__title">
+                                                        <span class="tf-dwr-subtask-table__icon" aria-hidden="true">
+                                                            <i class="bi bi-list-check"></i>
+                                                        </span>
+                                                        <strong>{{ $summarySubtask->title }}</strong>
+                                                    </td>
+                                                    <td>
+                                                        <span class="tf-dwr-priority tf-dwr-priority--{{ in_array($subtaskPriority, ['critical', 'high', 'medium', 'low'], true) ? $subtaskPriority : 'low' }}">
+                                                            <i class="bi {{ $priorityIcons[$subtaskPriority] ?? 'bi-chevron-double-down' }}" aria-hidden="true"></i>
+                                                            {{ $priorityLabels[$subtaskPriority] ?? 'Low' }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="tf-dwr-subtask-status tf-dwr-subtask-status--{{ \Illuminate\Support\Str::slug($subtaskStatus, '-') }}">
+                                                            <span class="tf-dwr-subtask-status__dot" aria-hidden="true"></span>
+                                                            {{ $subtaskStatusLabel }}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @else
+                                <div class="tf-dwr-main-task-card__empty">
+                                    <i class="bi bi-inbox" aria-hidden="true"></i>
+                                    <span>No subtasks found for this main task.</span>
+                                </div>
+                            @endif
                         </div>
                     </article>
                 @empty

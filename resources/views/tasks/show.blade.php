@@ -152,24 +152,51 @@
         $currentWorkflowStage = array_search($workflowStatus, array_column($workflowStages, 'status'), true);
         $currentWorkflowStage = $currentWorkflowStage === false ? null : $currentWorkflowStage;
 
-        // Build a map of status => first-reached date for the stepper
-        $stageDateMap = [
-            'notified' => $task->created_at,
-            'unassigned' => null,
-            'assigned' => null,
-            'in_progress' => null,
-            'submitted_for_review' => null,
-            'rework' => null,
-            'completed' => null,
+        $firstWorkflowAssignment = $task->assignments
+            ->filter(fn ($assignment) => $assignment->assigned_at !== null)
+            ->sortBy(fn ($assignment) => $assignment->assigned_at->getTimestamp())
+            ->first();
+        $assignedStageDetail = $firstWorkflowAssignment
+            ? trim(
+                ($firstWorkflowAssignment->assignedBy?->name ?? 'System')
+                .' → '.($firstWorkflowAssignment->user?->name ?? 'Unassigned')
+                .' · '.($firstWorkflowAssignment->assigned_at?->format('M j') ?? ''),
+            )
+            : 'Awaiting assignment';
+        $stageDetailMap = [
+            'notified' => trim(($task->creator?->name ?? 'System').' · '.($task->created_at?->format('M j') ?? '')),
+            'unassigned' => 'In '.($task->department?->name ?? 'assignment').' queue',
+            'assigned' => $assignedStageDetail,
+            'in_progress' => 'Awaiting start',
+            'submitted_for_review' => 'Awaiting submission',
+            'rework' => 'Awaiting re-work',
+            'completed' => 'Awaiting approval',
         ];
         foreach ($mainTaskHistory->sortBy('created_at') as $h) {
             $ns = $h->new_status;
-            // map on_hold to in_progress slot
             if ($ns === 'on_hold') {
                 $ns = 'in_progress';
             }
-            if (array_key_exists($ns, $stageDateMap) && $stageDateMap[$ns] === null) {
-                $stageDateMap[$ns] = $h->created_at;
+
+            $stageAction = match (true) {
+                $h->event_type === 'start' || ($ns === 'in_progress' && $h->event_type !== 'hold') => 'started',
+                $h->event_type === 'submission' || $ns === 'submitted_for_review' => 'submitted',
+                ($h->event_type === 'review' || $ns === 'rework') && $h->new_status === 'rework' => 'returned for re-work',
+                $h->event_type === 'review' && $h->new_status === 'completed' => 'approved',
+                $h->new_status === 'completed' => 'completed',
+                default => null,
+            };
+            $detailStatus = match ($stageAction) {
+                'started' => 'in_progress',
+                'submitted' => 'submitted_for_review',
+                'returned for re-work' => 'rework',
+                'approved', 'completed' => 'completed',
+                default => null,
+            };
+            if ($detailStatus !== null && str_starts_with($stageDetailMap[$detailStatus], 'Awaiting')) {
+                $actorName = $h->changedBy?->name ?? 'System';
+                $actionDate = $h->created_at?->format('M j');
+                $stageDetailMap[$detailStatus] = trim($actorName.' '.$stageAction.' · '.($actionDate ?? ''));
             }
         }
     @endphp
@@ -228,18 +255,47 @@
             }
 
             .task-description-editor__toggle {
+                display: inline-flex;
+                align-items: baseline;
+                gap: 3px;
                 padding: 0;
                 border: 0;
                 background: transparent;
-                color: #2563eb;
+                color: #8491a5;
                 cursor: pointer;
-                font-size: inherit;
+                font-size: 10px;
                 font-style: italic;
+                line-height: 1.45;
+                list-style: none;
+            }
+
+            .task-description-editor__toggle::-webkit-details-marker {
+                display: none;
+            }
+
+            .task-description-editor__toggle::marker {
+                content: "";
+            }
+
+            .task-description-editor__toggle > span:not(.task-description-editor__empty-text) {
+                color: #2563eb;
+                font-style: normal;
+                font-weight: 600;
             }
 
             .task-description-editor__toggle:hover {
+                color: #64748b;
+            }
+
+            .task-description-editor__toggle:hover > span:not(.task-description-editor__empty-text) {
                 color: #1d4ed8;
                 text-decoration: underline;
+            }
+
+            .task-description-editor__toggle:focus-visible {
+                border-radius: 2px;
+                outline: 2px solid #93c5fd;
+                outline-offset: 3px;
             }
 
             .task-description-editor[open] .task-description-editor__toggle {
@@ -389,7 +445,7 @@
                     "tabs details"
                     "content details";
                 align-items: start;
-                gap: 10px 12px;
+                gap: 5px 12px;
             }
 
             .tf-task-detail__grid[data-activity-view].is-timeline-expanded {
@@ -1154,7 +1210,7 @@
                                 $isCompleteStage = $status === 'completed' || ($currentWorkflowStage !== null && $index < $currentWorkflowStage);
                                 $isCurrentStage = $status !== 'completed' && $index === $currentWorkflowStage;
                                 $stageLabel = $status === 'on_hold' && $isCurrentStage ? 'On Hold' : $stage['label'];
-                                $stageDate = $stageDateMap[$stage['status']] ?? null;
+                                $stageDetail = $stageDetailMap[$stage['status']] ?? null;
                             @endphp
                             <li
                                 class="tf-task-workflow__step{{ $isCompleteStage ? ' is-complete' : '' }}{{ $isCurrentStage ? ' is-current' : '' }}">
@@ -1168,9 +1224,7 @@
                                     @endif
                                 </span>
                                 <span class="tf-task-workflow__step-label">{{ $stageLabel }}</span>
-                                @if ($stageDate)
-                                    <span class="tf-task-workflow__step-date">{{ $stageDate->format('M j') }}</span>
-                                @endif
+                                <span class="tf-task-workflow__step-meta" title="{{ $stageDetail }}">{{ $stageDetail }}</span>
                             </li>
                         @endforeach
                     </ol>
@@ -1412,7 +1466,8 @@
                             @elseif (auth()->user()?->can('tasks.update'))
                                 <details class="task-description-editor" @if ($errors->has('description')) open @endif>
                                     <summary class="tf-task-detail__empty-copy task-description-editor__toggle">
-                                        No description yet. <span>Add description</span>
+                                        <span class="task-description-editor__empty-text">No description yet.</span>
+                                        <span>Add description</span>
                                     </summary>
                                     <form method="POST" action="{{ route('tasks.description.update', $task) }}"
                                         class="task-description-editor__form">
@@ -1495,16 +1550,19 @@
                         data-task-activity-feed data-user-id="{{ auth()->id() }}" data-task-id="{{ $task->id }}"
                         aria-labelledby="task-latest-activity-title">
                         <header class="task-activity-feed__header">
-                            <div>
-                                <p class="task-activity-feed__eyebrow">Recent updates</p>
-                                <h2 class="task-activity-feed__title" id="task-latest-activity-title">Latest Activity</h2>
+                            <div class="task-activity-feed__heading">
+                                <span class="task-activity-feed__icon" aria-hidden="true">
+                                    <i class="bi bi-layers" aria-hidden="true"></i>
+                                </span>
+                                <h2 class="task-activity-feed__title" id="task-latest-activity-title">Activity Timeline</h2>
                             </div>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="task-activity-feed__count" aria-label="{{ $taskActivityFeed->count() }} activities">
                                     {{ $taskActivityFeed->count() }}
                                 </span>
-                                <button type="button" class="task-activity-feed__view-all"
-                                    data-task-feed-open-timeline>View all</button>
+                                <button type="button" class="task-activity-feed__view-all" data-task-feed-open-timeline>
+                                    View all <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                                </button>
                             </div>
                         </header>
                         @if ($taskActivityFeed->isEmpty())
@@ -3759,12 +3817,12 @@
                                 --feed-muted: #64748b;
                                 margin-top: 20px;
                                 overflow: visible;
-                                border: 1px solid #e8ecf5;
-                                border-radius: 22px;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 12px;
                                 background: #fff;
-                                box-shadow: 0 12px 28px rgba(28, 48, 85, .07);
+                                box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
                                 color: var(--feed-ink);
-                                font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+                                font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
                             }
 
                             .task-activity-feed--overview {
@@ -3775,25 +3833,54 @@
 
                             .task-activity-feed--overview .task-activity-feed__header {
                                 padding: 14px 16px;
+                                border-bottom-style: solid;
+                            }
+
+                            .task-activity-feed__heading {
+                                display: flex;
+                                min-width: 0;
+                                align-items: center;
+                                gap: 10px;
+                            }
+
+                            .task-activity-feed__icon {
+                                display: inline-grid;
+                                width: 28px;
+                                height: 28px;
+                                flex: 0 0 28px;
+                                place-items: center;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 8px;
+                                background: #f8fafc;
+                                color: #475569;
+                                font-size: 13px;
+                            }
+
+                            .task-activity-feed--overview .task-activity-feed__title {
+                                font-size: 14px;
+                                line-height: 1.25;
                             }
 
                             .task-activity-feed__view-all {
-                                padding: 5px 9px;
-                                border: 1px solid #dbeafe;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                padding: 4px 8px;
+                                border: 1px solid #e2e8f0;
                                 border-radius: 999px;
                                 background: #fff;
-                                color: #1d4ed8;
+                                color: #475569;
                                 cursor: pointer;
                                 font: inherit;
-                                font-size: 11px;
-                                font-weight: 650;
+                                font-size: 10px;
+                                font-weight: 600;
                             }
 
                             .task-activity-feed__view-all:hover,
                             .task-activity-feed__view-all:focus-visible {
                                 outline: none;
-                                border-color: #93c5fd;
-                                background: #eff6ff;
+                                border-color: #cbd5e1;
+                                background: #f8fafc;
                             }
 
                             .task-activity-feed *,
@@ -3807,7 +3894,7 @@
                                 align-items: center;
                                 justify-content: space-between;
                                 gap: 14px;
-                                padding: 18px 22px;
+                                padding: 14px 16px;
                                 border-bottom: 1px solid #edf0f5;
                             }
 
@@ -3823,7 +3910,7 @@
                             .task-activity-feed__title {
                                 margin: 0;
                                 color: #172033;
-                                font-size: 17px;
+                                font-size: 15px;
                                 font-weight: 750;
                             }
 
@@ -3844,9 +3931,9 @@
                             .task-activity-feed__list {
                                 position: relative;
                                 display: grid;
-                                gap: 9px;
+                                gap: 8px;
                                 margin: 0;
-                                padding: 14px 16px 14px 27px;
+                                padding: 12px 14px 12px 27px;
                                 list-style: none;
                             }
 
@@ -3862,7 +3949,7 @@
                             .task-activity-feed__item {
                                 position: relative;
                                 min-width: 0;
-                                padding-left: 28px;
+                                padding-left: 29px;
                             }
 
                             .task-activity-feed__avatar {
@@ -3885,10 +3972,10 @@
 
                             .task-activity-feed__card {
                                 min-width: 0;
-                                padding: 10px 12px;
-                                border: 1px dotted #d5dbe5;
-                                border-radius: 12px;
-                                background: #f7f7f8;
+                                padding: 8px 10px;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 8px;
+                                background: #fff;
                             }
 
                             .task-activity-feed__card[data-tone="created"],
@@ -3899,43 +3986,43 @@
                             .task-activity-feed__card[data-tone="start"],
                             .task-activity-feed__card[data-tone="resume"],
                             .task-activity-feed__card[data-tone="work_update"] {
-                                border-color: #93c5fd;
-                                background: #eff6ff;
+                                border-color: #bfdbfe;
+                                background: #f8fbff;
                             }
 
                             .task-activity-feed__card[data-tone="risk"],
                             .task-activity-feed__card[data-tone="cancelled"],
                             .task-activity-feed__card[data-tone="deadline_extension_requested"],
                             .task-activity-feed__card[data-tone="deadline_extension_rejected"] {
-                                border-color: #fca5a5;
-                                background: #fef2f2;
+                                border-color: #fecaca;
+                                background: #fffafa;
                             }
 
                             .task-activity-feed__card[data-tone="hold"] {
-                                border-color: #fbbf24;
-                                background: #fffbeb;
+                                border-color: #fde68a;
+                                background: #fffdf5;
                             }
 
                             .task-activity-feed__card[data-tone="submission"],
                             .task-activity-feed__card[data-tone="review"] {
-                                border-color: #7dd3fc;
-                                background: #f0f9ff;
+                                border-color: #bae6fd;
+                                background: #f8fcff;
                             }
 
                             .task-activity-feed__card[data-tone="deadline_extension_approved"] {
-                                border-color: #86efac;
-                                background: #f0fdf4;
+                                border-color: #bbf7d0;
+                                background: #f8fdf9;
                             }
 
                             .task-activity-feed__card--completed {
-                                border: 1px dotted #22c55e;
+                                border-color: #86efac;
                                 background: #f0fdf4;
                                 color: #166534;
                             }
 
                             .task-activity-feed__card-header {
                                 display: flex;
-                                align-items: flex-start;
+                                align-items: center;
                                 justify-content: space-between;
                                 gap: 10px;
                             }
@@ -3952,18 +4039,20 @@
                                 min-width: 0;
                                 margin: 0;
                                 color: #1e293b;
-                                font-size: 12px;
-                                font-weight: 750;
+                                font-size: 11px;
+                                font-weight: 650;
                             }
 
                             .task-activity-feed__designation {
                                 color: var(--feed-muted);
-                                font-size: 10px;
+                                font-size: 9px;
                                 font-weight: 500;
                             }
 
                             .task-activity-feed__designation::before {
-                                content: "- ";
+                                margin-right: 4px;
+                                color: #94a3b8;
+                                content: "•";
                             }
 
                             .task-activity-feed__message {
@@ -3971,19 +4060,19 @@
                                 min-width: 0;
                                 margin: 0;
                                 color: #1f2937;
-                                font-size: 13px;
-                                font-weight: 600;
+                                font-size: 11px;
+                                font-weight: 500;
                                 line-height: 1.45;
-                                letter-spacing: -.01em;
                                 overflow-wrap: anywhere;
                                 white-space: pre-line;
                             }
 
                             .task-activity-feed__message-row {
-                                display: flex;
-                                align-items: baseline;
-                                gap: 10px;
-                                margin-top: 6px;
+                                display: grid;
+                                grid-template-columns: minmax(0, 1fr) 108px;
+                                align-items: start;
+                                gap: 12px;
+                                margin-top: 5px;
                             }
 
                             .task-activity-feed__card--completed .task-activity-feed__message,
@@ -3992,11 +4081,11 @@
                             }
 
                             .task-activity-feed__detail {
-                                margin: 4px 0 0;
+                                margin: 3px 0 0;
                                 color: #475569;
-                                font-size: 11px;
-                                font-style: italic;
-                                font-weight: 700;
+                                font-size: 10px;
+                                font-style: normal;
+                                font-weight: 500;
                                 overflow-wrap: anywhere;
                                 white-space: pre-line;
                             }
@@ -4005,19 +4094,47 @@
                                 display: inline-flex;
                                 flex: 0 0 auto;
                                 align-items: center;
-                                gap: 5px;
-                                margin-top: 1px;
+                                gap: 4px;
+                                margin-top: 0;
                                 padding: 3px 7px;
                                 border-radius: 999px;
                                 background: #e8edf5;
                                 color: #475569;
                                 font-size: 9px;
-                                font-weight: 700;
+                                font-weight: 600;
                             }
 
+                            .task-activity-feed__card[data-tone="created"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="assigned"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="reassigned"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="accepted"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="poc"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="start"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="resume"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="work_update"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="submission"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="review"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="deadline_extension_requested"] .task-activity-feed__badge {
+                                background: #eff6ff;
+                                color: #1d4ed8;
+                            }
+
+                            .task-activity-feed__card[data-tone="hold"] .task-activity-feed__badge {
+                                background: #fffbeb;
+                                color: #b45309;
+                            }
+
+                            .task-activity-feed__card[data-tone="risk"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="cancelled"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="deadline_extension_rejected"] .task-activity-feed__badge {
+                                background: #fef2f2;
+                                color: #b91c1c;
+                            }
+
+                            .task-activity-feed__card[data-tone="deadline_extension_approved"] .task-activity-feed__badge,
                             .task-activity-feed__card--completed .task-activity-feed__badge {
-                                background: #dcfce7;
-                                color: #166534;
+                                background: #f0fdf4;
+                                color: #15803d;
                             }
 
                             .task-activity-feed__card-footer {
@@ -4030,7 +4147,7 @@
 
                             .task-activity-feed__date {
                                 display: flex;
-                                flex: 0 0 auto;
+                                width: 108px;
                                 flex-direction: column;
                                 margin-left: auto;
                                 color: var(--feed-muted);
@@ -4059,13 +4176,13 @@
                                 max-width: 100%;
                                 align-items: center;
                                 gap: 6px;
-                                padding: 5px 9px;
+                                padding: 4px 8px;
                                 border: 1px solid #dbeafe;
                                 border-radius: 999px;
                                 background: #eff6ff;
                                 color: #1d4ed8;
-                                font-size: 11px;
-                                font-weight: 650;
+                                font-size: 10px;
+                                font-weight: 600;
                                 text-decoration: none;
                                 overflow-wrap: anywhere;
                             }
@@ -4083,6 +4200,22 @@
                             }
 
                             @media (max-width: 575px) {
+                                .task-activity-feed--overview .task-activity-feed__header {
+                                    gap: 8px;
+                                    padding: 11px 12px;
+                                }
+
+                                .task-activity-feed__heading {
+                                    gap: 7px;
+                                }
+
+                                .task-activity-feed__icon {
+                                    width: 27px;
+                                    height: 27px;
+                                    flex-basis: 27px;
+                                    font-size: 12px;
+                                }
+
                                 .task-activity-feed__header {
                                     padding: 15px 16px;
                                 }
@@ -4101,6 +4234,27 @@
 
                                 .task-activity-feed__card {
                                     padding: 9px 10px;
+                                }
+
+                                .task-activity-feed__card-header {
+                                    align-items: flex-start;
+                                    gap: 6px;
+                                }
+
+                                .task-activity-feed__badge {
+                                    max-width: 48%;
+                                    justify-content: center;
+                                    text-align: center;
+                                }
+
+                                .task-activity-feed__message-row {
+                                    grid-template-columns: minmax(0, 1fr) 88px;
+                                    gap: 8px;
+                                }
+
+                                .task-activity-feed__date {
+                                    width: 88px;
+                                    font-size: 8px;
                                 }
                             }
                         </style>
@@ -5806,6 +5960,185 @@
             });
         })();
     </script>
+
+
+
+<style>
+/* --------------------------------------------------------------------------
+   Assignment history popover + task detail grid spacing fix
+   Keep the history panel out of document flow so opening it cannot stretch
+   the grid rows or create vertical gaps in the left-hand task panels.
+   -------------------------------------------------------------------------- */
+
+.tf-task-detail__grid,
+.tf-task-detail__grid > .tf-task-detail__sidebar,
+.tf-task-detail__sidebar > .task-overview-sidebar-cards {
+    overflow: visible;
+}
+
+.tf-task-detail__grid[data-activity-view] .task-overview-details {
+    position: relative;
+    z-index: 20;
+    overflow: visible;
+}
+
+/* Keep the current assignee list and history toggle aligned on one row. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__person--assignee
+.task-overview-details__person-copy {
+    position: relative;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-rows: auto;
+    align-items: start;
+    gap: 7px 8px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-current-list {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history {
+    position: relative;
+    z-index: 30;
+    display: block;
+    width: 22px;
+    min-width: 22px;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+}
+
+/* The expanded details element remains the same size as its toggle.
+   Only the history panel grows, as an overlay aligned to the right edge. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history[open] {
+    position: relative;
+    width: 22px;
+    min-width: 22px;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-list {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    left: auto;
+    z-index: 1085;
+    display: grid;
+    width: min(370px, calc(100vw - 32px));
+    min-width: min(290px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    max-height: min(360px, 55vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    gap: 7px;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid #dbe3ed;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .16);
+}
+
+/* Keep each history row readable when the popover is wider than the sidebar. */
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-person {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 8px 9px;
+    gap: 9px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-name-row {
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-name-row strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tf-task-detail__grid[data-activity-view]
+.task-overview-details__assignee-history-copy > small {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+/* Explicitly prevent the open popover from changing the left grid tracks. */
+@media (min-width: 761px) {
+    .tf-task-detail__grid[data-activity-view="overview"] {
+        align-items: start;
+        align-content: start;
+        grid-auto-rows: min-content;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__sidebar
+    > .task-overview-sidebar-cards {
+        align-self: start;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__sidebar
+    > .tf-activity-tabs-card {
+        align-self: start;
+    }
+
+    .tf-task-detail__grid[data-activity-view="overview"]
+    > .tf-task-detail__main {
+        align-self: start;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .tf-task-detail__grid[data-activity-view]
+    .task-overview-details__assignee-history-list {
+        width: min(340px, calc(100vw - 28px));
+        min-width: min(260px, calc(100vw - 28px));
+        max-width: calc(100vw - 28px);
+        right: 0;
+    }
+}
+
+@media (max-width: 420px) {
+    .tf-task-detail__grid[data-activity-view]
+    .task-overview-details__assignee-history-list {
+        width: calc(100vw - 24px);
+        min-width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        right: -2px;
+        padding: 8px;
+    }
+}
+</style>
 
     @include('tasks._reassign-modal')
 @endsection

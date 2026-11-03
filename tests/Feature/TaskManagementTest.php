@@ -89,6 +89,9 @@ class TaskManagementTest extends TestCase
         $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge-label"><i class="bi bi-(?:arrow-repeat|calendar2-check|alarm|hourglass-split)"/', $html));
         $this->assertStringNotContainsString('tf-task-detail__summary-item--progress', $html);
         $this->assertSame(1, preg_match('/<section class="tf-task-detail__summary"[^>]*>.*?<section class="tf-task-detail__workflow-progress"[^>]*>.*?<ol class="tf-task-workflow__steps"[^>]*aria-label="Workflow progress"/s', $html));
+        $this->assertStringContainsString('class="tf-task-workflow__step-meta"', $html);
+        $this->assertStringContainsString($this->admin->name.' · '.$task->created_at->format('M j'), $html);
+        $this->assertStringContainsString('Awaiting start', $html);
         $this->assertStringContainsString('class="task-deadline-alert"', $html);
         $this->assertLessThan(strpos($html, 'Description</h3>'), strpos($html, 'id="task-output-title"'));
         $this->assertSame(1, preg_match('/id="task-details-overview".*?id="task-output-title".*?data-task-activity-feed/s', $html));
@@ -108,6 +111,47 @@ class TaskManagementTest extends TestCase
         $this->assertStringNotContainsString('class="tf-task-detail__card task-overview-recurring"', $html);
         $this->assertStringContainsString('Accountability chain', $html);
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-overview-btn")(?=[^>]*data-activity-tab="overview")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
+    }
+
+    public function test_task_workflow_progress_shows_who_completed_each_stage(): void
+    {
+        $assignee = User::factory()->create([
+            'name' => 'Workflow Assignee',
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'active',
+        ]);
+        $task = $this->createWorkflowTask([
+            'assigned_to' => $assignee->id,
+            'status' => 'completed',
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $assignee->id,
+            'assigned_by' => $this->admin->id,
+            'reason' => 'Initial assignment',
+            'assigned_at' => now(),
+            'is_active' => true,
+        ]);
+
+        foreach ([
+            ['old_status' => 'assigned', 'new_status' => 'in_progress', 'event_type' => 'start', 'changed_by' => $assignee->id],
+            ['old_status' => 'in_progress', 'new_status' => 'submitted_for_review', 'event_type' => 'submission', 'changed_by' => $assignee->id],
+            ['old_status' => 'submitted_for_review', 'new_status' => 'completed', 'event_type' => 'review', 'changed_by' => $this->admin->id],
+        ] as $history) {
+            TaskStatusHistory::create([
+                'task_id' => $task->id,
+                ...$history,
+            ]);
+        }
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+        $today = now()->format('M j');
+
+        $this->assertStringContainsString($this->admin->name.' → Workflow Assignee · '.$today, $html);
+        $this->assertStringContainsString('Workflow Assignee started · '.$today, $html);
+        $this->assertStringContainsString('Workflow Assignee submitted · '.$today, $html);
+        $this->assertStringContainsString($this->admin->name.' approved · '.$today, $html);
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-subtasks-btn")(?=[^>]*data-activity-tab="subtasks")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<div(?=[^>]*id="panel-subtasks")(?=[^>]*hidden)[^>]*>.*?id="subtasks-table"/s', $html));
@@ -356,7 +400,15 @@ class TaskManagementTest extends TestCase
         $this->assertStringContainsString('.task-activity-feed__card[data-tone="submission"]', $html);
         $this->assertStringContainsString('.task-activity-feed__card--completed', $html);
         $this->assertStringNotContainsString('class="task-activity-feed__time"', $html);
-        $this->assertStringContainsString('border: 1px dotted #22c55e;', $html);
+        $this->assertStringContainsString('border-color: #86efac;', $html);
+        $this->assertStringContainsString('border-left: 1px dashed #cbd5e1;', $html);
+        $this->assertStringContainsString('border: 1px solid #e2e8f0;', $html);
+        $this->assertStringContainsString('class="task-activity-feed__icon"', $html);
+        $this->assertStringContainsString('grid-template-columns: minmax(0, 1fr) 108px;', $html);
+        $this->assertStringContainsString('font-size: 11px;', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="submission"] .task-activity-feed__badge', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="hold"] .task-activity-feed__badge', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="risk"] .task-activity-feed__badge', $html);
         $this->assertSame(
             1,
             preg_match('/<div class="task-activity-feed__message-row">.*?class="task-activity-feed__message".*?<time class="task-activity-feed__date"[^>]*>\s*<span>[^<]+<\/span>\s*<span>[^<]+<\/span>\s*<\/time>/s', $html),

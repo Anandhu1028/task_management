@@ -94,9 +94,18 @@ class SubtaskManagementController extends Controller
             ->groupBy('tasks.priority')
             ->pluck('total', 'priority');
         $priorityTaskCountTotal = (clone $priorityTaskQuery)->count();
+        $mainTaskStatusCounts = (clone $priorityTaskQuery)
+            ->selectRaw('tasks.status, COUNT(*) as total')
+            ->groupBy('tasks.status')
+            ->pluck('total', 'status');
+        $mainTaskStatusCountTotal = (clone $priorityTaskQuery)->count();
         $priorityBreakdown = collect(Task::PRIORITIES)
             ->mapWithKeys(fn (string $priority): array => [
                 $priority => (int) ($priorityTaskCounts[$priority] ?? 0),
+            ]);
+        $mainTaskStatusBreakdown = collect(Task::STATUSES)
+            ->mapWithKeys(fn (string $status): array => [
+                $status => (int) ($mainTaskStatusCounts[$status] ?? 0),
             ]);
         $statusBreakdown = collect(Subtask::STATUSES)
             ->mapWithKeys(fn (string $status): array => [
@@ -131,6 +140,12 @@ class SubtaskManagementController extends Controller
             ->orderByRaw("CASE dwr_summary_tasks.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
             ->orderBy('dwr_summary_tasks.title')
             ->get();
+
+        $mainTaskSubtasks = (clone $eligibleSubtasks)
+            ->select(['subtasks.id', 'subtasks.task_id', 'subtasks.title', 'subtasks.status'])
+            ->orderBy('subtasks.title')
+            ->get()
+            ->groupBy('task_id');
 
         $dailyUpdates = SubtaskDailyUpdate::query()
             ->whereDate('work_date', '>=', $startDate->toDateString())
@@ -231,8 +246,11 @@ class SubtaskManagementController extends Controller
             ],
             'priorityBreakdown' => $priorityBreakdown,
             'priorityTaskCountTotal' => $priorityTaskCountTotal,
+            'mainTaskStatusBreakdown' => $mainTaskStatusBreakdown,
+            'mainTaskStatusCountTotal' => $mainTaskStatusCountTotal,
             'statusBreakdown' => $statusBreakdown,
             'mainTaskSummaries' => $mainTaskSummaries,
+            'mainTaskSubtasks' => $mainTaskSubtasks,
             'subtaskStatuses' => Subtask::STATUSES,
         ]);
     }
