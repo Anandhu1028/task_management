@@ -73,19 +73,40 @@ class TaskManagementTest extends TestCase
             ->assertDontSee("checkbox.name = 'poc_ids[]';", false);
     }
 
-    public function test_task_detail_opens_overview_full_width_before_activity_tabs(): void
+    public function test_task_detail_places_overview_activity_and_task_details_in_the_dashboard_layout(): void
     {
-        $task = $this->createWorkflowTask();
+        $task = $this->createWorkflowTask([
+            'due_date' => now()->addDays(2)->toDateString(),
+            'original_deadline' => now()->addDays(2)->toDateString(),
+        ]);
 
         $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
         $html = $response->getContent();
 
         $response->assertOk();
         $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge tf-task-detail__summary-badge--(?:workflow|start|deadline|effort)"/', $html));
-        $this->assertSame(1, preg_match('/<div class="tf-task-detail__heading">.*?<h1>.*?<\\/h1>.*?<div class="tf-task-detail__summary-badges"[^>]*>.*?tf-task-detail__summary-badge--workflow.*?tf-task-detail__summary-badge--start.*?tf-task-detail__summary-badge--deadline.*?tf-task-detail__summary-badge--effort/s', $html));
+        $this->assertSame(1, preg_match('/<header class="tf-task-detail__header">.*?<div class="tf-task-detail__heading tf-task-detail__page-title">.*?<h1>.*?<\\/h1>.*?<div class="tf-task-detail__actions">.*?<\\/header>.*?<div class="tf-task-detail__summary-badges"[^>]*>.*?tf-task-detail__summary-badge--workflow.*?tf-task-detail__summary-badge--start.*?tf-task-detail__summary-badge--deadline.*?tf-task-detail__summary-badge--effort/s', $html));
         $this->assertSame(4, preg_match_all('/class="tf-task-detail__summary-badge-label"><i class="bi bi-(?:arrow-repeat|calendar2-check|alarm|hourglass-split)"/', $html));
         $this->assertStringNotContainsString('tf-task-detail__summary-item--progress', $html);
         $this->assertSame(1, preg_match('/<section class="tf-task-detail__summary"[^>]*>.*?<section class="tf-task-detail__workflow-progress"[^>]*>.*?<ol class="tf-task-workflow__steps"[^>]*aria-label="Workflow progress"/s', $html));
+        $this->assertStringContainsString('class="task-deadline-alert"', $html);
+        $this->assertLessThan(strpos($html, 'Description</h3>'), strpos($html, 'id="task-output-title"'));
+        $this->assertSame(1, preg_match('/id="task-details-overview".*?id="task-output-title".*?data-task-activity-feed/s', $html));
+        $this->assertStringNotContainsString('tf-task-detail__people-cards', $html);
+        $this->assertStringNotContainsString('task-pocs-title', $html);
+        $this->assertStringNotContainsString('task-assignment-title', $html);
+        $this->assertStringContainsString('task-overview-details"', $html);
+        $this->assertStringContainsString('task-overview-details__person--assignee', $html);
+        $this->assertStringContainsString('class="tf-task-detail__card task-overview-files"', $html);
+        $this->assertStringContainsString('id="task-overview-files-title"', $html);
+        $this->assertStringNotContainsString('data-task-detail-tab="files"', $html);
+        $this->assertStringNotContainsString('id="task-details-files"', $html);
+        $this->assertStringContainsString('data-task-file-upload', $html);
+        $this->assertStringContainsString('Drop files here or', $html);
+        $this->assertStringContainsString('>browse</strong>', $html);
+        $this->assertStringContainsString(route('tasks.attachments.store', $task), $html);
+        $this->assertStringNotContainsString('class="tf-task-detail__card task-overview-recurring"', $html);
+        $this->assertStringContainsString('Accountability chain', $html);
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-overview-btn")(?=[^>]*data-activity-tab="overview")(?=[^>]*class="[^"]*is-active")(?=[^>]*aria-selected="true")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-timeline-btn")(?=[^>]*data-activity-tab="timeline")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
         $this->assertSame(1, preg_match('/<button(?=[^>]*id="tab-subtasks-btn")(?=[^>]*data-activity-tab="subtasks")(?=[^>]*aria-selected="false")[^>]*>/s', $html));
@@ -111,9 +132,231 @@ class TaskManagementTest extends TestCase
             strpos($html, 'id="tab-subtasks-btn"'),
             strpos($html, 'id="tab-timeline-btn"'),
         );
+        $this->assertStringNotContainsString('tab-daily-tasks-btn', $html);
+        $this->assertStringNotContainsString('panel-daily-tasks', $html);
+    }
+
+    public function test_task_details_can_expand_previous_assignees_with_active_and_inactive_states(): void
+    {
+        $previousAssignee = User::factory()->create([
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'active',
+            'name' => 'Former Task Assignee',
+        ]);
+        $currentAssignee = User::factory()->create([
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'active',
+            'name' => 'Current Task Assignee',
+        ]);
+        $task = $this->createWorkflowTask([
+            'assigned_to' => $currentAssignee->id,
+            'status' => 'assigned',
+        ]);
+
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $previousAssignee->id,
+            'assigned_by' => $this->admin->id,
+            'reason' => 'Re-assigned task',
+            'assigned_at' => now()->subDays(3),
+            'unassigned_at' => now()->subDays(1),
+            'is_active' => false,
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $currentAssignee->id,
+            'assigned_by' => $this->admin->id,
+            'reason' => 'Re-assigned task',
+            'assigned_at' => now()->subDay(),
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
+
+        $response->assertOk()
+            ->assertSee('data-assignee-history', false)
+            ->assertSee('Current Task Assignee')
+            ->assertSee('Former Task Assignee')
+            ->assertSee('task-overview-details__assignee-status--active', false)
+            ->assertSee('>Current</span>', false)
+            ->assertSee('Previous')
+            ->assertSee('Reason: Re-assigned task');
+
+        $html = $response->getContent();
+        $this->assertStringNotContainsString('tf-task-detail__people-cards', $html);
+        $this->assertSame(
+            true,
+            strpos($html, 'class="task-overview-details__assignee-history-list"') !== false,
+        );
+        $historyListPosition = strpos($html, 'class="task-overview-details__assignee-history-list"');
         $this->assertLessThan(
-            strpos($html, 'id="tab-daily-tasks-btn"'),
-            strpos($html, 'id="tab-overview-btn"'),
+            strpos($html, 'Former Task Assignee', $historyListPosition),
+            strpos($html, 'Current Task Assignee', $historyListPosition),
+        );
+        $this->assertLessThan(
+            $historyListPosition,
+            strpos($html, 'task-overview-details__person--poc'),
+        );
+    }
+
+    public function test_task_description_can_be_added_inline_and_saved(): void
+    {
+        $task = $this->createWorkflowTask(['description' => null]);
+
+        $this->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('No description yet.')
+            ->assertSee('Add description')
+            ->assertSee(route('tasks.description.update', $task), false)
+            ->assertDontSee('No additional description provided.');
+
+        $this->actingAs($this->admin)->put(route('tasks.description.update', $task), [
+            'description' => 'The task description has been added.',
+        ])->assertRedirect(route('tasks.show', $task))
+            ->assertSessionHas('success', 'Task description saved successfully.');
+
+        $this->assertDatabaseHas('tasks', [
+            'id' => $task->id,
+            'description' => 'The task description has been added.',
+        ]);
+
+        $this->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('The task description has been added.')
+            ->assertDontSee('Add description')
+            ->assertDontSee('No description yet.');
+    }
+
+    public function test_task_description_update_requires_task_update_permission(): void
+    {
+        $task = $this->createWorkflowTask(['description' => null]);
+        $userWithoutTaskAccess = User::factory()->create(['status' => 'active']);
+
+        $this->actingAs($userWithoutTaskAccess)
+            ->put(route('tasks.description.update', $task), [
+                'description' => 'Unauthorized description update.',
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('tasks', [
+            'id' => $task->id,
+            'description' => 'Unauthorized description update.',
+        ]);
+    }
+
+    public function test_user_can_upload_task_files_from_the_task_details_sidebar(): void
+    {
+        Storage::fake('local');
+        $task = $this->createWorkflowTask();
+
+        $response = $this->actingAs($this->admin)->post(route('tasks.attachments.store', $task), [
+            'attachments' => [
+                UploadedFile::fake()->createWithContent('brief.txt', 'Task brief contents.'),
+                UploadedFile::fake()->image('reference.png'),
+            ],
+        ]);
+
+        $response->assertRedirect(route('tasks.show', $task))
+            ->assertSessionHas('success', 'Files uploaded successfully.');
+        $this->assertDatabaseCount('task_attachments', 2);
+
+        $attachments = TaskAttachment::query()->where('task_id', $task->id)->get();
+        foreach ($attachments as $attachment) {
+            Storage::disk('local')->assertExists($attachment->path);
+            $this->assertSame($this->admin->id, $attachment->uploaded_by);
+        }
+
+        $this->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('brief.txt')
+            ->assertSee('reference.png');
+    }
+
+    public function test_recurring_schedule_card_is_shown_only_for_recurring_tasks(): void
+    {
+        $task = $this->createWorkflowTask([
+            'task_type' => 'recurring',
+        ]);
+        $task->recurringSchedule()->create([
+            'repeat_frequency' => 'daily',
+            'start_date' => today()->addDay()->toDateString(),
+            'end_date' => today()->addDays(5)->toDateString(),
+            'start_time' => '18:26:00',
+            'end_time' => '19:30:00',
+            'timezone' => 'Asia/Kolkata',
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
+
+        $response->assertOk()
+            ->assertSee('task-overview-recurring', false)
+            ->assertSee('Recurring Schedule')
+            ->assertSee('>Daily</dd>', false)
+            ->assertSee('6:26–7:30 PM Asia/Kolkata')
+            ->assertSee('task-overview-recurring__status--active', false)
+            ->assertSee('Active')
+            ->assertSee('Stored as 6:26–7:30 PM Asia/Kolkata.')
+            ->assertSee('Next occurrence:');
+    }
+
+    public function test_task_activity_feed_shows_complete_history_separately_from_the_existing_timeline(): void
+    {
+        $task = $this->createWorkflowTask();
+
+        foreach (range(0, 11) as $index) {
+            $history = TaskStatusHistory::create([
+                'task_id' => $task->id,
+                'changed_by' => $this->admin->id,
+                'old_status' => 'in_progress',
+                'new_status' => 'in_progress',
+                'event_type' => 'work_update',
+                'remarks' => 'Activity update '.$index,
+            ]);
+            $history->forceFill(['created_at' => now()->subDays($index)])->save();
+
+            if ($index === 0) {
+                TaskAttachment::create([
+                    'task_id' => $task->id,
+                    'status_history_id' => $history->id,
+                    'uploaded_by' => $this->admin->id,
+                    'disk' => 'local',
+                    'path' => 'task-attachments/work-update.png',
+                    'original_name' => 'work-update.png',
+                    'mime_type' => 'image/png',
+                    'size_bytes' => 100,
+                ]);
+            }
+        }
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+
+        $this->assertSame(13, preg_match_all('/<li class="task-activity-feed__item" id="task-feed-event-/', $html));
+        $this->assertStringContainsString('Activity update 11', $html);
+        $this->assertStringContainsString('work-update.png', $html);
+        $attachment = TaskAttachment::query()->where('task_id', $task->id)->firstOrFail();
+        $this->assertStringContainsString(route('tasks.attachments.preview', [$task, $attachment]), $html);
+        $this->assertStringContainsString('target="_blank" rel="noopener noreferrer"', $html);
+        $this->assertStringContainsString('class="task-activity-feed__attachment"', $html);
+        $this->assertStringContainsString('data-task-activity-feed', $html);
+        $this->assertStringContainsString('data-timeline-model=', $html);
+        $this->assertStringNotContainsString('data-task-feed-bookmark', $html);
+        $this->assertStringNotContainsString('data-task-feed-menu-toggle', $html);
+        $this->assertStringNotContainsString('task-activity-feed__actions', $html);
+        $this->assertStringContainsString('class="task-activity-feed__date"', $html);
+        $this->assertStringContainsString('class="task-activity-feed__card-footer"', $html);
+        $this->assertStringContainsString('class="task-activity-feed__author-details"', $html);
+        $this->assertStringNotContainsString('class="task-activity-feed__time"', $html);
+        $this->assertStringContainsString('border: 1px dotted #22c55e;', $html);
+        $this->assertSame(
+            1,
+            preg_match('/<div class="task-activity-feed__message-row">.*?class="task-activity-feed__message".*?<time class="task-activity-feed__date"[^>]*>\s*<span>[^<]+<\/span>\s*<span>[^<]+<\/span>\s*<\/time>/s', $html),
+        );
+        $this->assertSame(
+            1,
+            preg_match('/<header class="task-activity-feed__card-header">.*?class="task-activity-feed__author".*?class="task-activity-feed__badge"/s', $html),
         );
     }
 
@@ -205,9 +448,9 @@ class TaskManagementTest extends TestCase
         $this->assertStringContainsString('class="tl-event-tooltip"', $html);
         $this->assertStringContainsString('bottom: calc(100% + 8px);', $html);
         $this->assertStringContainsString('.tl-event-tooltip__detail', $html);
-        $this->assertStringContainsString('.tl-event-tooltip__people', $html);
-        $this->assertStringContainsString('Daily Task: ', $html);
-        $this->assertStringContainsString('employee: event.employee, department: event.department', $html);
+        $this->assertStringNotContainsString('Daily Task Update', $html);
+        $this->assertStringNotContainsString('Daily Task:', $html);
+        $this->assertStringNotContainsString('dailyTaskId', $html);
         $this->assertStringContainsString('is-tooltip-align-left', $html);
         $this->assertStringContainsString('is-tooltip-align-right', $html);
         $this->assertStringContainsString('background: #fff;', $html);
@@ -215,14 +458,11 @@ class TaskManagementTest extends TestCase
         $milestonesPosition = strpos($html, "['milestones', 'Milestones'");
         $taskPosition = strpos($html, "['task', 'Task'");
         $subtasksPosition = strpos($html, "['subtasks', 'Subtasks'");
-        $dailyUpdatesPosition = strpos($html, "['updates', 'Daily Task Update'");
         $this->assertNotFalse($milestonesPosition);
         $this->assertNotFalse($taskPosition);
         $this->assertNotFalse($subtasksPosition);
-        $this->assertNotFalse($dailyUpdatesPosition);
         $this->assertTrue($milestonesPosition < $taskPosition);
         $this->assertTrue($taskPosition < $subtasksPosition);
-        $this->assertTrue($subtasksPosition < $dailyUpdatesPosition);
     }
 
     public function test_notification_poll_returns_only_the_signed_in_users_latest_notifications(): void
@@ -837,6 +1077,9 @@ class TaskManagementTest extends TestCase
         $detailResponse = $this->get(route('tasks.show', $task));
         $detailResponse->assertOk()
             ->assertSee('Task files')
+            ->assertSee('class="tf-task-detail__card task-overview-files"', false)
+            ->assertSee('class="tf-task-detail__attachments"', false)
+            ->assertDontSee('id="task-details-files"', false)
             ->assertSee('wireframe.png')
             ->assertSee('notes.txt')
             ->assertSee(route('tasks.attachments.download', [$task, $attachments->first()]), false)
@@ -1669,9 +1912,11 @@ class TaskManagementTest extends TestCase
             ->assertSee('data-task-timeline', false)
             ->assertDontSee('tf-task-detail__activity-tabs', false)
             ->assertDontSee('data-task-activity-tab', false)
-            ->assertSee('class="tf-task-detail__people-cards"', false)
-            ->assertSee('Department Points of Contact')
-            ->assertSee('id="task-assignment-title"', false)
+            ->assertDontSee('tf-task-detail__people-cards', false)
+            ->assertDontSee('Department Points of Contact')
+            ->assertDontSee('id="task-assignment-title"', false)
+            ->assertSee('task-overview-details__person--assignee', false)
+            ->assertSee('task-overview-details__person--poc', false)
             ->assertSee('id="topTaskWorkUpdate" name="note"', false)
             ->assertSee('id="topWorkUpdateDate" name="update_date"', false)
             ->assertSee("start: 'Work started'", false)
@@ -1757,7 +2002,7 @@ class TaskManagementTest extends TestCase
         $this->assertTrue(collect($timelineModel['activities'])->contains(
             fn (array $activity): bool => $activity['type'] === 'work_update',
         ));
-        $this->assertSame([], $timelineModel['dailyUpdates']);
+        $this->assertArrayNotHasKey('dailyUpdates', $timelineModel);
     }
 
     public function test_resuming_a_held_task_restores_its_previous_workflow_status(): void

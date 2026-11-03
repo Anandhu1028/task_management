@@ -32,7 +32,7 @@
     @if (request()->routeIs('dashboard', 'dashboard.*'))
         <link href="{{ asset('css/dashboard.css') }}?v={{ filemtime(public_path('css/dashboard.css')) }}" rel="stylesheet">
     @endif
-    @if (request()->routeIs('tasks.*', 'daily-tasks.*'))
+    @if (request()->routeIs('tasks.*'))
         <link href="{{ asset('css/tasks.css') }}?v={{ filemtime(public_path('css/tasks.css')) }}" rel="stylesheet">
     @endif
     @if (request()->routeIs('users.*'))

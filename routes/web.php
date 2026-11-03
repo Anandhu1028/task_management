@@ -1,9 +1,6 @@
 <?php
 
 use App\Http\Controllers\CompanyController;
-use App\Http\Controllers\DailyAccountabilityController;
-use App\Http\Controllers\DailyAccountabilitySettingsController;
-use App\Http\Controllers\DailyTaskController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
@@ -28,17 +25,6 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');
-    Route::get('/daily-accountability', [DailyAccountabilityController::class, 'index'])
-        ->name('daily-accountability.index');
-
-    Route::prefix('settings/daily-accountability')->name('daily-accountability.settings.')->group(function (): void {
-        Route::get('/', [DailyAccountabilitySettingsController::class, 'index'])->name('index');
-        Route::put('/', [DailyAccountabilitySettingsController::class, 'update'])->name('update');
-        Route::post('/exemptions', [DailyAccountabilitySettingsController::class, 'storeExemption'])->name('exemptions.store');
-        Route::patch('/exemptions/{exemption}/deactivate', [DailyAccountabilitySettingsController::class, 'deactivateExemption'])
-            ->name('exemptions.deactivate');
-    });
-
     Route::prefix('settings/roles')->name('roles.')->group(function (): void {
         Route::get('/', [RoleController::class, 'index'])->middleware('can:roles.view')->name('index');
         Route::post('/', [RoleController::class, 'store'])->middleware('can:roles.create')->name('store');
@@ -68,17 +54,12 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/notifications/poll', [NotificationController::class, 'poll'])->name('notifications.poll');
     Route::get('/notifications/{notification}', [NotificationController::class, 'open'])->name('notifications.open');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::post('/tasks/{task}/attachments', [TaskController::class, 'uploadAttachments'])->name('tasks.attachments.store');
+    Route::put('/tasks/{task}/description', [TaskController::class, 'updateDescription'])->name('tasks.description.update');
     Route::get('/tasks/{task}/attachments/{attachment}', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
     Route::get('/tasks/{task}/attachments/{attachment}/preview', [TaskController::class, 'previewAttachment'])->name('tasks.attachments.preview');
     Route::resource('tasks', TaskController::class);
 
-    Route::get('/daily-tasks', [DailyTaskController::class, 'index'])->name('daily-tasks.index');
-    Route::get('/tasks/{task}/daily-tasks', [DailyTaskController::class, 'forTask'])->name('daily-tasks.for-task');
-    Route::get('/tasks/{task}/daily-tasks/options', [DailyTaskController::class, 'subtasks'])->name('daily-tasks.options');
-    Route::get('/tasks/{task}/daily-tasks/create', [DailyTaskController::class, 'create'])->name('daily-tasks.create');
-    Route::post('/tasks/{task}/daily-tasks', [DailyTaskController::class, 'store'])->name('daily-tasks.store');
-    Route::get('/tasks/{task}/daily-tasks/{dailyTask}', [DailyTaskController::class, 'show'])->name('daily-tasks.show')->scopeBindings();
-    Route::post('/tasks/{task}/daily-tasks/{dailyTask}/{action}', [DailyTaskController::class, 'action'])->name('daily-tasks.action')->scopeBindings();
     Route::post('/tasks/{task}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');
     Route::patch('/tasks/{task}/milestones/{milestone}', [MilestoneController::class, 'update'])
         ->name('milestones.update')->scopeBindings();

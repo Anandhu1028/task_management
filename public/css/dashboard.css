@@ -2141,9 +2141,6 @@
     border-bottom: 1px solid var(--tf-border);
 }
 
-
-
-
 /* ==========================================================================
    Company-Wise Task Table  (cwt-*)
    ========================================================================== */
@@ -2353,19 +2350,6 @@
 
 .dpf-head__title { display: flex; align-items: center; gap: 12px; min-width: 0; }
 
-.dpf-head__icon {
-    display: inline-grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    flex: 0 0 42px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, #1d4ed8, #60a5fa);
-    color: #fff;
-    font-size: 18px;
-    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.3);
-}
-
 .dpf-head__title h2 { margin: 0; font-size: 16px; font-weight: 700; color: var(--tf-text); line-height: 1.25; }
 .dpf-head__title p { margin: 3px 0 0; font-size: 12px; color: var(--tf-muted); }
 
@@ -2382,14 +2366,17 @@
     white-space: nowrap;
 }
 
+/* Panels: ONE column by default (laptop & below), 2 columns only on very wide screens */
 .dpf-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
 }
 
-@media (max-width: 1100px) {
-    .dpf-grid { grid-template-columns: 1fr; }
+.dpf-grid > * { min-width: 0; }
+
+@media (min-width: 1600px) {
+    .dpf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .dpf-panel {
@@ -2400,8 +2387,6 @@
     border-radius: 16px;
     background: #fff;
 }
-
-
 
 .dpf-panel__head {
     display: flex;
@@ -2438,10 +2423,20 @@
 }
 .dpf-count--high { background: #1d4ed8; color: #fff; }
 .dpf-count--low  { background: #bfdbfe; color: #1e3a8a; }
+.dpf-count i { margin-right: 4px; }
 
-.dpf-table-wrap { max-height: 380px; overflow: auto; }
+/* Vertical scroll only for long lists; no horizontal scroll on desktop/laptop */
+.dpf-table-wrap {
+    max-height: 380px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
 
-.dpf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.dpf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
 
 .dpf-table th {
     position: sticky;
@@ -2521,6 +2516,12 @@
 .dpf-empty i { display: block; margin-bottom: 6px; font-size: 12px; color: #bfdbfe; }
 .dpf-empty--block { border: 1px dashed #dbeafe; border-radius: 14px; }
 
+/* Small screens (phones / small tablets): allow horizontal swipe instead of squashing */
+@media (max-width: 767.98px) {
+    .dpf-table-wrap { overflow-x: auto; }
+    .dpf-table { min-width: 620px; }
+}
+
 /* Chart */
 .dpf-chart { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e3edff; }
 
@@ -2549,8 +2550,6 @@
 [data-theme="dark"] .dpf-dept { color: var(--tf-text); }
 [data-theme="dark"] .dpf-scope { background: rgba(37, 99, 235, 0.22); color: #93c5fd; }
 
-
-
 /* ── Company-Wise Task: status tabs on their own row ── */
 .tf-recent-tasks-card .tf-card__head--tabs {
     display: flex;
@@ -2576,38 +2575,49 @@
     vertical-align: -1px;
 }
 
-.tf-card__icon {
-    font-size: 18px;
-}
-
-/* ── Company-wise graph header icon ── */
-.cwt2-head__title {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-}
-
-.cwt2-head__icon {
-    display: inline-grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    flex: 0 0 40px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #1d4ed8, #60a5fa);
-    color: #fff;
-    font-size: 17px;
-    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.28);
-}
-
 .cwt2-badge i { font-size: 12px; }
 
-/* ── Department chart header ── */
+/* ==========================================================================
+   UNIFIED SECTION HEADING ICON
+   Same look as "Completed vs pending by department":
+   light-blue rounded square + blue icon.
+   Used by: Department-wise performance, Company-Wise Task,
+   Company-wise tasks Graph, Organization Task Status,
+   Completed vs pending by department.
+   ========================================================================== */
+
+.tf-head-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border-radius: 10px;
+    background: #e0ebff;
+    color: #2563eb;
+    font-size: 16px;
+    box-shadow: none;
+}
+
+.tf-head-icon i {
+    margin: 0;
+    line-height: 1;
+    color: inherit;
+    font-size: inherit;
+}
+
+/* Keep icon + text aligned in every heading wrapper */
+.tf-card__title,
+.cwt2-head__title,
+.dpf-head__title,
 .dpf-chart__title {
     display: flex;
     align-items: center;
     gap: 11px;
+    min-width: 0;
 }
 
-.dpf-count i { margin-right: 4px; }
+[data-theme="dark"] .tf-head-icon {
+    background: rgba(37, 99, 235, 0.22);
+    color: #93c5fd;
+}

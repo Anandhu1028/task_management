@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreTaskRequest;
 use App\Http\Requests\UpdateTaskRequest;
 use App\Models\Company;
-use App\Models\DailyAccountabilityEvent;
 use App\Models\Department;
 use App\Models\Task;
 use App\Models\TaskAssignment;
@@ -15,6 +14,7 @@ use App\Models\User;
 use App\Services\RecurringTaskTemplateService;
 use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
+use App\Services\TaskActivityFeedService;
 use App\Services\TaskAttachmentService;
 use App\Services\TaskWorkflowService;
 use Carbon\Carbon;
@@ -226,6 +226,7 @@ class TaskController extends Controller
         Task $task,
         TaskWorkflowService $workflow,
         SubtaskProgressService $subtaskProgress,
+        TaskActivityFeedService $activityFeedService,
     ): View {
         $this->authorize('view', $task);
 
@@ -271,46 +272,17 @@ class TaskController extends Controller
                 ! $request->user()->hasAssignedRole('Admin')
                     && ! $request->user()->hasAssignedRole('CEO')
                     && ! $request->user()->hasAssignedRole('Manager')
-                    && ! $request->user()->hasAssignedRole('Team Leader')
-                    && ! $request->user()->can('daily_tasks.view_team'),
+                    && ! $request->user()->hasAssignedRole('Team Leader'),
                 fn (Builder $query) => $query->where(function (Builder $visibilityQuery) use ($request): void {
                     $visibilityQuery->whereDoesntHave('assignees')
                         ->orWhereHas('assignees', fn (Builder $assigneeQuery) => $assigneeQuery->whereKey($request->user()->id));
                 }),
             )
             ->get();
-        $dailyTasks = $task->dailyTasks()
-            ->visibleTo($request->user())
-            ->with([
-                'assignee:id,name,department_id',
-                'assignee.department:id,name',
-                'subtask:id,task_id,title',
-                'milestone:id,task_id,title',
-                'activity.changedBy:id,name,department_id',
-                'activity.changedBy.department:id,name',
-                'activity.attachments',
-            ])
-            ->get();
-        $accountabilityEvents = DailyAccountabilityEvent::query()
-            ->where('task_id', $task->id)
-            ->with('employee.department')
-            ->where('event_type', 'missed')
-            ->when(
-                ! $request->user()->hasAssignedRole('Admin')
-                    && ! $request->user()->hasAssignedRole('CEO')
-                    && ! $request->user()->hasAssignedRole('Manager')
-                    && ! $request->user()->hasAssignedRole('Team Leader')
-                    && ! $request->user()->can('daily_tasks.view_team'),
-                fn (Builder $query) => $query->where('employee_id', $request->user()->id),
-            )
-            ->orderBy('report_date')
-            ->orderBy('created_at')
-            ->get();
         if (! $request->user()->hasAssignedRole('Admin')
             && ! $request->user()->hasAssignedRole('CEO')
             && ! $request->user()->hasAssignedRole('Manager')
-            && ! $request->user()->hasAssignedRole('Team Leader')
-            && ! $request->user()->can('daily_tasks.view_team')) {
+            && ! $request->user()->hasAssignedRole('Team Leader')) {
             $visibleSubtaskIds = $task->subtasks
                 ->where('assigned_to', $request->user()->id)
                 ->pluck('id');
@@ -343,6 +315,7 @@ class TaskController extends Controller
                 fn (Builder $query) => $query->where('requested_by', $request->user()->id),
             )
             ->get();
+        $taskActivityFeed = $activityFeedService->build($task);
 
         return view('tasks.show', compact(
             'task',
@@ -350,8 +323,6 @@ class TaskController extends Controller
             'departments',
             'employees',
             'milestones',
-            'dailyTasks',
-            'accountabilityEvents',
             'statusOptions',
             'canFlagRisk',
             'canReviewSubmission',
@@ -365,6 +336,7 @@ class TaskController extends Controller
             'resumeToReview',
             'canReviewDeadlineExtensions',
             'deadlineExtensionRequests',
+            'taskActivityFeed',
         ));
     }
 
@@ -617,6 +589,45 @@ class TaskController extends Controller
             ],
             'inline',
         );
+    }
+
+    public function uploadAttachments(Request $request, Task $task): RedirectResponse
+    {
+        $this->authorize('update', $task);
+
+        $validated = $request->validate([
+            'attachments' => ['required', 'array', 'min:1', 'max:10'],
+            'attachments.*' => ['required', 'file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
+        ]);
+        $storedAttachments = $this->storeAttachmentFiles($validated['attachments']);
+
+        try {
+            DB::transaction(function () use ($task, $storedAttachments, $request): void {
+                $this->createAttachmentRecords($task, $storedAttachments, $request->user()->id);
+            });
+        } catch (Throwable $exception) {
+            $this->deleteStoredAttachmentFiles($storedAttachments);
+            throw $exception;
+        }
+
+        return redirect()->route('tasks.show', $task)->with(
+            'success',
+            count($storedAttachments) === 1 ? 'File uploaded successfully.' : 'Files uploaded successfully.',
+        );
+    }
+
+    public function updateDescription(Request $request, Task $task): RedirectResponse
+    {
+        $this->authorize('update', $task);
+
+        $validated = $request->validate([
+            'description' => ['required', 'string', 'max:10000'],
+        ]);
+
+        $task->update(['description' => trim($validated['description'])]);
+
+        return redirect()->route('tasks.show', $task)
+            ->with('success', 'Task description saved successfully.');
     }
 
     public function destroy(Task $task): RedirectResponse

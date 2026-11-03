@@ -2,7 +2,6 @@
 
 namespace App\Policies;
 
-use App\Models\DailyTask;
 use App\Models\Milestone;
 use App\Models\Subtask;
 use App\Models\Task;
@@ -89,58 +88,6 @@ class TaskPolicy
     public function createSubtask(User $user, Task $task): bool
     {
         return $user->can('subtasks.create') && $this->canManageOperationalTask($user, $task);
-    }
-
-    public function createDailyTask(User $user, Task $task): bool
-    {
-        if ($user->hasAssignedRole('CEO') || $user->hasAssignedRole('Team Leader')) {
-            return false;
-        }
-
-        if (! Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()) {
-            return false;
-        }
-
-        if ($user->can('daily_tasks.create_for_others')) {
-            return $this->canManageOperationalTask($user, $task);
-        }
-
-        return ($user->hasAssignedRole('Employee') || $user->can('daily_tasks.create_own'))
-            && (
-                $this->isActiveAssignee($user, $task)
-                || (int) $task->assigned_to === (int) $user->id
-                || $this->isTaskPoc($user, $task)
-            );
-    }
-
-    public function updateDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
-    {
-        if ($dailyTask->task_id !== $task->id
-            || ! Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()) {
-            return false;
-        }
-
-        if ($user->hasAssignedRole('CEO') || $user->hasAssignedRole('Team Leader')) {
-            return false;
-        }
-
-        if ($user->hasAssignedRole('Admin')) {
-            return $this->canManageOperationalTask($user, $task);
-        }
-
-        if ($user->hasAssignedRole('Employee') && (int) $dailyTask->assigned_to === (int) $user->id) {
-            return true;
-        }
-
-        return $user->can('daily_tasks.update_own')
-            && (int) $dailyTask->assigned_to === (int) $user->id;
-    }
-
-    public function viewDailyTask(User $user, Task $task, DailyTask $dailyTask): bool
-    {
-        return $dailyTask->task_id === $task->id
-            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
-            && DailyTask::query()->visibleTo($user)->whereKey($dailyTask->getKey())->exists();
     }
 
     public function createMilestone(User $user, Task $task): bool

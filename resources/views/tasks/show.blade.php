@@ -11,17 +11,23 @@
         $daysUntilDeadline = $deadline
             ? (int) today()->diffInDays($deadline, false)
             : null;
+        $recurringSchedule = $task->recurringSchedule ?? $task->recurringTask;
+        $nextRecurringOccurrence = $recurringSchedule?->nextOccurrenceDate();
         $currentAssignees = $task->activeAssignees;
         if ($currentAssignees->isEmpty() && $task->assignee) {
             $currentAssignees = collect([$task->assignee]);
         }
+        $currentAssigneeIds = $currentAssignees->modelKeys();
+        $assigneeHistoryRows = $task->assignments
+            ->sortByDesc('assigned_at')
+            ->filter(fn ($assignment) => $assignment->user)
+            ->values();
         $assigneeNames = $currentAssignees->pluck('name')->implode(', ');
         $previousAssigneeCount = $task->assignments->where('is_active', false)->count();
         $mainTaskHistory = $task->statusHistory->reject(function ($history): bool {
             $eventType = strtolower((string) $history->event_type);
 
             return $history->subtask_id !== null
-                || $history->daily_task_id !== null
                 || $history->milestone_id !== null
                 || $eventType === 'subtask'
                 || str_starts_with($eventType, 'subtask_');
@@ -175,8 +181,837 @@
                 || isset($statusOptions['cancelled']) || $canFlagRisk);
         @endphp
 
-        @if ($hasActions || $canReviewSubmission || auth()->user()?->can('tasks.update'))
-            <header class="tf-task-detail__header">
+        <style>
+            .tf-task-detail > .tf-task-detail__header {
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                width: 100%;
+                margin-bottom: 0;
+            }
+
+            .tf-task-detail > .tf-task-detail__header > .tf-task-detail__page-title {
+                flex: 1 1 auto;
+                width: auto;
+                min-width: 0;
+            }
+
+            .tf-task-detail > .tf-task-detail__header > .tf-task-detail__actions {
+                flex: 0 1 auto;
+                width: auto;
+                max-width: 100%;
+                justify-content: flex-end;
+            }
+
+            .tf-task-detail__page-title h1 {
+                max-width: 100%;
+                margin: 0 0 4px;
+                color: #17243b;
+                font-size: clamp(20px, 2.2vw, 26px);
+                font-weight: 750;
+                line-height: 1.25;
+                overflow-wrap: anywhere;
+            }
+
+            .tf-task-detail__page-title p {
+                margin: 0;
+                color: #64748b;
+                font-size: 12px;
+            }
+
+            .tf-task-detail__card-body > #task-description-title {
+                margin-top: 5px;
+            }
+
+            .task-description-editor {
+                margin-top: 2px;
+            }
+
+            .task-description-editor__toggle {
+                padding: 0;
+                border: 0;
+                background: transparent;
+                color: #2563eb;
+                cursor: pointer;
+                font-size: inherit;
+                font-style: italic;
+            }
+
+            .task-description-editor__toggle:hover {
+                color: #1d4ed8;
+                text-decoration: underline;
+            }
+
+            .task-description-editor[open] .task-description-editor__toggle {
+                display: none;
+            }
+
+            .task-description-editor__form {
+                display: grid;
+                gap: 8px;
+            }
+
+            .task-description-editor__input {
+                width: 100%;
+                min-height: 82px;
+                resize: vertical;
+                padding: 9px 11px;
+                border: 1px solid #dbe3ef;
+                border-radius: 9px;
+                background: #f8fafc;
+                color: #334155;
+                font: inherit;
+                font-size: 12px;
+                line-height: 1.5;
+                transition: border-color .15s ease, box-shadow .15s ease;
+            }
+
+            .task-description-editor__input:focus {
+                border-color: #93c5fd;
+                outline: 0;
+                box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+            }
+
+            .task-description-editor__actions {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+            }
+
+            .task-description-editor__save,
+            .task-description-editor__cancel {
+                display: inline-grid;
+                width: 28px;
+                height: 28px;
+                place-items: center;
+                border: 1px solid #dbe3ef;
+                border-radius: 8px;
+                background: #fff;
+                color: #64748b;
+                cursor: pointer;
+            }
+
+            .task-description-editor__save {
+                border-color: #bbf7d0;
+                background: #f0fdf4;
+                color: #15803d;
+            }
+
+            .task-description-editor__save:hover {
+                background: #dcfce7;
+            }
+
+            .task-description-editor__cancel:hover {
+                background: #f1f5f9;
+            }
+
+            .task-description-editor__error {
+                margin: 0;
+                color: #b91c1c;
+                font-size: 10px;
+            }
+
+            .tf-task-detail__summary {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                overflow: visible;
+                border: 0;
+                background: transparent;
+                box-shadow: none;
+            }
+
+            .tf-task-detail__summary-badges {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 10px;
+                margin: 0;
+            }
+
+            .tf-task-detail__summary-badge {
+                min-width: 0;
+                min-height: 64px;
+                padding: 10px 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                background: #fff;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
+            }
+
+            .tf-task-detail__summary-badge-label {
+                color: #64748b;
+                font-size: 9px;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+            }
+
+            .tf-task-detail__summary-badge-label i {
+                display: none;
+            }
+
+            .tf-task-detail__summary-badge > strong {
+                color: #17243b;
+                font-size: 12px;
+            }
+
+            .tf-task-detail__summary-badge--deadline > strong {
+                display: block;
+            }
+
+            .tf-task-detail__summary-badge > .tf-task-status {
+                min-height: auto;
+                padding: 0;
+                background: transparent !important;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            .tf-task-detail__workflow-progress {
+                padding: 10px 0;
+                border-radius: 12px;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
+            }
+
+            .tf-task-detail__workflow-progress-header {
+                display: none;
+            }
+
+            .tf-task-detail__workflow-progress .tf-task-workflow__steps {
+                padding: 5px 12px 3px;
+            }
+
+            .tf-task-detail__grid[data-activity-view="overview"],
+            .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(250px, .39fr);
+                grid-template-areas:
+                    "actions actions"
+                    "tabs details"
+                    "content details";
+                align-items: start;
+                gap: 10px 12px;
+            }
+
+            .tf-task-detail__grid[data-activity-view].is-timeline-expanded {
+                grid-template-columns: minmax(0, 9fr) minmax(170px, 1fr);
+            }
+
+            .tf-task-detail__grid > .tf-task-detail__workflow-actions {
+                grid-area: actions;
+            }
+
+            .tf-task-detail__grid > .tf-task-detail__main {
+                display: flex;
+                grid-area: content;
+                min-width: 0;
+                flex-direction: column;
+            }
+
+            .tf-task-detail__main > .tf-task-detail__tabs {
+                display: none;
+            }
+
+            .tf-task-detail__main > [data-task-detail-panel="overview"] {
+                display: flex;
+                min-width: 0;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .tf-task-detail__main > [data-task-detail-panel="overview"] > section {
+                min-width: 0;
+                grid-column: auto;
+            }
+
+            .tf-task-detail__grid > .tf-task-detail__sidebar {
+                display: contents;
+            }
+
+            .tf-task-detail__sidebar > .tf-activity-tabs-card {
+                grid-area: tabs;
+                min-width: 0;
+            }
+
+            .tf-task-detail__sidebar > .task-overview-sidebar-cards {
+                display: grid;
+                grid-area: details;
+                min-width: 0;
+                align-content: start;
+                gap: 10px;
+            }
+
+            .tf-task-detail__sidebar > .task-overview-details {
+                align-self: start;
+            }
+
+            .tf-task-detail__sidebar .tf-activity-tab-panel:not([hidden]) {
+                grid-area: content;
+                min-width: 0;
+            }
+
+            .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) > .tf-task-detail__main[hidden],
+            .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) > .tf-task-detail__workflow-actions {
+                display: none;
+            }
+
+            .task-overview-details__section {
+                padding: 10px 15px;
+                border-bottom: 1px solid #edf1f6;
+                font-size: 10px;
+            }
+
+            .task-overview-details__section:last-child {
+                border-bottom: 0;
+            }
+
+            .task-overview-details__label {
+                margin: 0 0 7px;
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: .08em;
+                text-transform: uppercase;
+            }
+
+            .task-overview-details__people {
+                display: grid;
+                gap: 9px;
+            }
+
+            .task-overview-details__person {
+                display: grid;
+                min-width: 0;
+                align-items: center;
+                grid-template-columns: 58px minmax(18px, .7fr) minmax(0, 1fr);
+                gap: 8px;
+            }
+
+            .task-overview-details__person--assignee {
+                align-items: start;
+            }
+
+            .task-overview-details__person-role {
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 650;
+                letter-spacing: .055em;
+                line-height: 1.4;
+            }
+
+            .task-overview-details__person--assignee .task-overview-details__person-role {
+                padding-top: 7px;
+            }
+
+            .task-overview-details__person-connector {
+                position: relative;
+                height: 1px;
+                border-top: 1px dotted currentColor;
+            }
+
+            .task-overview-details__person--assignee .task-overview-details__person-connector {
+                margin-top: 14px;
+            }
+
+            .task-overview-details__person-connector::after {
+                position: absolute;
+                top: -4px;
+                right: -1px;
+                width: 0;
+                height: 0;
+                border-top: 3px solid transparent;
+                border-bottom: 3px solid transparent;
+                border-left: 4px solid currentColor;
+                content: "";
+            }
+
+            .task-overview-details__person--assignee .task-overview-details__person-connector {
+                color: #2563eb;
+            }
+
+            .task-overview-details__person--poc .task-overview-details__person-connector {
+                color: #2563eb;
+            }
+
+            .task-overview-details__person .tf-task-detail__avatar {
+                width: 25px;
+                height: 25px;
+                flex-basis: 25px;
+                font-size: 10px;
+            }
+
+            .task-overview-details__person-copy {
+                display: flex;
+                width: 100%;
+                min-width: 0;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .task-overview-details__person--assignee .task-overview-details__person-copy {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 7px 8px;
+            }
+
+            .task-overview-details__assignee-current-list {
+                display: grid;
+                min-width: 0;
+                grid-column: 1;
+                grid-row: 1;
+                gap: 7px;
+            }
+
+            .task-overview-details__assignee-current,
+            .task-overview-details__assignee-history-person {
+                display: flex;
+                min-width: 0;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .task-overview-details__person-info {
+                display: grid;
+                min-width: 0;
+                flex: 1 1 auto;
+                gap: 1px;
+            }
+
+            .task-overview-details__assignee-status {
+                flex: 0 0 auto;
+                padding: 3px 6px;
+                border-radius: 999px;
+                font-size: 9px;
+                font-weight: 650;
+            }
+
+            .task-overview-details__assignee-status--active {
+                background: #dcfce7;
+                color: #15803d;
+            }
+
+            .task-overview-details__assignee-status:not(.task-overview-details__assignee-status--active) {
+                background: #e2e8f0;
+                color: #64748b;
+            }
+
+            .task-overview-details__assignee-history {
+                grid-column: 2;
+                grid-row: 1;
+                align-self: center;
+            }
+
+            .task-overview-details__assignee-history > summary {
+                display: grid;
+                width: 22px;
+                height: 22px;
+                place-items: center;
+                border: 1px solid #e2e8f0;
+                border-radius: 50%;
+                color: #64748b;
+                cursor: pointer;
+                list-style: none;
+            }
+
+            .task-overview-details__assignee-history > summary::-webkit-details-marker {
+                display: none;
+            }
+
+            .task-overview-details__assignee-history[open] > summary {
+                background: #f1f5f9;
+                color: #334155;
+            }
+
+            .task-overview-details__assignee-history[open] > summary i {
+                transform: rotate(180deg);
+            }
+
+            .task-overview-details__assignee-history-list {
+                display: grid;
+                width: 100%;
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
+                gap: 8px;
+                margin-top: 7px;
+                padding: 9px;
+                border: 1px solid #edf1f6;
+                border-radius: 9px;
+                background: #f8fafc;
+            }
+
+            .task-overview-details__assignee-history[open] {
+                width: 100%;
+                grid-column: 1 / -1;
+                grid-row: 2;
+            }
+
+            .task-overview-details__assignee-history-person {
+                padding: 6px 8px;
+                border-radius: 8px;
+                background: #f1f5f9;
+                color: #64748b;
+            }
+
+            .task-overview-details__assignee-history-person--current {
+                background: #f0fdf4;
+            }
+
+            .task-overview-details__assignee-history-copy {
+                display: grid;
+                min-width: 0;
+                flex: 1 1 auto;
+                gap: 3px;
+            }
+
+            .task-overview-details__assignee-name-row {
+                display: flex;
+                min-width: 0;
+                align-items: center;
+                justify-content: space-between;
+                gap: 6px;
+            }
+
+            .task-overview-details__assignee-name-row strong {
+                overflow: hidden;
+                color: #17243b;
+                font-size: 10px;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .task-overview-details__assignee-history-copy > small {
+                color: #64748b;
+                font-size: 9px;
+                line-height: 1.4;
+            }
+
+            .task-overview-details__assignee-history-person .tf-task-detail__avatar {
+                background: #cbd5e1;
+                color: #64748b;
+            }
+
+            .task-overview-details__assignee-history-person--current .tf-task-detail__avatar {
+                background: #2563eb;
+                color: #fff;
+            }
+
+            .task-overview-details__assignee-history-person .task-overview-details__person-info strong {
+                color: #64748b;
+            }
+
+            .task-overview-details__assignee-history-person .task-overview-details__person-info small {
+                color: #94a3b8;
+            }
+
+            .task-overview-details__person-copy strong {
+                overflow: hidden;
+                color: #17243b;
+                font-size: 10px;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .task-overview-details__person-copy small {
+                color: #64748b;
+                font-size: 10px;
+            }
+
+            .task-overview-details__facts {
+                display: grid;
+                gap: 0;
+                margin: 0;
+            }
+
+            .task-overview-details__facts > div {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 7px 0;
+                border-bottom: 1px solid #f1f5f9;
+            }
+
+            .task-overview-details__facts > div:last-child {
+                border-bottom: 0;
+            }
+
+            .task-overview-details__facts dt,
+            .task-overview-details__facts dd {
+                margin: 0;
+                font-size: 10px;
+            }
+
+            .task-overview-details__facts dt {
+                color: #64748b;
+            }
+
+            .task-overview-details__facts dd {
+                color: #17243b;
+                font-weight: 650;
+                text-align: right;
+            }
+
+            .task-overview-details__chain {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 5px;
+            }
+
+            .task-overview-details__chain span {
+                padding: 4px 7px;
+                border-radius: 999px;
+                background: #eff6ff;
+                color: #1d4ed8;
+                font-size: 10px;
+                font-weight: 600;
+            }
+
+            .task-overview-details__chain i {
+                color: #94a3b8;
+                font-size: 10px;
+            }
+
+            .task-overview-recurring__facts {
+                display: grid;
+                gap: 0;
+                margin: 0;
+                padding: 8px 12px 0;
+            }
+
+            .task-overview-recurring__facts > div {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 7px 0;
+                border-bottom: 1px solid #edf1f6;
+                font-size: 10px;
+            }
+
+            .task-overview-recurring__facts > div:last-child {
+                border-bottom: 0;
+            }
+
+            .task-overview-recurring__facts dt,
+            .task-overview-recurring__facts dd {
+                min-width: 0;
+                margin: 0;
+            }
+
+            .task-overview-recurring__facts dt {
+                color: #64748b;
+            }
+
+            .task-overview-recurring__facts dd {
+                color: #17243b;
+                font-weight: 650;
+                text-align: right;
+            }
+
+            .task-overview-recurring__status {
+                display: inline-flex;
+                padding: 3px 8px;
+                border-radius: 999px;
+                background: #dcfce7;
+                color: #15803d;
+                font-size: 9px;
+                font-weight: 650;
+            }
+
+            .task-overview-recurring__status--paused,
+            .task-overview-recurring__status--completed,
+            .task-overview-recurring__status--unavailable {
+                background: #f1f5f9;
+                color: #64748b;
+            }
+
+            .task-overview-recurring__note {
+                margin: 0;
+                padding: 0 12px 10px;
+                color: #64748b;
+                font-size: 9px;
+                line-height: 1.5;
+            }
+
+            .task-overview-files__body {
+                display: grid;
+                gap: 9px;
+                padding: 10px 12px;
+            }
+
+            .task-overview-files .tf-task-detail__attachment {
+                gap: 12px;
+                padding: 12px 4px;
+            }
+
+            .task-overview-files .tf-task-detail__empty-panel {
+                min-height: 100px;
+                gap: 5px;
+                padding: 14px 12px;
+            }
+
+            .task-overview-files .tf-task-detail__empty-panel > i {
+                font-size: 18px;
+            }
+
+            .task-overview-files .tf-task-detail__empty-panel > strong {
+                font-size: 10px;
+            }
+
+            .task-overview-files .tf-task-detail__empty-panel > p {
+                font-size: 8px;
+            }
+
+            .task-overview-files__dropzone {
+                display: flex;
+                min-height: 36px;
+                align-items: center;
+                justify-content: center;
+                gap: 3px;
+                padding: 8px;
+                border: 1px dashed #dbe3ef;
+                border-radius: 9px;
+                background: #fff;
+                color: #64748b;
+                cursor: pointer;
+                font-size: 9px;
+                text-align: center;
+                transition: border-color .15s ease, background-color .15s ease;
+            }
+
+            .task-overview-files__dropzone:hover,
+            .task-overview-files__dropzone.is-dragging {
+                border-color: #93c5fd;
+                background: #eff6ff;
+            }
+
+            .task-overview-files__dropzone strong {
+                color: #2563eb;
+                font-weight: 650;
+            }
+
+            .task-overview-files__input {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                clip-path: inset(50%);
+            }
+
+            .task-overview-files__input:focus-visible + .task-overview-files__dropzone {
+                outline: 2px solid #2563eb;
+                outline-offset: 2px;
+            }
+
+            .task-overview-files__hint,
+            .task-overview-files__status {
+                margin: 0;
+                color: #64748b;
+                font-size: 9px;
+                line-height: 1.4;
+            }
+
+            .task-overview-files__status:empty {
+                display: none;
+            }
+
+            .task-overview-files__error {
+                margin: 0;
+                color: #b91c1c;
+                font-size: 9px;
+            }
+
+            .task-deadline-alert {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 8px 12px;
+                border: 1px solid #fcd34d;
+                border-radius: 10px;
+                background: #fffbeb;
+                color: #92400e;
+                font-size: 11px;
+            }
+
+            .task-deadline-alert a {
+                flex: 0 0 auto;
+                padding: 4px 8px;
+                border: 1px solid #fde68a;
+                border-radius: 999px;
+                background: #fff;
+                color: #92400e;
+                font-size: 10px;
+                text-decoration: none;
+            }
+
+            .task-deadline-alert--overdue {
+                border-color: #fca5a5;
+                background: #fef2f2;
+                color: #991b1b;
+            }
+
+            .task-deadline-alert--overdue a {
+                border-color: #fecaca;
+                color: #991b1b;
+            }
+
+            .task-overview-details .tf-task-status {
+                display: inline-flex;
+                padding: 3px 7px;
+                border-radius: 999px;
+                background: #fff1d6;
+                color: #a16207;
+                font-size: 9px;
+                font-weight: 650;
+            }
+
+            @media (max-width: 760px) {
+                .tf-task-detail__grid[data-activity-view="overview"],
+                .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) {
+                    grid-template-columns: minmax(0, 1fr);
+                    grid-template-areas:
+                        "actions"
+                        "tabs"
+                        "content"
+                        "details";
+                }
+
+                .tf-task-detail__summary-badges {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .tf-task-detail > .tf-task-detail__header {
+                    align-items: flex-start !important;
+                    flex-direction: column;
+                }
+
+                .tf-task-detail > .tf-task-detail__header > .tf-task-detail__page-title,
+                .tf-task-detail > .tf-task-detail__header > .tf-task-detail__actions {
+                    width: 100%;
+                }
+
+                .tf-task-detail > .tf-task-detail__header > .tf-task-detail__actions {
+                    justify-content: flex-start;
+                }
+            }
+
+            @media (max-width: 420px) {
+                .tf-task-detail__summary-badge {
+                    padding: 8px;
+                }
+            }
+        </style>
+
+        <header class="tf-task-detail__header">
+            <div class="tf-task-detail__heading tf-task-detail__page-title">
+                <h1>{{ $task->title }}</h1>
+                <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span>
+                    {{ $task->department?->name ?? 'No department' }}</p>
+            </div>
+            @if ($hasActions || $canReviewSubmission || auth()->user()?->can('tasks.update'))
                 <div class="tf-task-detail__actions">
                     @if ($canReviewSubmission)
                         <div class="tf-task-workflow__action-bar">
@@ -265,15 +1100,11 @@
                         @endif
                     @endcan
                 </div>
-            </header>
-        @endif
+            @endif
+        </header>
 
         <section class="tf-task-detail__summary" aria-label="Task summary">
-            <div class="tf-task-detail__heading">
-                <h1>{{ $task->title }}</h1>
-                <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span>
-                    {{ $task->department?->name ?? 'No department' }}</p>
-                <div class="tf-task-detail__summary-badges" aria-label="Task status details">
+            <div class="tf-task-detail__summary-badges" aria-label="Task status details">
                     <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--workflow">
                         <span class="tf-task-detail__summary-badge-label"><i class="bi bi-arrow-repeat"
                                 aria-hidden="true"></i> Workflow</span>
@@ -284,7 +1115,7 @@
                                 aria-hidden="true"></i> Planned start</span>
                         <strong>{{ $task->start_date?->format('M d, Y') ?? 'Not started' }}</strong>
                     </div>
-                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--deadline">
+                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--deadline" id="task-deadline-summary">
                         <span class="tf-task-detail__summary-badge-label"><i class="bi bi-alarm" aria-hidden="true"></i>
                             Deadline health</span>
                         <strong
@@ -306,7 +1137,6 @@
                         <span class="tf-task-detail__summary-badge-label"><i class="bi bi-hourglass-split"
                                 aria-hidden="true"></i> Estimated effort</span>
                         <strong>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2) . ' hours' : 'Not set' }}</strong>
-                    </div>
                 </div>
             </div>
             <section class="tf-task-detail__workflow-progress" aria-labelledby="task-workflow-title-top">
@@ -347,6 +1177,28 @@
                 @endif
             </section>
         </section>
+
+        @if ($deadline !== null && !in_array($status, ['completed', 'cancelled'], true)
+            && ($deadlineCondition !== 'normal' || $daysUntilDeadline <= 2))
+            <div @class([
+                'task-deadline-alert',
+                'task-deadline-alert--overdue' => $daysUntilDeadline !== null && $daysUntilDeadline < 0,
+            ]) role="status">
+                <span>
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    @if ($daysUntilDeadline !== null && $daysUntilDeadline < 0)
+                        At risk: {{ abs($daysUntilDeadline) }}
+                        {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} past the deadline.
+                    @elseif ($daysUntilDeadline === 0)
+                        At risk: the task is due today.
+                    @else
+                        At risk: {{ $daysUntilDeadline }}
+                        {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left until the deadline.
+                    @endif
+                </span>
+                <a href="#task-deadline-summary">View deadline</a>
+            </div>
+        @endif
 
         <div class="tf-task-detail__grid" data-activity-view="overview">
             @if ($hasActions || ($canReviewSubmission && isset($statusOptions['on_hold'])))
@@ -529,11 +1381,6 @@
                         data-task-detail-tab="checklist">
                         <i class="bi bi-check2-square" aria-hidden="true"></i> Checklist
                     </button>
-                    <button type="button" role="tab" aria-selected="false" aria-controls="task-details-files"
-                        data-task-detail-tab="files">
-                        <i class="bi bi-file-earmark" aria-hidden="true"></i> Files
-                        <span class="tf-task-detail__file-tab-count">{{ $task->attachments->count() }}</span>
-                    </button>
                     <button type="button" role="tab" aria-selected="false" aria-controls="task-details-comments"
                         data-task-detail-tab="comments">
                         <i class="bi bi-chat" aria-hidden="true"></i> Comments
@@ -548,56 +1395,64 @@
                     {{-- In-tab workflow: hidden at desktop widths via CSS (only top-level visible) --}}
 
                     <section class="tf-task-detail__card" aria-labelledby="task-description-title">
-                        <header class="tf-task-detail__card-header">
-                            <h2 id="task-description-title"><i class="bi bi-file-text" aria-hidden="true"></i> Description
-                                &amp; Details</h2>
-                        </header>
                         <div class="tf-task-detail__card-body">
-                            <h3 class="tf-task-detail__section-label">Description</h3>
+                            <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
+                                <h3 class="tf-task-detail__section-label" id="task-output-title">
+                                    Expected Output / Deliverable Criteria
+                                </h3>
+                                @if ($task->expected_output)
+                                    <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
+                                @else
+                                    <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
+                                @endif
+                            </section>
+                            <h3 class="tf-task-detail__section-label" id="task-description-title">Description</h3>
                             @if ($task->description)
                                 <div class="tf-task-detail__description">{{ $task->description }}</div>
+                            @elseif (auth()->user()?->can('tasks.update'))
+                                <details class="task-description-editor" @if ($errors->has('description')) open @endif>
+                                    <summary class="tf-task-detail__empty-copy task-description-editor__toggle">
+                                        No description yet. <span>Add description</span>
+                                    </summary>
+                                    <form method="POST" action="{{ route('tasks.description.update', $task) }}"
+                                        class="task-description-editor__form">
+                                        @csrf
+                                        @method('PUT')
+                                        <label class="visually-hidden" for="taskDescriptionInput">Task description</label>
+                                        <textarea class="task-description-editor__input" id="taskDescriptionInput" name="description"
+                                            maxlength="10000" required placeholder="Add a description for this task...">{{ old('description') }}</textarea>
+                                        @error('description')
+                                            <p class="task-description-editor__error">{{ $message }}</p>
+                                        @enderror
+                                        <div class="task-description-editor__actions">
+                                            <button class="task-description-editor__save" type="submit"
+                                                aria-label="Save description" title="Save description">
+                                                <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                            </button>
+                                            <button class="task-description-editor__cancel" type="button"
+                                                aria-label="Close description editor" title="Close editor"
+                                                data-task-description-cancel>
+                                                <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
+                                    </form>
+                                </details>
+                                <script>
+                                    document.querySelectorAll('[data-task-description-cancel]').forEach(button => {
+                                        button.addEventListener('click', () => {
+                                            const editor = button.closest('.task-description-editor');
+                                            editor.open = false;
+                                            editor.querySelector('form').reset();
+                                        });
+                                    });
+                                </script>
                             @else
                                 <p class="tf-task-detail__empty-copy">No additional description provided.</p>
                             @endif
-                            <dl class="tf-task-detail__metadata">
-                                <div>
-                                    <dt>Task Created by</dt>
-                                    <dd>{{ $task->creator?->name ?? '—' }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Priority</dt>
-                                    <dd>{{ ucfirst($task->priority) }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Task Type</dt>
-                                    <dd>{{ ucfirst($task->task_type ?? 'process') }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Task Created on</dt>
-                                    <dd>{{ $task->created_at?->format('M d, Y · g:i A') ?? '—' }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Company</dt>
-                                    <dd>{{ $task->company?->name ?? '—' }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Department</dt>
-                                    <dd>{{ $task->department?->name ?? '—' }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Last updated</dt>
-                                    <dd>{{ $task->updated_at?->format('M d, Y · g:i A') ?? '—' }}</dd>
-                                </div>
-                                <div>
-                                    <dt>Estimated effort</dt>
-                                    <dd>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2) . ' hours' : '—' }}
-                                    </dd>
-                                </div>
-                            </dl>
-                            @if ($task->recurringSchedule || $task->recurringTask)
+                            @if ($recurringSchedule)
                                 @php
-                                    $recurringTemplate = $task->recurringSchedule ?? $task->recurringTask;
-                                    $nextOccurrence = $recurringTemplate->nextOccurrenceDate();
+                                    $recurringTemplate = $recurringSchedule;
+                                    $nextOccurrence = $nextRecurringOccurrence;
                                 @endphp
                                 <section class="tf-task-detail__output-section" aria-labelledby="task-recurrence-title">
                                     <h3 class="tf-task-detail__section-label" id="task-recurrence-title">Recurring Schedule</h3>
@@ -633,130 +1488,99 @@
                                     </dl>
                                 </section>
                             @endif
-                            <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
-                                <h3 class="tf-task-detail__section-label" id="task-output-title">Expected Output /
-                                    Deliverable Criteria</h3>
-                                @if ($task->expected_output)
-                                    <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
-                                @else
-                                    <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
-                                @endif
-                            </section>
                         </div>
                     </section>
 
-                    <div class="tf-task-detail__people-cards">
-                        <section class="tf-task-detail__card" aria-labelledby="task-pocs-title">
-                            <header class="tf-task-detail__card-header">
-                                <h2 id="task-pocs-title"><i class="bi bi-people" aria-hidden="true"></i> Department Points
-                                    of Contact</h2>
-                                <span class="tf-task-detail__count">{{ $task->pocs->count() }}
-                                    POC{{ $task->pocs->count() === 1 ? '' : 's' }}</span>
-                            </header>
-                            @if ($task->pocs->isNotEmpty())
-                                <ul class="tf-task-detail__people-list">
-                                    @foreach ($task->pocs as $poc)
-                                        @php
-                                            $pocInitials = collect(preg_split('/\s+/', trim($poc->name)))
-                                                ->filter()
-                                                ->take(2)
-                                                ->map(fn($part) => mb_strtoupper(mb_substr($part, 0, 1)))
-                                                ->implode('');
-                                        @endphp
-                                        <li class="tf-task-detail__person">
-                                            <span
-                                                class="tf-task-detail__avatar tf-task-detail__avatar--poc">{{ $pocInitials ?: '?' }}</span>
-                                            <span class="tf-task-detail__person-copy">
-                                                <strong>{{ $poc->name }}</strong>
-                                                <small>{{ $poc->designation ?: 'Department representative' }}@if ($poc->email) <span
-                                                aria-hidden="true">·</span> {{ $poc->email }}@endif</small>
-                                            </span>
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            @else
-                                <div class="tf-task-detail__card-body">
-                                    <p class="tf-task-detail__empty-copy">No department points of contact linked to this task.
-                                    </p>
-                                </div>
-                            @endif
-                        </section>
-
-                        <section class="tf-task-detail__card" aria-labelledby="task-assignment-title">
-                            <header class="tf-task-detail__card-header">
-                                <h2 id="task-assignment-title"><i class="bi bi-people" aria-hidden="true"></i> Assignment
-                                </h2>
-                                <span class="tf-task-detail__count">{{ $currentAssignees->count() }} current ·
-                                    {{ $previousAssigneeCount }} previous</span>
-                            </header>
-                            @if ($task->assignments->isNotEmpty() || $currentAssignees->isNotEmpty())
-                                <ul class="tf-task-detail__people-list tf-task-detail__people-list--assignments">
-                                    @foreach ($currentAssignees as $currentAssignee)
-                                        @php
-                                            $assignmentName = $currentAssignee->name;
-                                            $assignmentInitials = collect(preg_split('/\s+/', trim($assignmentName)))
-                                                ->filter()
-                                                ->take(2)
-                                                ->map(fn($part) => mb_strtoupper(mb_substr($part, 0, 1)))
-                                                ->implode('');
-                                        @endphp
-                                        <li class="tf-task-detail__person tf-task-detail__person--assignment">
-                                            <span class="tf-task-detail__avatar">{{ $assignmentInitials ?: '?' }}</span>
-                                            <span class="tf-task-detail__person-copy">
-                                                <span class="tf-task-detail__person-heading">
-                                                    <strong>{{ $assignmentName }}</strong>
-                                                    <span class="tf-task-detail__current-badge">Current</span>
-                                                </span>
-                                                <small>
-                                                    {{ $currentAssignee->designation ?: 'Team member' }}
-                                                    @if ($currentAssignee->pivot?->assigned_at)
-                                                        <span aria-hidden="true">·</span>
-                                                        Assigned
-                                                        {{ \Illuminate\Support\Carbon::parse($currentAssignee->pivot->assigned_at)->format('M d, Y · g:i A') }}
+                    <section class="task-activity-feed task-activity-feed--overview"
+                        data-task-activity-feed data-user-id="{{ auth()->id() }}" data-task-id="{{ $task->id }}"
+                        aria-labelledby="task-latest-activity-title">
+                        <header class="task-activity-feed__header">
+                            <div>
+                                <p class="task-activity-feed__eyebrow">Recent updates</p>
+                                <h2 class="task-activity-feed__title" id="task-latest-activity-title">Latest Activity</h2>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="task-activity-feed__count" aria-label="{{ $taskActivityFeed->count() }} activities">
+                                    {{ $taskActivityFeed->count() }}
+                                </span>
+                                <button type="button" class="task-activity-feed__view-all"
+                                    data-task-feed-open-timeline>View all</button>
+                            </div>
+                        </header>
+                        @if ($taskActivityFeed->isEmpty())
+                            <p class="task-activity-feed__empty">No activity has been recorded yet.</p>
+                        @else
+                            <ol class="task-activity-feed__list">
+                                @foreach ($taskActivityFeed->take(5) as $feedActivity)
+                                    @php
+                                        $activityNameParts = preg_split('/\s+/', trim($feedActivity['actor'])) ?: [];
+                                        $activityInitials = collect($activityNameParts)
+                                            ->take(2)
+                                            ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+                                            ->implode('');
+                                        $previewActivityElementId = 'overview-task-feed-event-'.$feedActivity['id'];
+                                    @endphp
+                                    <li class="task-activity-feed__item" id="{{ $previewActivityElementId }}"
+                                        data-activity-feed-item>
+                                        <span class="task-activity-feed__avatar" aria-hidden="true">{{ $activityInitials }}</span>
+                                        <article @class([
+                                            'task-activity-feed__card',
+                                            'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
+                                        ])>
+                                            <header class="task-activity-feed__card-header">
+                                                <div class="task-activity-feed__author-details">
+                                                    <p class="task-activity-feed__author">
+                                                        {{ $feedActivity['actor'] }}
+                                                    </p>
+                                                    @if ($feedActivity['designation'])
+                                                        <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
                                                     @endif
-                                                </small>
-                                                @if ($currentAssignee->pivot?->reason && $currentAssignee->pivot->reason !== 'Initial assignment')
-                                                    <small class="tf-task-detail__assignment-reason">Reason:
-                                                        {{ $currentAssignee->pivot->reason }}</small>
-                                                @endif
-                                            </span>
-                                        </li>
-                                    @endforeach
-                                    @foreach ($task->assignments->where('is_active', false)->sortByDesc('assigned_at') as $assignment)
-                                        @php
-                                            $assignmentName = $assignment->user?->name ?? 'Unknown user';
-                                            $assignmentInitials = collect(preg_split('/\s+/', trim($assignmentName)))
-                                                ->filter()
-                                                ->take(2)
-                                                ->map(fn($part) => mb_strtoupper(mb_substr($part, 0, 1)))
-                                                ->implode('');
-                                        @endphp
-                                        <li class="tf-task-detail__person tf-task-detail__person--assignment">
-                                            <span
-                                                class="tf-task-detail__avatar tf-task-detail__avatar--previous">{{ $assignmentInitials ?: '?' }}</span>
-                                            <span class="tf-task-detail__person-copy">
-                                                <span class="tf-task-detail__person-heading">
-                                                    <strong>{{ $assignmentName }}</strong>
-                                                    <span class="tf-task-detail__previous-badge">Previous</span>
+                                                </div>
+                                                <span class="task-activity-feed__badge">
+                                                    @if ($feedActivity['tone'] === 'completed')
+                                                        <i class="bi bi-check-circle" aria-hidden="true"></i>
+                                                    @endif
+                                                    {{ $feedActivity['badge'] }}
                                                 </span>
-                                                <small>{{ $assignment->user?->designation ?: 'Team member' }} <span
-                                                        aria-hidden="true">·</span> Assigned
-                                                    {{ $assignment->assigned_at?->format('M d, Y · g:i A') ?? 'Date unavailable' }}</small>
-                                                @if ($assignment->reason && $assignment->reason !== 'Initial assignment')
-                                                    <small class="tf-task-detail__assignment-reason">Reason:
-                                                        {{ $assignment->reason }}</small>
-                                                @endif
-                                            </span>
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            @else
-                                <div class="tf-task-detail__card-body">
-                                    <p class="tf-task-detail__empty-copy">No employees are assigned to this task.</p>
-                                </div>
-                            @endif
-                        </section>
-                    </div>
+                                            </header>
+                                            <div class="task-activity-feed__message-row">
+                                                <p class="task-activity-feed__message">{{ $feedActivity['text'] }}</p>
+                                                <time class="task-activity-feed__date"
+                                                    datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                    <span>{{ $feedActivity['at']->format('M j, Y') }}</span>
+                                                    <span>{{ $feedActivity['at']->diffForHumans() }}</span>
+                                                </time>
+                                            </div>
+                                            @if ($feedActivity['detail'])
+                                                <p class="task-activity-feed__detail">{{ $feedActivity['detail'] }}</p>
+                                            @endif
+                                            @if ($feedActivity['attachments']->isNotEmpty())
+                                                <footer class="task-activity-feed__card-footer">
+                                                    <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
+                                                        @foreach ($feedActivity['attachments'] as $attachment)
+                                                            <li>
+                                                                <a class="task-activity-feed__attachment"
+                                                                    href="{{ route(
+                                                                        in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
+                                                                            ? 'tasks.attachments.preview'
+                                                                            : 'tasks.attachments.download',
+                                                                        [$task, $attachment],
+                                                                    ) }}"
+                                                                    target="_blank" rel="noopener noreferrer">
+                                                                    <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                                    {{ $attachment->original_name }}
+                                                                </a>
+                                                            </li>
+                                                        @endforeach
+                                                    </ul>
+                                                </footer>
+                                            @endif
+                                        </article>
+                                    </li>
+                                @endforeach
+                            </ol>
+                        @endif
+                    </section>
 
                 </div>
 
@@ -765,77 +1589,6 @@
                     <i class="bi bi-check2-square" aria-hidden="true"></i>
                     <strong>No checklist items</strong>
                     <p>Checklist items are not available for this task yet.</p>
-                </div>
-                <div id="task-details-files" role="tabpanel" data-task-detail-panel="files">
-                    <section class="tf-task-detail__card" aria-labelledby="task-files-title">
-                        <header class="tf-task-detail__card-header">
-                            <h2 id="task-files-title"><i class="bi bi-paperclip" aria-hidden="true"></i> Task files</h2>
-                            <span class="tf-task-detail__count">{{ $task->attachments->count() }}
-                                file{{ $task->attachments->count() === 1 ? '' : 's' }}</span>
-                        </header>
-                        @if ($task->attachments->isNotEmpty())
-                            <ul class="tf-task-detail__attachments">
-                                @foreach ($task->attachments as $attachment)
-                                    @php
-                                        $isPreviewableAttachment = in_array($attachment->mime_type, [
-                                            'application/pdf',
-                                            'image/jpeg',
-                                            'image/png',
-                                            'image/webp',
-                                            'text/csv',
-                                            'text/plain',
-                                        ], true);
-                                        $isImageAttachment = str_starts_with($attachment->mime_type ?? '', 'image/');
-                                        $previewUrl = route('tasks.attachments.preview', [$task, $attachment]);
-                                    @endphp
-                                    <li class="tf-task-detail__attachment">
-                                        @if ($isImageAttachment)
-                                            <a class="tf-task-detail__attachment-thumbnail" href="{{ $previewUrl }}" target="_blank"
-                                                rel="noopener noreferrer" aria-label="View {{ $attachment->original_name }}">
-                                                <img src="{{ $previewUrl }}" alt="" loading="lazy">
-                                            </a>
-                                        @else
-                                            <span class="tf-task-detail__attachment-icon" aria-hidden="true">
-                                                <i
-                                                    class="bi {{ $attachment->mime_type === 'application/pdf' ? 'bi-file-earmark-pdf' : 'bi-file-earmark' }}"></i>
-                                            </span>
-                                        @endif
-                                        <span class="tf-task-detail__attachment-copy">
-                                            <strong>{{ $attachment->original_name }}</strong>
-                                            <small>
-                                                {{ $attachment->size_bytes >= 1048576 ? number_format($attachment->size_bytes / 1048576, 1) . ' MB' : number_format($attachment->size_bytes / 1024, 0) . ' KB' }}
-                                                <span aria-hidden="true">·</span>
-                                                Uploaded by {{ $attachment->uploadedBy?->name ?? 'Unknown user' }}
-                                                <span aria-hidden="true">·</span>
-                                                {{ $attachment->created_at?->format('M d, Y') ?? 'Date unavailable' }}
-                                            </small>
-                                        </span>
-                                        <span class="tf-task-detail__attachment-actions" role="group"
-                                            aria-label="Actions for {{ $attachment->original_name }}">
-                                            @if ($isPreviewableAttachment)
-                                                <a class="tf-task-detail__attachment-action tf-task-detail__attachment-action--preview"
-                                                    href="{{ $previewUrl }}" target="_blank" rel="noopener noreferrer"
-                                                    aria-label="Preview {{ $attachment->original_name }}" title="Preview file">
-                                                    <i class="bi bi-eye" aria-hidden="true"></i>
-                                                </a>
-                                            @endif
-                                            <a class="tf-task-detail__attachment-action"
-                                                href="{{ route('tasks.attachments.download', [$task, $attachment]) }}"
-                                                aria-label="Download {{ $attachment->original_name }}" title="Download file">
-                                                <i class="bi bi-download" aria-hidden="true"></i>
-                                            </a>
-                                        </span>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @else
-                            <div class="tf-task-detail__empty-panel">
-                                <i class="bi bi-file-earmark" aria-hidden="true"></i>
-                                <strong>No files attached</strong>
-                                <p>There are no files attached to this task.</p>
-                            </div>
-                        @endif
-                    </section>
                 </div>
                 <div id="task-details-comments" class="tf-task-detail__empty-panel tf-task-detail__card" role="tabpanel"
                     data-task-detail-panel="comments" hidden>
@@ -852,17 +1605,378 @@
             </div>
 
             <aside class="tf-task-detail__sidebar" aria-label="Task activity and subtasks">
+                <div class="task-overview-sidebar-cards">
+                    <section class="tf-task-detail__card task-overview-details" aria-labelledby="task-overview-details-title">
+                        <header class="tf-task-detail__card-header">
+                            <h2 id="task-overview-details-title">Details</h2>
+                        </header>
+
+                        <div class="task-overview-details__section">
+                            <div class="task-overview-details__people">
+                                <div class="task-overview-details__person task-overview-details__person--assignee">
+                                    <span class="task-overview-details__person-role"> ASSIGNEE</span>
+                                    <span class="task-overview-details__person-connector" aria-hidden="true"></span>
+                                    <span class="task-overview-details__person-copy">
+                                        <span class="task-overview-details__assignee-current-list">
+                                            @forelse ($currentAssignees as $assignee)
+                                                @php
+                                                    $assigneeInitials = collect(preg_split('/\s+/', trim($assignee->name)))
+                                                        ->filter()
+                                                        ->take(2)
+                                                        ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+                                                        ->implode('');
+                                                @endphp
+                                                <span class="task-overview-details__assignee-current">
+                                                    <span class="tf-task-detail__avatar">{{ $assigneeInitials ?: '?' }}</span>
+                                                    <span class="task-overview-details__assignee-history-copy">
+                                                        <span class="task-overview-details__assignee-name-row">
+                                                            <strong>{{ $assignee->name }}</strong>
+                                                            <span class="task-overview-details__assignee-status task-overview-details__assignee-status--active">Current</span>
+                                                        </span>
+                                                        <small>{{ $assignee->designation ?: 'Team member' }}</small>
+                                                    </span>
+                                                </span>
+                                            @empty
+                                                <span class="task-overview-details__person-info">
+                                                    <strong>Unassigned</strong>
+                                                </span>
+                                            @endforelse
+                                        </span>
+                                        @if ($assigneeHistoryRows->count() > 1)
+                                            <details class="task-overview-details__assignee-history" data-assignee-history>
+                                                <summary aria-label="Show all current and previous assignees" title="Show assignment history">
+                                                    <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                                </summary>
+                                                <div class="task-overview-details__assignee-history-list">
+                                                    @foreach ($assigneeHistoryRows as $assignment)
+                                                        @php
+                                                            $historyAssignee = $assignment->user;
+                                                            $historyAssigneeIsCurrent = $assignment->is_active
+                                                                && in_array($assignment->user_id, $currentAssigneeIds, true);
+                                                            $historyAssigneeInitials = collect(preg_split('/\s+/', trim($historyAssignee->name)))
+                                                                ->filter()
+                                                                ->take(2)
+                                                                ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+                                                                ->implode('');
+                                                        @endphp
+                                                        <div class="task-overview-details__assignee-history-person{{ $historyAssigneeIsCurrent ? ' task-overview-details__assignee-history-person--current' : '' }}">
+                                                            <span class="tf-task-detail__avatar">{{ $historyAssigneeInitials ?: '?' }}</span>
+                                                            <span class="task-overview-details__assignee-history-copy">
+                                                                <span class="task-overview-details__assignee-name-row">
+                                                                    <strong>{{ $historyAssignee->name }}</strong>
+                                                                    <span class="task-overview-details__assignee-status{{ $historyAssigneeIsCurrent ? ' task-overview-details__assignee-status--active' : '' }}">
+                                                                        {{ $historyAssigneeIsCurrent ? 'Current' : 'Previous' }}
+                                                                    </span>
+                                                                </span>
+                                                                <small>{{ $historyAssignee->designation ?: 'Team member' }}</small>
+                                                                <small>
+                                                                    Assigned at: {{ $assignment->assigned_at?->format('M d, Y · g:i A') ?? 'date unavailable' }}
+                                                                </small>
+                                                                @if ($assignment->reason)
+                                                                    <small>Reason: {{ $assignment->reason }}</small>
+                                                                @endif
+                                                            </span>
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            </details>
+                                        @endif
+                                    </span>
+                                </div>
+                                @foreach ($task->pocs as $poc)
+                                    @php
+                                        $pocInitials = collect(preg_split('/\s+/', trim($poc->name)))
+                                            ->filter()
+                                            ->take(2)
+                                            ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+                                            ->implode('');
+                                    @endphp
+                                    <div class="task-overview-details__person task-overview-details__person--poc">
+                                        <span class="task-overview-details__person-role">POC</span>
+                                        <span class="task-overview-details__person-connector" aria-hidden="true"></span>
+                                        <span class="task-overview-details__person-copy">
+                                            <span class="tf-task-detail__avatar tf-task-detail__avatar--poc">{{ $pocInitials ?: '?' }}</span>
+                                            <span class="task-overview-details__person-info">
+                                                <strong>{{ $poc->name }}</strong>
+                                                <small>{{ $poc->designation ?: 'Department representative' }}</small>
+                                            </span>
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <div class="task-overview-details__section">
+                            <dl class="task-overview-details__facts">
+                            <div>
+                            <dt> DEADLINE HEALTH</dt>
+                                <dd>
+                                    <span class="tf-task-status">
+                                        {{ \App\Models\Task::DEADLINE_CONDITION_LABELS[$deadlineCondition] }}
+                                        @if ($daysUntilDeadline !== null && !in_array($status, ['completed', 'cancelled'], true))
+                                            ·
+                                            @if ($daysUntilDeadline < 0)
+                                                {{ abs($daysUntilDeadline) }}d overdue
+                                            @elseif ($daysUntilDeadline === 0)
+                                                Due today
+                                            @else
+                                                {{ $daysUntilDeadline }}d left
+                                            @endif
+                                        @endif
+                                    </span>
+                                </dd>
+                            </div>
+                            <div><dt>PRIORITY</dt><dd>{{ ucfirst($task->priority) }}</dd></div>
+                            <div>
+                                <dt>Effort</dt>
+                                <dd>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2).' hours' : 'Not set' }}</dd>
+                            </div>
+                            <div><dt>PLANNED START</dt><dd>{{ $task->start_date?->format('M d, Y') ?? 'Not set' }}</dd></div>
+                            <div><dt>TASK TYPE</dt><dd>{{ ucfirst($task->task_type ?? 'process') }}</dd></div>
+                            <div><dt>COMPANY</dt><dd>{{ $task->company?->name ?? '—' }}</dd></div>
+                            <div><dt>DEPARTMENT</dt><dd>{{ $task->department?->name ?? '—' }}</dd></div>
+                            <div><dt>CREATED</dt><dd>{{ $task->created_at?->format('M d, Y') ?? '—' }}</dd></div>
+                            <div><dt>LAST UPDATED</dt><dd>{{ $task->updated_at?->format('M d, Y') ?? '—' }}</dd></div>
+                            </dl>
+                        </div>
+                    </section>
+
+                    <section class="tf-task-detail__card task-overview-files" aria-labelledby="task-overview-files-title">
+                        <header class="tf-task-detail__card-header">
+                            <h2 id="task-overview-files-title"><i class="bi bi-paperclip" aria-hidden="true"></i> Task files</h2>
+                            <span class="tf-task-detail__count">{{ $task->attachments->count() }}
+                                file{{ $task->attachments->count() === 1 ? '' : 's' }}</span>
+                        </header>
+                        <div class="task-overview-files__body">
+                            @can('tasks.update')
+                                <form method="POST" action="{{ route('tasks.attachments.store', $task) }}" enctype="multipart/form-data"
+                                    data-task-file-upload>
+                                    @csrf
+                                    <input class="task-overview-files__input" id="taskSidebarFiles" type="file"
+                                        name="attachments[]" multiple
+                                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.webp"
+                                        data-task-file-input aria-describedby="taskSidebarFilesHint taskSidebarFilesStatus">
+                                    <label class="task-overview-files__dropzone" for="taskSidebarFiles" data-task-file-dropzone>
+                                        <span>Drop files here or</span>
+                                        <strong>browse</strong>
+                                    </label>
+                                    <p class="task-overview-files__hint" id="taskSidebarFilesHint">Up to 10 files, 10 MB each.</p>
+                                    <p class="task-overview-files__status" id="taskSidebarFilesStatus" data-task-file-status
+                                        aria-live="polite"></p>
+                                    @error('attachments')
+                                        <p class="task-overview-files__error">{{ $message }}</p>
+                                    @enderror
+                                    @error('attachments.*')
+                                        <p class="task-overview-files__error">{{ $message }}</p>
+                                    @enderror
+                                </form>
+                            @endcan
+
+                            @if ($task->attachments->isNotEmpty())
+                                <ul class="tf-task-detail__attachments" aria-label="Attached files">
+                                    @foreach ($task->attachments as $attachment)
+                                        @php
+                                            $isPreviewableAttachment = in_array($attachment->mime_type, [
+                                                'application/pdf',
+                                                'image/jpeg',
+                                                'image/png',
+                                                'image/webp',
+                                                'text/csv',
+                                                'text/plain',
+                                            ], true);
+                                            $isImageAttachment = str_starts_with($attachment->mime_type ?? '', 'image/');
+                                            $previewUrl = route('tasks.attachments.preview', [$task, $attachment]);
+                                        @endphp
+                                        <li class="tf-task-detail__attachment">
+                                            @if ($isImageAttachment)
+                                                <a class="tf-task-detail__attachment-thumbnail" href="{{ $previewUrl }}" target="_blank"
+                                                    rel="noopener noreferrer" aria-label="View {{ $attachment->original_name }}">
+                                                    <img src="{{ $previewUrl }}" alt="" loading="lazy">
+                                                </a>
+                                            @else
+                                                <span class="tf-task-detail__attachment-icon" aria-hidden="true">
+                                                    <i
+                                                        class="bi {{ $attachment->mime_type === 'application/pdf' ? 'bi-file-earmark-pdf' : 'bi-file-earmark' }}"></i>
+                                                </span>
+                                            @endif
+                                            <span class="tf-task-detail__attachment-copy">
+                                                <strong>{{ $attachment->original_name }}</strong>
+                                                <small>
+                                                    {{ $attachment->size_bytes >= 1048576 ? number_format($attachment->size_bytes / 1048576, 1) . ' MB' : number_format($attachment->size_bytes / 1024, 0) . ' KB' }}
+                                                    <span aria-hidden="true">·</span>
+                                                    Uploaded by {{ $attachment->uploadedBy?->name ?? 'Unknown user' }}
+                                                    <span aria-hidden="true">·</span>
+                                                    {{ $attachment->created_at?->format('M d, Y') ?? 'Date unavailable' }}
+                                                </small>
+                                            </span>
+                                            <span class="tf-task-detail__attachment-actions" role="group"
+                                                aria-label="Actions for {{ $attachment->original_name }}">
+                                                @if ($isPreviewableAttachment)
+                                                    <a class="tf-task-detail__attachment-action tf-task-detail__attachment-action--preview"
+                                                        href="{{ $previewUrl }}" target="_blank" rel="noopener noreferrer"
+                                                        aria-label="Preview {{ $attachment->original_name }}" title="Preview file">
+                                                        <i class="bi bi-eye" aria-hidden="true"></i>
+                                                    </a>
+                                                @endif
+                                                <a class="tf-task-detail__attachment-action"
+                                                    href="{{ route('tasks.attachments.download', [$task, $attachment]) }}"
+                                                    aria-label="Download {{ $attachment->original_name }}" title="Download file">
+                                                    <i class="bi bi-download" aria-hidden="true"></i>
+                                                </a>
+                                            </span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            @else
+                                <div class="tf-task-detail__empty-panel">
+                                    <i class="bi bi-file-earmark" aria-hidden="true"></i>
+                                    <strong>No files attached</strong>
+                                    <p>There are no files attached to this task.</p>
+                                </div>
+                            @endif
+                        </div>
+                    </section>
+
+                    @can('tasks.update')
+                        <script>
+                            (() => {
+                                const form = document.querySelector('[data-task-file-upload]');
+                                const input = form?.querySelector('[data-task-file-input]');
+                                const dropzone = form?.querySelector('[data-task-file-dropzone]');
+                                const status = form?.querySelector('[data-task-file-status]');
+
+                                if (!form || !input || !dropzone || !status) {
+                                    return;
+                                }
+
+                                const uploadSelection = () => {
+                                    if (input.files.length === 0) {
+                                        return;
+                                    }
+
+                                    status.textContent = `Uploading ${input.files.length} file${input.files.length === 1 ? '' : 's'}…`;
+                                    form.requestSubmit();
+                                };
+
+                                input.addEventListener('change', uploadSelection);
+                                ['dragenter', 'dragover'].forEach(eventName => {
+                                    dropzone.addEventListener(eventName, event => {
+                                        event.preventDefault();
+                                        dropzone.classList.add('is-dragging');
+                                    });
+                                });
+                                ['dragleave', 'drop'].forEach(eventName => {
+                                    dropzone.addEventListener(eventName, event => {
+                                        event.preventDefault();
+                                        dropzone.classList.remove('is-dragging');
+                                    });
+                                });
+                                dropzone.addEventListener('drop', event => {
+                                    if (event.dataTransfer?.files.length) {
+                                        input.files = event.dataTransfer.files;
+                                        uploadSelection();
+                                    }
+                                });
+                            })();
+                        </script>
+                    @endcan
+
+                    <section class="tf-task-detail__card task-overview-accountability" aria-labelledby="task-accountability-title">
+                        <header class="tf-task-detail__card-header">
+                            <h2 id="task-accountability-title">Accountability chain</h2>
+                        </header>
+                        <div class="task-overview-details__section">
+                            <div class="task-overview-details__chain" aria-label="Task accountability chain">
+                                @if ($task->creator)
+                                    <span>{{ $task->creator->name }}</span>
+                                @endif
+                                @if ($task->creator && ($task->pocs->isNotEmpty() || $currentAssignees->isNotEmpty()))
+                                    <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                                @endif
+                                @foreach ($task->pocs as $index => $poc)
+                                    <span>{{ $poc->name }} (POC)</span>
+                                    @if ($index < $task->pocs->count() - 1 || $currentAssignees->isNotEmpty())
+                                        <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                                    @endif
+                                @endforeach
+                                @foreach ($currentAssignees as $index => $assignee)
+                                    <span>{{ $assignee->name }}</span>
+                                    @if ($index < $currentAssignees->count() - 1)
+                                        <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                                    @endif
+                                @endforeach
+                            </div>
+                        </div>
+                    </section>
+
+                    @if ($task->task_type === 'recurring')
+                        <section class="tf-task-detail__card task-overview-recurring" aria-labelledby="task-overview-recurring-title">
+                            <header class="tf-task-detail__card-header">
+                                <h2 id="task-overview-recurring-title">Recurring Schedule</h2>
+                            </header>
+                            @if ($recurringSchedule)
+                                @php
+                                    $recurringStartTime = \Illuminate\Support\Carbon::parse($recurringSchedule->start_time);
+                                    $recurringEndTime = \Illuminate\Support\Carbon::parse($recurringSchedule->end_time);
+                                    $recurringStartFormat = $recurringStartTime->format('A') === $recurringEndTime->format('A')
+                                        ? 'g:i'
+                                        : 'g:i A';
+                                    $recurringTimeRange = $recurringStartTime->format($recurringStartFormat)
+                                        .'–'.$recurringEndTime->format('g:i A').' '.$recurringSchedule->timezone;
+                                @endphp
+                                <dl class="task-overview-recurring__facts">
+                                    <div>
+                                        <dt>Repeats</dt>
+                                        <dd>{{ ucfirst($recurringSchedule->repeat_frequency) }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Time</dt>
+                                        <dd>{{ $recurringTimeRange }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Status</dt>
+                                        <dd>
+                                            <span class="task-overview-recurring__status task-overview-recurring__status--{{ $recurringSchedule->status }}">
+                                                {{ ucfirst($recurringSchedule->status) }}
+                                            </span>
+                                        </dd>
+                                    </div>
+                                </dl>
+                                <p class="task-overview-recurring__note">
+                                    Stored as {{ $recurringTimeRange }}.
+                                    @if ($nextRecurringOccurrence)
+                                        Next occurrence: {{ $nextRecurringOccurrence->format('M d, Y') }}.
+                                    @else
+                                        No upcoming occurrence yet.
+                                    @endif
+                                </p>
+                            @else
+                                <dl class="task-overview-recurring__facts">
+                                    <div>
+                                        <dt>Repeats</dt>
+                                        <dd>—</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Time</dt>
+                                        <dd>—</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Status</dt>
+                                        <dd><span class="task-overview-recurring__status task-overview-recurring__status--unavailable">Unavailable</span></dd>
+                                    </div>
+                                </dl>
+                                <p class="task-overview-recurring__note">Schedule details are not available for this recurring task.</p>
+                            @endif
+                        </section>
+                    @endif
+                </div>
+
                 {{-- Separate Tab Card --}}
                 <div class="tf-task-detail__card tf-activity-tabs-card">
                     <nav class="tf-activity-tabs-nav" role="tablist" aria-label="Overview and task activity">
                         <button type="button" class="tf-activity-tab-btn is-active" id="tab-overview-btn"
                             data-activity-tab="overview" role="tab" aria-selected="true" aria-controls="task-details-overview">
                             <i class="bi bi-grid" aria-hidden="true"></i> Overview
-                        </button>
-                        <button type="button" class="tf-activity-tab-btn" id="tab-daily-tasks-btn" data-activity-tab="daily-tasks"
-                            role="tab" aria-selected="false" aria-controls="panel-daily-tasks">
-                            <i class="bi bi-calendar2-week" aria-hidden="true"></i> Daily Tasks
-                            <span class="tf-activity-tab-badge">{{ $dailyTasks->count() }}</span>
                         </button>
                         <button type="button" class="tf-activity-tab-btn" id="tab-timeline-btn"
                             data-activity-tab="timeline" role="tab" aria-selected="false" aria-controls="panel-timeline">
@@ -1192,131 +2306,10 @@
                             ],
                         ])->filter(fn(array $milestone): bool => filled($milestone['date']))->values();
                         $timelineSchedule = $task->recurringSchedule ?? $task->recurringTask;
-                        $dailyTaskStatusTransitions = [
-                            'daily_task_pending',
-                            'daily_task_started',
-                            'daily_task_on_hold',
-                            'daily_task_resumed',
-                            'daily_task_completed',
-                            'daily_task_cancelled',
-                            'daily_task_missed',
-                        ];
-                        // The timeline should show only meaningful Daily Task lifecycle transitions.
-                        // Creation, assignment, progress edits and generic update records stay in the Daily Tasks panel.
-                        $dailyTaskTimelineEventTypes = [
-                            'daily_task_started',
-                            'daily_task_on_hold',
-                            'daily_task_resumed',
-                            'daily_task_completed',
-                        ];
-                        $dailyTaskTimelineActivities = $dailyTasks
-                            ->flatMap(function (\App\Models\DailyTask $dailyTask) use ($dailyTaskStatusTransitions, $dailyTaskTimelineEventTypes) {
-                                $activityStatus = null;
-
-                                return $dailyTask->activity
-                                    ->filter(fn($history): bool => in_array(
-                                        strtolower((string) $history->event_type),
-                                        $dailyTaskTimelineEventTypes,
-                                        true,
-                                    ))
-                                    ->sort(fn($first, $second): int => ($first->created_at?->timestamp ?? 0) <=> ($second->created_at?->timestamp ?? 0)
-                                        ?: $first->id <=> $second->id)
-                                    ->values()
-                                    ->map(function ($history) use ($dailyTask, $dailyTaskStatusTransitions, &$activityStatus): array {
-                                        $eventType = strtolower((string) $history->event_type);
-                                        if (
-                                            in_array($eventType, $dailyTaskStatusTransitions, true)
-                                            || ($eventType === 'daily_task_created'
-                                                && in_array($history->new_status, \App\Models\DailyTask::STATUSES, true))
-                                        ) {
-                                            $activityStatus = $history->new_status;
-                                        } elseif (
-                                            $activityStatus === null
-                                            && in_array($history->old_status, \App\Models\DailyTask::STATUSES, true)
-                                        ) {
-                                            $activityStatus = $history->old_status;
-                                        }
-                                        $eventStatus = $activityStatus ?? $dailyTask->status;
-                                        $currentStatusLabel = \App\Models\DailyTask::STATUS_LABELS[$dailyTask->status]
-                                            ?? ucfirst($dailyTask->status);
-                                        $details = [];
-                                        if (in_array($eventType, $dailyTaskStatusTransitions, true)) {
-                                            $details[] = (\App\Models\DailyTask::STATUS_LABELS[$history->old_status] ?? $history->old_status ?? '—')
-                                                .' → '.(\App\Models\DailyTask::STATUS_LABELS[$history->new_status] ?? $history->new_status);
-                                        }
-                                        if ($eventType === 'daily_task_progress_updated') {
-                                            $details[] = 'Progress: '.$history->old_status.'% → '.$history->new_status.'%';
-                                        }
-                                        if (filled($history->remarks)) {
-                                            $details[] = 'Update: '.\Illuminate\Support\Str::limit($history->remarks, 180);
-                                        }
-                                        if (
-                                            $eventType === 'daily_task_update_submitted'
-                                            && $history->created_at !== null
-                                            && $history->activity_date?->toDateString()
-                                                !== $history->created_at->timezone(config('app.timezone'))->toDateString()
-                                        ) {
-                                            $details[] = 'Submitted on: '.$history->created_at
-                                                ->timezone(config('app.timezone'))
-                                                ->format('M j, Y');
-                                        }
-
-                                        return [
-                                            'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString()
-                                                ?? $history->activity_date?->toDateString(),
-                                            'time' => $history->created_at?->timezone(config('app.timezone'))->format('g:i A'),
-                                            'timestamp' => $history->created_at?->timestamp,
-                                            'type' => $eventType,
-                                            'isDailyTask' => true,
-                                            'dailyTaskId' => $dailyTask->id,
-                                            'dailyTaskTitle' => $dailyTask->title,
-                                            'employeeId' => $dailyTask->assignee?->id,
-                                            'workDate' => $history->activity_date?->toDateString()
-                                                ?? $dailyTask->work_date?->toDateString(),
-                                            'progress' => (int) $dailyTask->progress_percentage,
-                                            'employee' => $dailyTask->assignee?->name ?? 'Former employee',
-                                            'department' => $dailyTask->assignee?->department?->name ?? 'Unknown department',
-                                            'currentStatus' => $currentStatusLabel,
-                                            'eventStatus' => $eventStatus,
-                                            'statusTransition' => in_array($eventType, $dailyTaskStatusTransitions, true),
-                                            'actor' => $history->changedBy?->name ?? 'System',
-                                            'from' => in_array($eventType, $dailyTaskStatusTransitions, true)
-                                                ? (\App\Models\DailyTask::STATUS_LABELS[$history->old_status] ?? $history->old_status)
-                                                : null,
-                                            'to' => in_array($eventType, $dailyTaskStatusTransitions, true)
-                                                ? (\App\Models\DailyTask::STATUS_LABELS[$history->new_status] ?? $history->new_status)
-                                                : null,
-                                            'detail' => implode(' · ', $details),
-                                        ];
-                                    });
-                            })
-                            ->filter(fn(array $event): bool => $event['date'] !== null)
-                            ->values();
-                        $accountabilityTimelineActivities = $accountabilityEvents
-                            ->map(fn(\App\Models\DailyAccountabilityEvent $event): array => [
-                                'date' => $event->report_date?->toDateString(),
-                                'time' => $event->created_at?->timezone(config('app.timezone'))->format('g:i A'),
-                                'timestamp' => $event->created_at?->timestamp,
-                                'type' => 'daily_accountability_'.$event->event_type,
-                                'actor' => $event->employee_name,
-                                'employee' => $event->employee_name,
-                                'department' => $event->employee?->department?->name ?? 'Unknown department',
-                                'dailyTaskId' => $event->daily_task_id,
-                                'dailyTaskTitle' => $event->daily_task_title,
-                                'employeeId' => $event->employee_id,
-                                'isDailyTask' => true,
-                                'isAccountability' => true,
-                                'accountabilityTone' => 'missed',
-                                'detail' => $event->description,
-                            ])
-                            ->filter(fn(array $event): bool => $event['date'] !== null)
-                            ->values();
                         $timelineDates = collect([$timelineRangeStart, $timelineRangeEnd])
                             ->merge($mainTaskHistory->pluck('created_at'))
                             ->merge($task->statusHistory->whereNotNull('subtask_id')->pluck('created_at'))
                             ->merge($mainTaskHistory->where('event_type', 'work_update')->pluck('activity_date'))
-                            ->merge($dailyTaskTimelineActivities->pluck('date'))
-                            ->merge($accountabilityTimelineActivities->pluck('date'))
                             ->merge($task->assignments->pluck('assigned_at'))
                             ->merge($task->assignments->pluck('unassigned_at'))
                             ->merge($deadlineExtensionRequests->pluck('created_at'))
@@ -1338,7 +2331,7 @@
                             ->filter(function ($history) use ($task): bool {
                                 $eventType = strtolower((string) $history->event_type);
 
-                                // The initial task status is creation metadata, not a daily work update.
+                                // The initial task status is creation metadata, not a work update.
                                 if (
                                     $eventType === 'status'
                                     && $history->old_status === null
@@ -1505,17 +2498,6 @@
                             })
                             ->filter(fn(array $event): bool => $event['date'] !== null)
                             ->values();
-                        $dailyTaskUpdateDates = $dailyTasks
-                            ->flatMap(fn(\App\Models\DailyTask $dailyTask) => $dailyTask->activity
-                                ->filter(fn($history): bool => strtolower((string) $history->event_type) === 'daily_task_update_submitted')
-                                ->map(fn($history): array => [
-                                    'date' => $history->activity_date?->toDateString()
-                                        ?? $history->created_at?->timezone(config('app.timezone'))->toDateString(),
-                                    'employeeId' => $dailyTask->assignee?->id,
-                                ]))
-                            ->filter(fn(array $item): bool => filled($item['date']) && $item['employeeId'] !== null)
-                            ->values();
-
                         $timelineModel = [
                             'range' => [
                                 'start' => $timelineRangeStart->toDateString(),
@@ -1523,23 +2505,10 @@
                                 'today' => today()->toDateString(),
                             ],
                             'task' => [
-                                'id' => $task->id,
                                 'title' => $task->title,
-                                'priority' => ucfirst($task->priority),
                                 'start' => $timelineStart->toDateString(),
                                 'due' => $timelineDue->toDateString(),
-                                'assignee' => $assigneeNames ?: 'Unassigned',
-                                'assigneeIds' => $currentAssignees->pluck('id')->values(),
-                                'status' => $task->status,
-                                'priority' => strtolower((string) $task->priority),
-                                'created' => $task->created_at?->timezone(config('app.timezone'))->toDateString(),
                             ],
-                            'dailyTaskUpdateDates' => $dailyTaskUpdateDates,
-                            'dailyUpdates' => $dailyTaskTimelineActivities
-                                ->concat($accountabilityTimelineActivities)
-                                ->sort(fn(array $first, array $second): int => ($first['date'] ?? '') <=> ($second['date'] ?? '')
-                                    ?: (int) ($first['timestamp'] ?? 0) <=> (int) ($second['timestamp'] ?? 0))
-                                ->values(),
                             'activities' => $timelineActivities,
                             'subtaskActivities' => $subtaskTimelineActivities,
                             'hasSubtasks' => $task->subtasks->isNotEmpty(),
@@ -1921,14 +2890,6 @@
                                 min-height: 56px;
                             }
 
-                            .tl-row[data-tl-row="updates"] {
-                                background-color: #f8fbff;
-                            }
-
-                            .tl-row--daily-missed {
-                                background-color: #fff7f8 !important;
-                            }
-
                             .tl-row[data-tl-row="milestones"] {
                                 background-color: #f8fbff;
                             }
@@ -2035,49 +2996,6 @@
                                 color: #e11d48;
                             }
 
-                            .tl-update {
-                                position: absolute;
-                                top: 11px;
-                                left: calc(var(--tl-start) * var(--tl-cell) + 9px);
-                                display: grid;
-                                width: 30px;
-                                height: 27px;
-                                place-items: center;
-                                border-radius: 8px;
-                                background: #2563eb;
-                                color: #fff;
-                                box-shadow: 0 3px 7px rgba(37, 99, 235, .2);
-                                font-size: 12px;
-                            }
-
-                            .tl-update--upcoming {
-                                border: 2px dashed #74a4fb;
-                                background: #dbeafe;
-                                color: #2563eb;
-                            }
-
-                            .tl-update--open {
-                                border: 2px dashed #d97706;
-                                background: #fff7ed;
-                                color: #d97706;
-                            }
-
-                            .tl-update--missed {
-                                background: #e11d48;
-                            }
-
-                            .tl-update--paused {
-                                border: 1px solid #cbd5e1;
-                                background: #e2e8f0;
-                                color: #475569;
-                            }
-
-                            .tl-update--deferred {
-                                border: 1px solid #cbd5e1;
-                                background: #f1f5f9;
-                                color: #475569;
-                            }
-
                             .tl-row-copy {
                                 position: absolute;
                                 top: 14px;
@@ -2105,102 +3023,6 @@
                                 transform: translateY(-50%);
                             }
 
-                            .tl-daily-no-update {
-                                position: absolute;
-                                top: 50%;
-                                left: calc(var(--tl-start) * var(--tl-cell) + 4px);
-                                z-index: 4;
-                                display: inline-flex;
-                                align-items: center;
-                                justify-content: center;
-                                gap: 5px;
-                                width: max-content;
-                                max-width: min(220px, calc((var(--tl-days) - var(--tl-start)) * var(--tl-cell) - 8px));
-                                min-height: 29px;
-                                padding: 4px 8px;
-                                border: 1px solid #fda4af;
-                                border-radius: 7px;
-                                background: #fff1f2;
-                                color: #be123c;
-                                font-size: 9px;
-                                font-weight: 800;
-                                line-height: 1.15;
-                                white-space: nowrap;
-                                box-shadow: 0 2px 7px rgba(225, 29, 72, .14);
-                                transform: translateY(-50%);
-                            }
-
-                            .tl-daily-no-update i {
-                                flex: 0 0 auto;
-                                font-size: 10px;
-                            }
-
-                            .tl-daily-no-update strong {
-                                color: inherit;
-                                font-size: 9px;
-                                font-weight: 800;
-                            }
-
-                            .tl-row--daily-warning {
-                                background-color: #fff7f8 !important;
-                            }
-
-                            .tl-daily-waiting {
-                                position: absolute;
-                                top: 50%;
-                                left: calc(var(--tl-start) * var(--tl-cell) + 4px);
-                                z-index: 3;
-                                display: inline-flex;
-                                align-items: center;
-                                justify-content: center;
-                                gap: 3px;
-                                width: calc(var(--tl-cell) - 8px);
-                                min-width: 0;
-                                min-height: 27px;
-                                padding: 3px 4px;
-                                overflow: hidden;
-                                border: 1px dashed #d97706;
-                                border-radius: 7px;
-                                background: #fff7ed;
-                                color: #b45309;
-                                font-size: 8px;
-                                font-weight: 750;
-                                line-height: 1.1;
-                                white-space: nowrap;
-                                box-shadow: 0 2px 5px rgba(217, 119, 6, .12);
-                                transform: translateY(-50%);
-                            }
-
-                            .tl-daily-waiting--below {
-                                top: 39px;
-                                transform: none;
-                            }
-
-                            .tl-daily-waiting--upcoming {
-                                border-color: #cbd5e1;
-                                background: #f1f5f9;
-                                color: #475569;
-                                box-shadow: 0 2px 5px rgba(15, 23, 42, .07);
-                            }
-
-                            .tl-daily-waiting i {
-                                display: inline-grid;
-                                width: 12px;
-                                height: 12px;
-                                flex: 0 0 12px;
-                                place-items: center;
-                                color: currentColor;
-                                font-size: 8px;
-                            }
-
-                            .tl-daily-waiting strong {
-                                overflow: hidden;
-                                color: inherit;
-                                font-size: 8px;
-                                font-weight: 800;
-                                text-overflow: ellipsis;
-                            }
-
                             .tl-daily-events {
                                 display: flex;
                                 flex-direction: column;
@@ -2210,11 +3032,6 @@
 
                             .tl-daily-event[hidden] {
                                 display: none !important;
-                            }
-
-                            .tl-daily-label-row {
-                                min-height: 56px;
-                                background: #fff;
                             }
 
                             .tl-task-label-row {
@@ -2350,66 +3167,6 @@
                                 line-height: 1.4;
                             }
 
-                            .tl-event-tooltip__daily-info {
-                                display: grid;
-                                gap: 4px;
-                            }
-
-                            .tl-event-tooltip__daily-info-row {
-                                display: flex;
-                                align-items: baseline;
-                                justify-content: space-between;
-                                gap: 12px;
-                                padding: 5px 7px;
-                                border-radius: 6px;
-                                background: #f8fafc;
-                                line-height: 1.35;
-                            }
-
-                            .tl-event-tooltip__daily-info-label {
-                                flex: 0 0 auto;
-                                color: #64748b;
-                                font-size: 10px;
-                                font-weight: 700;
-                            }
-
-                            .tl-event-tooltip__daily-info-value {
-                                min-width: 0;
-                                color: #334155;
-                                font-size: 10px;
-                                font-weight: 700;
-                                text-align: right;
-                                overflow-wrap: anywhere;
-                            }
-
-                            .tl-event-tooltip__people {
-                                display: grid;
-                                grid-template-columns: repeat(2, minmax(0, 1fr));
-                                gap: 8px;
-                                padding: 7px 0;
-                                border-top: 1px solid #eef2f7;
-                                border-bottom: 1px solid #eef2f7;
-                            }
-
-                            .tl-event-tooltip__person {
-                                display: grid;
-                                min-width: 0;
-                                gap: 2px;
-                            }
-
-                            .tl-event-tooltip__person-label {
-                                color: #64748b;
-                                font-size: 9px;
-                                font-weight: 700;
-                            }
-
-                            .tl-event-tooltip__person-value {
-                                overflow-wrap: anywhere;
-                                color: #1e293b;
-                                font-size: 10px;
-                                font-weight: 650;
-                            }
-
                             .tl-event-tooltip__meta,
                             .tl-event-tooltip__actor {
                                 display: flex;
@@ -2479,10 +3236,6 @@
                                 outline-offset: 2px;
                             }
 
-                            .tl-daily-event.is-daily-task-activity {
-                                border-left-width: 4px;
-                            }
-
                             .tl-task-event strong {
                                 display: flex;
                                 align-items: center;
@@ -2510,10 +3263,7 @@
                                 color: #6d28d9;
                             }
 
-                            .tl-daily-event--in_progress,
-                            .tl-daily-event--pending,
-                            .tl-daily-event--planned,
-                            .tl-daily-event--update-submitted {
+                            .tl-daily-event--in_progress {
                                 border-color: #93c5fd;
                                 background: #eff6ff;
                                 color: #1e40af;
@@ -2531,109 +3281,10 @@
                                 color: #166534;
                             }
 
-                            .tl-daily-event--cancelled,
-                            .tl-daily-event--missed {
+                            .tl-daily-event--cancelled {
                                 border-color: #fda4af;
                                 background: #fff1f2;
                                 color: #9f1239;
-                            }
-
-                            .tl-daily-event--late {
-                                border-color: #fdba74;
-                                background: #fff7ed;
-                                color: #9a3412;
-                            }
-
-                            .tl-daily-event--exempted {
-                                border-color: #cbd5e1;
-                                background: #f8fafc;
-                                color: #475569;
-                            }
-
-                            .tl-daily-event--reversed {
-                                border-color: #86efac;
-                                background: #f0fdf4;
-                                color: #166534;
-                            }
-
-                            .tl-daily-event.is-workflow-start {
-                                border-color: #93c5fd;
-                                background: #eff6ff;
-                            }
-
-                            .tl-daily-event.is-workflow-hold {
-                                border-color: #fdba74;
-                                background: #fff7ed;
-                                color: #9a3412;
-                            }
-
-                            .tl-daily-event.is-workflow-hold strong {
-                                color: #c2410c;
-                            }
-
-                            .tl-daily-event.is-workflow-resume {
-                                border-color: #86efac;
-                                background: #f0fdf4;
-                                color: #166534;
-                            }
-
-                            .tl-daily-event.is-workflow-resume strong {
-                                color: #15803d;
-                            }
-
-                            .tl-daily-event.is-daily-task-update {
-                                border: 1px solid #cbd5e1;
-                                border-left: 3px solid #64748b;
-                                background: #f8fafc;
-                                color: #475569;
-                                box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
-                            }
-
-                            .tl-daily-event.is-daily-task-update strong {
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 7px;
-                                color: #1e293b;
-                                font-weight: 600;
-                                letter-spacing: .01em;
-                            }
-
-                            .tl-daily-event.is-daily-task-update strong i {
-                                display: inline-grid;
-                                width: 19px;
-                                height: 19px;
-                                flex: 0 0 19px;
-                                place-items: center;
-                                border-radius: 6px;
-                                background: #e2e8f0;
-                                color: #475569;
-                                font-size: 10px;
-                            }
-
-                            .tl-daily-event.is-alert {
-                                border-color: #e96b73;
-                                background: #ffa1a7;
-                                color: #9f1239;
-                                box-shadow: 0 2px 6px rgba(225, 29, 72, .10);
-                            }
-
-                            .tl-daily-event.is-alert strong {
-                                color: #be123c;
-                            }
-
-                            .tl-daily-event.is-alert small {
-                                color: #881337;
-                            }
-
-                            .tl-daily-warning {
-                                color: #be123c !important;
-                            }
-
-                            .tl-dependency {
-                                position: absolute;
-                                top: 25px;
-                                left: calc((var(--tl-start) + .7) * var(--tl-cell));
-                                color: #a8b2c1;
                             }
 
                             .tl-dependency svg {
@@ -3144,6 +3795,425 @@
                                     class="milestone"></i>Milestone</span><span><i
                                     class="dependency"></i>Dependency</span><span><i class="today"></i>Today</span></div>
                     </section>
+
+                    <section class="task-activity-feed" data-task-activity-feed
+                        data-task-id="{{ $task->id }}" data-user-id="{{ auth()->id() }}"
+                        aria-labelledby="task-activity-feed-title">
+                        <style>
+                            .task-activity-feed {
+                                --feed-ink: #1f2937;
+                                --feed-muted: #64748b;
+                                margin-top: 20px;
+                                overflow: visible;
+                                border: 1px solid #e8ecf5;
+                                border-radius: 22px;
+                                background: #fff;
+                                box-shadow: 0 12px 28px rgba(28, 48, 85, .07);
+                                color: var(--feed-ink);
+                                font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+                            }
+
+                            .task-activity-feed--overview {
+                                margin-top: 0;
+                                border-radius: 12px;
+                                box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
+                            }
+
+                            .task-activity-feed--overview .task-activity-feed__header {
+                                padding: 14px 16px;
+                            }
+
+                            .task-activity-feed__view-all {
+                                padding: 5px 9px;
+                                border: 1px solid #dbeafe;
+                                border-radius: 999px;
+                                background: #fff;
+                                color: #1d4ed8;
+                                cursor: pointer;
+                                font: inherit;
+                                font-size: 11px;
+                                font-weight: 650;
+                            }
+
+                            .task-activity-feed__view-all:hover,
+                            .task-activity-feed__view-all:focus-visible {
+                                outline: none;
+                                border-color: #93c5fd;
+                                background: #eff6ff;
+                            }
+
+                            .task-activity-feed *,
+                            .task-activity-feed *::before,
+                            .task-activity-feed *::after {
+                                box-sizing: border-box;
+                            }
+
+                            .task-activity-feed__header {
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                gap: 14px;
+                                padding: 18px 22px;
+                                border-bottom: 1px solid #edf0f5;
+                            }
+
+                            .task-activity-feed__eyebrow {
+                                margin: 0 0 3px;
+                                color: #64748b;
+                                font-size: 11px;
+                                font-weight: 700;
+                                letter-spacing: .08em;
+                                text-transform: uppercase;
+                            }
+
+                            .task-activity-feed__title {
+                                margin: 0;
+                                color: #172033;
+                                font-size: 17px;
+                                font-weight: 750;
+                            }
+
+                            .task-activity-feed__count {
+                                display: inline-flex;
+                                min-width: 28px;
+                                height: 28px;
+                                align-items: center;
+                                justify-content: center;
+                                padding: 0 8px;
+                                border-radius: 999px;
+                                background: #f1f5f9;
+                                color: #475569;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+
+                            .task-activity-feed__list {
+                                position: relative;
+                                display: grid;
+                                gap: 9px;
+                                margin: 0;
+                                padding: 14px 16px 14px 27px;
+                                list-style: none;
+                            }
+
+                            .task-activity-feed__list::before {
+                                position: absolute;
+                                top: 18px;
+                                bottom: 18px;
+                                left: 40px;
+                                border-left: 1px dashed #cbd5e1;
+                                content: "";
+                            }
+
+                            .task-activity-feed__item {
+                                position: relative;
+                                min-width: 0;
+                                padding-left: 28px;
+                            }
+
+                            .task-activity-feed__avatar {
+                                position: absolute;
+                                z-index: 1;
+                                top: 9px;
+                                left: 0;
+                                display: grid;
+                                width: 27px;
+                                height: 27px;
+                                place-items: center;
+                                border: 2px solid #fff;
+                                border-radius: 50%;
+                                background: #e8eefb;
+                                color: #334e91;
+                                font-size: 10px;
+                                font-weight: 800;
+                                box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+                            }
+
+                            .task-activity-feed__card {
+                                min-width: 0;
+                                padding: 10px 12px;
+                                border: 1px dotted #d5dbe5;
+                                border-radius: 12px;
+                                background: #f7f7f8;
+                            }
+
+                            .task-activity-feed__card--completed {
+                                border: 1px dotted #22c55e;
+                                background: #f0fdf4;
+                                color: #166534;
+                            }
+
+                            .task-activity-feed__card-header {
+                                display: flex;
+                                align-items: flex-start;
+                                justify-content: space-between;
+                                gap: 10px;
+                            }
+
+                            .task-activity-feed__author-details {
+                                display: flex;
+                                min-width: 0;
+                                align-items: baseline;
+                                flex-wrap: wrap;
+                                gap: 0 4px;
+                            }
+
+                            .task-activity-feed__author {
+                                min-width: 0;
+                                margin: 0;
+                                color: #1e293b;
+                                font-size: 12px;
+                                font-weight: 750;
+                            }
+
+                            .task-activity-feed__designation {
+                                color: var(--feed-muted);
+                                font-size: 10px;
+                                font-weight: 500;
+                            }
+
+                            .task-activity-feed__designation::before {
+                                content: "- ";
+                            }
+
+                            .task-activity-feed__message {
+                                flex: 1 1 auto;
+                                min-width: 0;
+                                margin: 0;
+                                color: #1f2937;
+                                font-size: 13px;
+                                font-weight: 600;
+                                line-height: 1.45;
+                                letter-spacing: -.01em;
+                                overflow-wrap: anywhere;
+                                white-space: pre-line;
+                            }
+
+                            .task-activity-feed__message-row {
+                                display: flex;
+                                align-items: baseline;
+                                gap: 10px;
+                                margin-top: 6px;
+                            }
+
+                            .task-activity-feed__card--completed .task-activity-feed__message,
+                            .task-activity-feed__card--completed .task-activity-feed__detail {
+                                color: #166534;
+                            }
+
+                            .task-activity-feed__detail {
+                                margin: 4px 0 0;
+                                color: #475569;
+                                font-size: 11px;
+                                font-style: italic;
+                                font-weight: 700;
+                                overflow-wrap: anywhere;
+                                white-space: pre-line;
+                            }
+
+                            .task-activity-feed__badge {
+                                display: inline-flex;
+                                flex: 0 0 auto;
+                                align-items: center;
+                                gap: 5px;
+                                margin-top: 1px;
+                                padding: 3px 7px;
+                                border-radius: 999px;
+                                background: #e8edf5;
+                                color: #475569;
+                                font-size: 9px;
+                                font-weight: 700;
+                            }
+
+                            .task-activity-feed__card--completed .task-activity-feed__badge {
+                                background: #dcfce7;
+                                color: #166534;
+                            }
+
+                            .task-activity-feed__card-footer {
+                                display: flex;
+                                align-items: flex-end;
+                                justify-content: space-between;
+                                gap: 8px;
+                                margin-top: 7px;
+                            }
+
+                            .task-activity-feed__date {
+                                display: flex;
+                                flex: 0 0 auto;
+                                flex-direction: column;
+                                margin-left: auto;
+                                color: var(--feed-muted);
+                                font-size: 9px;
+                                line-height: 1.3;
+                                text-align: right;
+                                white-space: nowrap;
+                            }
+
+                            .task-activity-feed__card--completed .task-activity-feed__date {
+                                color: #15803d;
+                            }
+
+                            .task-activity-feed__attachments {
+                                display: flex;
+                                flex-wrap: wrap;
+                                gap: 7px;
+                                min-width: 0;
+                                margin: 0;
+                                padding: 0;
+                                list-style: none;
+                            }
+
+                            .task-activity-feed__attachment {
+                                display: inline-flex;
+                                max-width: 100%;
+                                align-items: center;
+                                gap: 6px;
+                                padding: 5px 9px;
+                                border: 1px solid #dbeafe;
+                                border-radius: 999px;
+                                background: #eff6ff;
+                                color: #1d4ed8;
+                                font-size: 11px;
+                                font-weight: 650;
+                                text-decoration: none;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .task-activity-feed__attachment:hover {
+                                border-color: #93c5fd;
+                                background: #dbeafe;
+                                color: #1e40af;
+                            }
+
+                            .task-activity-feed__empty {
+                                padding: 30px 20px;
+                                color: #64748b;
+                                text-align: center;
+                            }
+
+                            @media (max-width: 575px) {
+                                .task-activity-feed__header {
+                                    padding: 15px 16px;
+                                }
+
+                                .task-activity-feed__list {
+                                    padding: 12px 12px 12px 15px;
+                                }
+
+                                .task-activity-feed__list::before {
+                                    left: 28px;
+                                }
+
+                                .task-activity-feed__item {
+                                    padding-left: 28px;
+                                }
+
+                                .task-activity-feed__card {
+                                    padding: 9px 10px;
+                                }
+                            }
+                        </style>
+
+                        <header class="task-activity-feed__header">
+                            <div>
+                                <p class="task-activity-feed__eyebrow">Task history</p>
+                                <h2 class="task-activity-feed__title" id="task-activity-feed-title">Activity feed</h2>
+                            </div>
+                            <span class="task-activity-feed__count" aria-label="{{ $taskActivityFeed->count() }} activities">
+                                {{ $taskActivityFeed->count() }}
+                            </span>
+                        </header>
+
+                        @if ($taskActivityFeed->isEmpty())
+                            <p class="task-activity-feed__empty">No activity has been recorded yet.</p>
+                        @else
+                            <ol class="task-activity-feed__list">
+                                @foreach ($taskActivityFeed as $feedActivity)
+                                    @php
+                                        $activityNameParts = preg_split('/\s+/', trim($feedActivity['actor'])) ?: [];
+                                        $activityInitials = collect($activityNameParts)
+                                            ->take(2)
+                                            ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+                                            ->implode('');
+                                        $activityElementId = 'task-feed-event-'.$feedActivity['id'];
+                                    @endphp
+                                    <li class="task-activity-feed__item" id="{{ $activityElementId }}"
+                                        data-activity-feed-item>
+                                        <span class="task-activity-feed__avatar" aria-hidden="true">{{ $activityInitials }}</span>
+                                        <article @class([
+                                            'task-activity-feed__card',
+                                            'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
+                                        ])>
+                                            <header class="task-activity-feed__card-header">
+                                                <div class="task-activity-feed__author-details">
+                                                    <p class="task-activity-feed__author">
+                                                        {{ $feedActivity['actor'] }}
+                                                    </p>
+                                                    @if ($feedActivity['designation'])
+                                                        <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
+                                                    @endif
+                                                </div>
+                                                <span class="task-activity-feed__badge">
+                                                    @if ($feedActivity['tone'] === 'completed')
+                                                        <i class="bi bi-check-circle" aria-hidden="true"></i>
+                                                    @endif
+                                                    {{ $feedActivity['badge'] }}
+                                                </span>
+                                            </header>
+                                            <div class="task-activity-feed__message-row">
+                                                <p class="task-activity-feed__message">{{ $feedActivity['text'] }}</p>
+                                                <time class="task-activity-feed__date"
+                                                    datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                    <span>{{ $feedActivity['at']->format('M j, Y') }}</span>
+                                                    <span>{{ $feedActivity['at']->diffForHumans() }}</span>
+                                                </time>
+                                            </div>
+                                            @if ($feedActivity['detail'])
+                                                <p class="task-activity-feed__detail">{{ $feedActivity['detail'] }}</p>
+                                            @endif
+                                            @if ($feedActivity['attachments']->isNotEmpty())
+                                                <footer class="task-activity-feed__card-footer">
+                                                    <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
+                                                        @foreach ($feedActivity['attachments'] as $attachment)
+                                                            <li>
+                                                                <a class="task-activity-feed__attachment"
+                                                                    href="{{ route(
+                                                                        in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
+                                                                            ? 'tasks.attachments.preview'
+                                                                            : 'tasks.attachments.download',
+                                                                        [$task, $attachment],
+                                                                    ) }}"
+                                                                    target="_blank" rel="noopener noreferrer">
+                                                                    <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                                    {{ $attachment->original_name }}
+                                                                </a>
+                                                            </li>
+                                                        @endforeach
+                                                    </ul>
+                                                </footer>
+                                            @endif
+                                        </article>
+                                    </li>
+                                @endforeach
+                            </ol>
+                        @endif
+                    </section>
+
+                    <script>
+                        (() => {
+                            document.querySelectorAll('[data-task-activity-feed]').forEach(feed => {
+                                feed.addEventListener('click', event => {
+                                    if (
+                                        event.target instanceof Element
+                                        && event.target.closest('[data-task-feed-open-timeline]')
+                                    ) {
+                                        document.getElementById('tab-timeline-btn')?.click();
+                                    }
+                                }
+                            });
+                        })();
+                    </script>
                 </div>
 
                 <div class="tf-activity-tab-panel" id="panel-milestones" role="tabpanel" aria-labelledby="tab-milestones-btn"
@@ -3270,202 +4340,6 @@
                             @empty
                                 <p class="text-secondary mb-0">No milestones have been created for this task.</p>
                             @endforelse
-                        </div>
-                    </section>
-                </div>
-
-                <div class="tf-activity-tab-panel" id="panel-daily-tasks" role="tabpanel" aria-labelledby="tab-daily-tasks-btn"
-                    hidden>
-                    <div class="daily-task-panel-actions">
-                        @if (auth()->user()->hasAssignedRole('Employee') && auth()->user()->can('createDailyTask', $task))
-                            <div class="position-relative">
-                                <button class="btn btn-primary btn-sm" type="button" id="daily-task-create-toggle"
-                                    aria-expanded="{{ old('quick_entry') ? 'true' : 'false' }}"
-                                    aria-controls="daily-task-create-dialog">
-                                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Daily Task
-                                </button>
-                                <div class="daily-task-create-dialog" id="daily-task-create-dialog" role="dialog"
-                                    aria-labelledby="daily-task-create-title"
-                                    @if (!old('quick_entry')) hidden @else data-show-daily-task-create @endif>
-                                    <form method="POST" action="{{ route('daily-tasks.store', $task) }}">
-                                        @csrf
-                                        <input type="hidden" name="quick_entry" value="1">
-                                        <input type="hidden" name="priority" value="medium">
-                                        <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
-                                            <div>
-                                                <h3 class="h6 mb-1" id="daily-task-create-title">Add Daily Task</h3>
-                                                <p class="small text-body-secondary mb-0">For {{ auth()->user()->name }}</p>
-                                            </div>
-                                            <button class="btn-close" type="button" data-close-daily-task-create
-                                                aria-label="Close"></button>
-                                        </div>
-                                        @if ($errors->any() && old('quick_entry'))
-                                            <div class="alert alert-danger py-2" role="alert">
-                                                <ul class="mb-0 ps-3">
-                                                    @foreach ($errors->all() as $error)
-                                                        <li>{{ $error }}</li>
-                                                    @endforeach
-                                                </ul>
-                                            </div>
-                                        @endif
-                                        <div class="mb-3">
-                                            <label class="form-label" for="quickDailyTaskDate">Date</label>
-                                            <input class="form-control" type="date" id="quickDailyTaskDate"
-                                                name="work_date" value="{{ old('work_date', today()->toDateString()) }}" required>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="quickDailyTaskTitle">Task</label>
-                                            <input class="form-control" type="text" id="quickDailyTaskTitle"
-                                                name="title" value="{{ old('title') }}" maxlength="500" required>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label" for="quickDailyTaskEmployee">Employee Name</label>
-                                            <input class="form-control" type="text" id="quickDailyTaskEmployee"
-                                                value="{{ auth()->user()->name }}" readonly>
-                                        </div>
-                                        <div class="d-flex justify-content-end gap-2">
-                                            <button class="btn btn-outline-secondary btn-sm" type="button"
-                                                data-close-daily-task-create>Cancel</button>
-                                            <button class="btn btn-primary btn-sm" type="submit">Add Task</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        @endif
-                    </div>
-                    <section class="tf-task-detail__card mb-3">
-                        <header class="tf-task-detail__card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
-                            <h2><i class="bi bi-calendar2-week" aria-hidden="true"></i> Daily Updates</h2>
-                            <span class="tf-task-detail__count">{{ $dailyTasks->count() }}</span>
-                        </header>
-                        @if (session('success'))
-                            <div class="alert alert-success mx-3 mt-3 mb-0" role="status">{{ session('success') }}</div>
-                        @endif
-                        @if (session('overlap_warning'))
-                            <div class="alert alert-warning mx-3 mt-3 mb-0" role="alert">
-                                This Daily Task overlaps another scheduled task for the employee.
-                            </div>
-                        @endif
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0" id="daily-updates-table">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Date</th>
-                                        <th scope="col">Employee Name</th>
-                                        <th scope="col">Department</th>
-                                        <th scope="col">Task</th>
-                                        <th scope="col">Daily Task Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @forelse ($dailyTasks->sortByDesc('work_date') as $dailyTask)
-                                        <tr id="daily-task-{{ $dailyTask->id }}">
-                                            <td>{{ $dailyTask->work_date?->format('M j, Y') ?? 'Date unavailable' }}</td>
-                                            <td>{{ $dailyTask->assignee?->name ?? 'Former employee' }}</td>
-                                            <td>{{ $dailyTask->assignee?->department?->name ?? '—' }}</td>
-                                            <td>
-                                                <span class="d-block">
-                                                    {{ $dailyTask->title }}
-                                                </span>
-                                                @if (filled($dailyTask->description))
-                                                    <small class="d-block text-body-secondary">
-                                                        {{ \Illuminate\Support\Str::limit($dailyTask->description, 100) }}
-                                                    </small>
-                                                @endif
-                                            </td>
-                                            <td>
-                                                <div class="tf-daily-update-actions d-flex flex-wrap align-items-center gap-2">
-                                                    @php
-                                                        $dailyTaskStatusTone = match ($dailyTask->status) {
-                                                            'completed' => 'text-bg-success',
-                                                            'in_progress' => 'text-bg-primary',
-                                                            'on_hold' => 'text-bg-warning',
-                                                            'cancelled', 'missed' => 'text-bg-danger',
-                                                            default => 'text-bg-secondary',
-                                                        };
-                                                    @endphp
-                                                    <span class="badge {{ $dailyTaskStatusTone }}">
-                                                        {{ \App\Models\DailyTask::STATUS_LABELS[$dailyTask->status] ?? ucfirst($dailyTask->status) }}
-                                                    </span>
-                                                    @can('updateDailyTask', [$task, $dailyTask])
-                                                        @php
-                                                            $statusActions = match ($dailyTask->status) {
-                                                                'planned', 'pending', 'missed' => ['start' => 'Start', 'cancel' => 'Cancel'],
-                                                                'in_progress' => ['hold' => 'On Hold', 'complete' => 'Complete', 'cancel' => 'Cancel'],
-                                                                'on_hold' => ['resume' => 'Unhold', 'complete' => 'Complete', 'cancel' => 'Cancel'],
-                                                                default => [],
-                                                            };
-                                                        @endphp
-                                                        @foreach ($statusActions as $statusAction => $statusActionLabel)
-                                                            @php
-                                                                $statusActionTone = match ($statusAction) {
-                                                                    'hold' => 'warning',
-                                                                    'complete' => 'success',
-                                                                    'cancel' => 'danger',
-                                                                    default => 'primary',
-                                                                };
-                                                                $statusActionIcon = match ($statusAction) {
-                                                                    'start' => 'bi-play-fill',
-                                                                    'resume' => 'bi-play-circle',
-                                                                    'hold' => 'bi-pause-fill',
-                                                                    'complete' => 'bi-check-lg',
-                                                                    'cancel' => 'bi-x-lg',
-                                                                    default => 'bi-arrow-repeat',
-                                                                };
-                                                            @endphp
-                                                            <form class="tf-daily-update-action-form" method="POST"
-                                                                action="{{ route('daily-tasks.action', [$task, $dailyTask, $statusAction]) }}">
-                                                                @csrf
-                                                                <button class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--{{ $statusActionTone }}"
-                                                                    type="submit">
-                                                                    <i class="bi {{ $statusActionIcon }}" aria-hidden="true"></i>
-                                                                    {{ $statusActionLabel }}
-                                                                </button>
-                                                            </form>
-                                                        @endforeach
-                                                        @if (in_array($dailyTask->status, ['in_progress', 'on_hold'], true))
-                                                            <details class="tf-daily-update-composer w-100"
-                                                                @if ($errors->has('remarks') && (int) old('daily_task_id') === $dailyTask->id) open @endif>
-                                                                <summary class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--primary">
-                                                                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>
-                                                                    Submit Daily Update
-                                                                </summary>
-                                                                <form id="daily-task-update-form-{{ $dailyTask->id }}"
-                                                                    class="tf-daily-update-composer__form mt-2"
-                                                                    method="POST"
-                                                                    action="{{ route('daily-tasks.action', [$task, $dailyTask, 'update']) }}">
-                                                                    @csrf
-                                                                    <input type="hidden" name="daily_task_id" value="{{ $dailyTask->id }}">
-                                                                    <label class="form-label mb-0"
-                                                                        for="daily-task-update-remarks-{{ $dailyTask->id }}">Update description</label>
-                                                                    <textarea class="form-control" id="daily-task-update-remarks-{{ $dailyTask->id }}"
-                                                                        name="remarks" rows="3" maxlength="5000" required>{{ old('remarks') }}</textarea>
-                                                                    <label class="form-label mb-0"
-                                                                        for="daily-task-update-blockers-{{ $dailyTask->id }}">Blockers (optional)</label>
-                                                                    <textarea class="form-control" id="daily-task-update-blockers-{{ $dailyTask->id }}"
-                                                                        name="blockers" rows="2" maxlength="5000">{{ old('blockers') }}</textarea>
-                                                                    @if ($errors->has('remarks') && (int) old('daily_task_id') === $dailyTask->id)
-                                                                        <div class="small text-danger" role="alert">{{ $errors->first('remarks') }}</div>
-                                                                    @endif
-                                                                    <button class="tf-btn tf-btn--sm tf-daily-update-action tf-daily-update-action--primary"
-                                                                        type="submit">
-                                                                        <i class="bi bi-send" aria-hidden="true"></i>
-                                                                        Save update
-                                                                    </button>
-                                                                </form>
-                                                            </details>
-                                                        @endif
-                                                    @endcan
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @empty
-                                        <tr>
-                                            <td class="text-center text-secondary py-4" colspan="5">No daily updates have been recorded.</td>
-                                        </tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
                         </div>
                     </section>
                 </div>
@@ -3765,103 +4639,6 @@
                     });
                 });
             });
-            const dailyTaskHash = window.location.hash;
-            const dailyTaskHashMatch = dailyTaskHash.match(/^#daily-task-(\d+)$/);
-            if (dailyTaskHash === '#panel-daily-tasks' || dailyTaskHashMatch) {
-                document.getElementById('tab-daily-tasks-btn')?.click();
-            }
-            if (dailyTaskHashMatch) {
-                setTimeout(() => {
-                    document.getElementById(`daily-task-${dailyTaskHashMatch[1]}`)?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center',
-                    });
-                }, 300);
-            }
-            const dailyTaskCreateToggle = document.getElementById('daily-task-create-toggle');
-            const dailyTaskCreateDialog = document.getElementById('daily-task-create-dialog');
-            if (dailyTaskCreateDialog) {
-                document.body.append(dailyTaskCreateDialog);
-            }
-            const positionDailyTaskCreateDialog = () => {
-                if (!dailyTaskCreateToggle || !dailyTaskCreateDialog || dailyTaskCreateDialog.hidden) {
-                    return;
-                }
-
-                const triggerRect = dailyTaskCreateToggle.getBoundingClientRect();
-                const dialogRect = dailyTaskCreateDialog.getBoundingClientRect();
-                const viewportPadding = 12;
-                const left = Math.max(
-                    viewportPadding,
-                    Math.min(triggerRect.right - dialogRect.width, window.innerWidth - dialogRect.width - viewportPadding),
-                );
-                const belowTop = triggerRect.bottom + 8;
-                const aboveTop = triggerRect.top - dialogRect.height - 8;
-                const top = belowTop + dialogRect.height <= window.innerHeight - viewportPadding
-                    ? belowTop
-                    : Math.max(viewportPadding, aboveTop);
-
-                dailyTaskCreateDialog.style.left = `${left}px`;
-                dailyTaskCreateDialog.style.top = `${top}px`;
-            };
-            const closeDailyTaskCreateDialog = () => {
-                if (!dailyTaskCreateDialog || !dailyTaskCreateToggle) {
-                    return;
-                }
-
-                dailyTaskCreateDialog.hidden = true;
-                dailyTaskCreateToggle.setAttribute('aria-expanded', 'false');
-                dailyTaskCreateDialog.style.removeProperty('left');
-                dailyTaskCreateDialog.style.removeProperty('top');
-            };
-            const openDailyTaskCreateDialog = () => {
-                if (!dailyTaskCreateDialog || !dailyTaskCreateToggle) {
-                    return;
-                }
-
-                dailyTaskCreateDialog.hidden = false;
-                dailyTaskCreateToggle.setAttribute('aria-expanded', 'true');
-                positionDailyTaskCreateDialog();
-                dailyTaskCreateDialog.querySelector('#quickDailyTaskTitle')?.focus();
-            };
-
-            dailyTaskCreateToggle?.addEventListener('click', () => {
-                if (dailyTaskCreateDialog?.hidden) {
-                    openDailyTaskCreateDialog();
-                } else {
-                    closeDailyTaskCreateDialog();
-                }
-            });
-            dailyTaskCreateDialog?.querySelectorAll('[data-close-daily-task-create]').forEach(button => {
-                button.addEventListener('click', closeDailyTaskCreateDialog);
-            });
-            document.addEventListener('click', event => {
-                if (
-                    dailyTaskCreateDialog
-                    && dailyTaskCreateToggle
-                    && !dailyTaskCreateDialog.hidden
-                    && !dailyTaskCreateDialog.contains(event.target)
-                    && !dailyTaskCreateToggle.contains(event.target)
-                ) {
-                    closeDailyTaskCreateDialog();
-                }
-            });
-            document.addEventListener('keydown', event => {
-                if (event.key === 'Escape' && dailyTaskCreateDialog && !dailyTaskCreateDialog.hidden) {
-                    closeDailyTaskCreateDialog();
-                    dailyTaskCreateToggle?.focus();
-                }
-            });
-            window.addEventListener('resize', positionDailyTaskCreateDialog);
-            window.addEventListener('scroll', positionDailyTaskCreateDialog, true);
-            if (
-                dailyTaskCreateDialog?.hasAttribute('data-show-daily-task-create')
-                || new URLSearchParams(window.location.search).get('open_daily_task') === '1'
-            ) {
-                document.getElementById('tab-daily-tasks-btn')?.click();
-                openDailyTaskCreateDialog();
-            }
-
             // ── Quick Add Subtask Panel ───────────────────────────────────────────
             const addSubtaskBtn = document.getElementById('subtask-add-btn');
             const quickAddPanel = document.getElementById('subtask-quick-add-panel');
@@ -4537,14 +5314,12 @@
             const dayIndex = date => Math.max(0, daysBetween(visibleRange.start, date));
             const escapeHtml = value => String(value ?? '').replace(/[&<>\"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#039;' }[char]));
             const initials = value => String(value || '?').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
-            const dailyUpdates = Array.isArray(model.dailyUpdates) ? model.dailyUpdates : [];
             const taskActivities = Array.isArray(model.activities) ? model.activities : [];
             const subtaskActivities = Array.isArray(model.subtaskActivities) ? model.subtaskActivities : [];
             const showSubtasks = Boolean(model.hasSubtasks) || subtaskActivities.length > 0;
             const recurrence = model.recurrence && Array.isArray(model.recurrence.occurrences)
                 ? model.recurrence
                 : null;
-            const expandedDailyUpdates = new Set();
             const expandedTaskActivities = new Set();
             const expandedSubtaskActivities = new Set();
             let baseCellWidth = 64;
@@ -4606,71 +5381,6 @@
                 const days = buildDays();
                 const dayCount = days.length;
                 fitTimelineToScroller(dayCount);
-                const dailyActivitiesByDate = new Map();
-                dailyUpdates.forEach(event => {
-                    if (!event.date) return;
-                    if (!dailyActivitiesByDate.has(event.date)) dailyActivitiesByDate.set(event.date, []);
-                    dailyActivitiesByDate.get(event.date).push(event);
-                });
-                // Add one daily-update row for every calendar date from today through
-                // the task deadline. Existing activity dates are retained as well.
-                // Completed/cancelled tasks do not generate new waiting placeholders.
-                const dailyTaskEventDates = new Set(dailyActivitiesByDate.keys());
-                const assigneeIds = (model.task.assigneeIds || []).map(Number);
-                const dailyTaskUpdateDates = new Set((model.dailyTaskUpdateDates || [])
-                    .filter(item => assigneeIds.includes(Number(item.employeeId)))
-                    .map(item => item.date));
-                const isTerminalTask = ['completed', 'cancelled'].includes(
-                    String(model.task.status || '').toLowerCase()
-                );
-                const waitingStart = model.task.start > model.range.today
-                    ? model.task.start
-                    : model.range.today;
-                const waitingEnd = model.task.due;
-
-                if (!isTerminalTask && waitingStart && waitingEnd && waitingStart <= waitingEnd) {
-                    const cursor = parseDay(waitingStart);
-                    const lastDay = parseDay(waitingEnd);
-
-                    while (cursor <= lastDay) {
-                        dailyTaskEventDates.add(iso(cursor));
-                        cursor.setDate(cursor.getDate() + 1);
-                    }
-                }
-
-                const updateRows = [...dailyTaskEventDates].sort().map(date => {
-                    const events = (dailyActivitiesByDate.get(date) || [])
-                        .slice()
-                        .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
-                    const types = new Set(events.map(event => String(event.type || '').toLowerCase()));
-                    const hasDailyTaskActivity = events.some(event =>
-                        event.isDailyTask === true && event.isAccountability !== true
-                    ) || dailyTaskUpdateDates.has(date);
-                    const hasMissedEvent = ['daily_accountability_missed', 'daily_task_missed']
-                        .some(type => types.has(type));
-                    const state = hasMissedEvent
-                        ? 'missed'
-                        : types.has('daily_task_completed')
-                            ? 'submitted'
-                            : date > model.range.today ? 'upcoming' : 'open';
-                    const noUpdateToday = !isTerminalTask
-                        && date === model.range.today
-                        && assigneeIds.length > 0
-                        && !hasDailyTaskActivity
-                        && !hasMissedEvent;
-
-                    return {
-                        date,
-                        events,
-                        state,
-                        noUpdateToday,
-                        waiting: !isTerminalTask
-                            && date > model.range.today
-                            && !hasDailyTaskActivity
-                            && ['upcoming'].includes(state),
-                    };
-                });
-                const missedUpdateRows = updateRows.filter(row => row.state === 'missed');
                 const taskActivitiesByDate = new Map();
                 taskActivities.forEach(event => {
                     if (!event.date) return;
@@ -4710,15 +5420,7 @@
                     reassignment: 'people-fill', deadline: 'calendar-event-fill', progress: 'graph-up-arrow',
                     updated: 'pencil-fill', task_updated: 'pencil-square', status: 'arrow-left-right',
                     created: 'plus-circle-fill', deleted: 'trash-fill',
-                    work_update: 'clipboard-check', daily_task_update: 'clipboard-check', accepted: 'check-circle-fill',
-                    daily_task_created: 'plus-circle-fill', daily_task_assigned: 'person-plus-fill',
-                    daily_task_pending: 'clock-fill', daily_task_started: 'play-fill',
-                    daily_task_on_hold: 'pause-fill', daily_task_resumed: 'arrow-repeat',
-                    daily_task_progress_updated: 'graph-up-arrow', daily_task_update_submitted: 'clipboard-check',
-                    daily_task_reassigned: 'people-fill', daily_task_rescheduled: 'calendar-event',
-                    daily_task_completed: 'check-circle-fill', daily_task_cancelled: 'x-circle-fill',
-                    daily_task_missed: 'exclamation-circle-fill',
-                    daily_accountability_missed: 'exclamation-triangle-fill'
+                    work_update: 'clipboard-check', accepted: 'check-circle-fill'
                 }[type] || 'circle-fill');
                 const eventLabel = (type, event = null) => {
                     if (type === 'review') {
@@ -4740,33 +5442,10 @@
                     updated: 'Task updated', task_updated: 'Task Edited',
                     status: 'Status updated', work_update: 'Work Update',
                     accepted: 'Task accepted', created: 'Task Created',
-                    daily_task_update: 'Daily Task Update',
-                    daily_task_created: 'Daily Task Created',
-                    daily_task_assigned: 'Daily Task Assigned',
-                    daily_task_pending: 'Daily Task Ready',
-                    daily_task_started: 'Daily Task · Work Started',
-                    daily_task_on_hold: 'Daily Task · On Hold',
-                    daily_task_resumed: 'Daily Task · Work Resumed',
-                    daily_task_progress_updated: 'Daily Task · Progress Updated',
-                    daily_task_update_submitted: 'Daily Update Submitted',
-                    daily_task_reassigned: 'Daily Task Re-assigned',
-                    daily_task_rescheduled: 'Daily Task Rescheduled',
-                    daily_task_completed: 'Daily Task · Completed',
-                    daily_task_cancelled: 'Daily Task · Cancelled',
-                    daily_task_missed: 'Daily Task · Missed',
-                    daily_accountability_missed: 'Daily Update Missing'
                     })[type] || String(type).replaceAll('_', ' ');
                 };
-                const eventTooltip = (heading, timestamp, detail, actor, context = '', people = null, dailyInfo = null) => {
-                    const dailyInfoRows = dailyInfo
-                        ? [
-                            ['Progress', `${dailyInfo.progress ?? 0}%`],
-                            ['Work date', dailyInfo.workDate || '—'],
-                            ['Current status', dailyInfo.currentStatus || '—'],
-                        ].map(([label, value]) => `<span class="tl-event-tooltip__daily-info-row"><span class="tl-event-tooltip__daily-info-label">${label}</span><span class="tl-event-tooltip__daily-info-value">${escapeHtml(value)}</span></span>`).join('')
-                        : '';
-
-                    return `<span class="tl-event-tooltip" aria-hidden="true"><span class="tl-event-tooltip__heading">${escapeHtml(heading)}</span>${context ? `<span class="tl-event-tooltip__context">${people ? 'Daily Task: ' : ''}${escapeHtml(context)}</span>` : ''}${people ? `<span class="tl-event-tooltip__people"><span class="tl-event-tooltip__person"><span class="tl-event-tooltip__person-label">Employee</span><span class="tl-event-tooltip__person-value">${escapeHtml(people.employee || 'Unknown employee')}</span></span><span class="tl-event-tooltip__person"><span class="tl-event-tooltip__person-label">Department</span><span class="tl-event-tooltip__person-value">${escapeHtml(people.department || 'Unknown department')}</span></span></span>` : ''}${dailyInfoRows ? `<span class="tl-event-tooltip__daily-info">${dailyInfoRows}</span>` : ''}<span class="tl-event-tooltip__meta"><i class="bi bi-calendar3" aria-hidden="true"></i><span>${escapeHtml(timestamp)}</span></span>${detail ? `<span class="tl-event-tooltip__detail">${escapeHtml(detail)}</span>` : ''}<span class="tl-event-tooltip__actor"><i class="bi bi-person" aria-hidden="true"></i><span>${escapeHtml(actor || 'System')}</span></span></span>`;
+                const eventTooltip = (heading, timestamp, detail, actor, context = '') => {
+                    return `<span class="tl-event-tooltip" aria-hidden="true"><span class="tl-event-tooltip__heading">${escapeHtml(heading)}</span>${context ? `<span class="tl-event-tooltip__context">${escapeHtml(context)}</span>` : ''}<span class="tl-event-tooltip__meta"><i class="bi bi-calendar3" aria-hidden="true"></i><span>${escapeHtml(timestamp)}</span></span>${detail ? `<span class="tl-event-tooltip__detail">${escapeHtml(detail)}</span>` : ''}<span class="tl-event-tooltip__actor"><i class="bi bi-person" aria-hidden="true"></i><span>${escapeHtml(actor || 'System')}</span></span></span>`;
                 };
 
                 const taskFieldLabels = {
@@ -4802,10 +5481,6 @@
                     if (type === 'hold') return event.detail || 'Task placed On Hold';
                     if (type === 'resume') return event.detail || 'Task resumed';
                     if (type === 'work_update') return event.detail || 'Work update recorded';
-                    if (type === 'daily_task_update') return event.detail || 'Daily Task update recorded';
-                    if (event.isDailyTask) {
-                        return event.detail || `Daily Task: ${event.dailyTaskTitle || 'Untitled task'}`;
-                    }
                     if (type.startsWith('deadline_extension_')) {
                         const transition = event.from || event.to
                             ? `${event.from || 'Current deadline'} → ${event.to || 'Requested deadline'}`
@@ -4966,7 +5641,6 @@
                     ['milestones', 'Milestones', model.milestones.length, null],
                     ['task', 'Task', taskActivities.length, null],
                     ['subtasks', 'Subtasks', subtaskActivities.length, null],
-                    ['updates', 'Daily Task Update', updateRows.length, null],
                     ['recurring', 'Recurring details', recurrence?.occurrences.length || 0, null],
                 ];
                 const sectionLabel = ([key, title, count, content]) => `<div class="tl-label-section" data-tl-section="${key}"><button type="button" aria-expanded="true" aria-label="Toggle ${title}"><i class="bi bi-chevron-down"></i></button><strong>${title}</strong>${key === 'task' ? `<span class="tl-task-section-title" title="${escapeHtml(model.task.title)}">${escapeHtml(model.task.title)}</span>` : ''}</div>${content ? `<div class="tl-label-row" data-tl-row="${key}">${content}</div>` : ''}`;
@@ -4976,25 +5650,12 @@
                     const rowHeight = eventCount > 0 ? 62 : 56;
                     return `<div class="tl-label-row tl-task-label-row" data-tl-row="task" data-task-activity-index="${index}" style="min-height:${rowHeight}px"><i class="bi bi-activity"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${eventCount > 1 ? `<button type="button" class="tl-daily-expand" data-task-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} task activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>` : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '')}</div>`;
                 }).join('');
-                const updateLabels = updateRows.map(({ date, state, events }, index) => {
-                    const eventCount = events.length;
-                    // Keep the collapsed daily-task row compact; the expand control
-                    // increases both timeline columns when the remaining events show.
-                    const rowHeight = eventCount > 0 ? 62 : 56;
-                    const expandControl = eventCount > 1
-                        ? `<button type="button" class="tl-daily-expand" data-daily-expand="${index}" aria-expanded="false" aria-label="Show ${eventCount} daily task activities for ${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}"><span>${eventCount} events</span><i class="bi bi-chevron-down"></i></button>`
-                        : (eventCount === 1 ? `<small class="tl-count">1 event</small>` : '');
-                    return `<div class="tl-label-row tl-daily-label-row" data-tl-row="updates" data-daily-index="${index}" style="min-height:${rowHeight}px"><i class="bi ${state === 'submitted' ? 'bi-calendar-check' : state === 'missed' ? 'bi-flag-fill' : state === 'exempted' ? 'bi-shield-check' : 'bi-calendar3'}"></i><span>${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>${expandControl}</div>`;
-                }).join('');
                 const visibleMilestones = model.milestones.filter(item =>
                     item.date >= visibleRange.start &&
                     item.date <= visibleRange.end &&
                     (item.type === 'deadline' || Boolean(item.badge))
                 );
                 const milestoneLabels = visibleMilestones.map(item => `<div class="tl-label-row" data-tl-row="milestones"><i class="bi bi-${item.type === 'deadline' ? 'diamond-fill' : 'bookmark-fill'}"></i><span title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span></div>`).join('');
-                const escalationLabel = missedUpdateRows.length >= 2
-                    ? `<div class="tl-label-row" data-tl-row="milestones"><i class="bi bi-exclamation-triangle-fill"></i><span>Daily update escalation</span></div>`
-                    : '';
                 const subtaskActivityLabels = subtaskActivityRows.map(({ date, events }, index) => {
                     const eventCount = events.length;
                     // Subtask activity rows use the same 62px/56px sizing as the calendar side.
@@ -5005,7 +5666,7 @@
                 const subtaskSection = showSubtasks
                     ? `${sectionLabel(leftSections[2])}${subtaskActivityLabels}`
                     : '';
-                const left = `<div class="tl-left"><div class="tl-item-head">ITEM</div>${sectionLabel(leftSections[0])}${milestoneLabels}${escalationLabel}${sectionLabel(leftSections[1])}${taskActivityLabels}${subtaskSection}${sectionLabel(leftSections[3])}${updateLabels}${recurrence ? sectionLabel(leftSections[4]) + recurrenceLabels : ''}</div>`;
+                const left = `<div class="tl-left"><div class="tl-item-head">ITEM</div>${sectionLabel(leftSections[0])}${milestoneLabels}${sectionLabel(leftSections[1])}${taskActivityLabels}${subtaskSection}${recurrence ? sectionLabel(leftSections[3]) + recurrenceLabels : ''}</div>`;
                 const dateHeader = days.map(({ day, date, weekend }) => `<div class="tl-date ${weekend ? 'tl-weekend' : ''} ${date === model.range.today ? 'is-today' : ''}"><time datetime="${date}"><small>${day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>${day.getDate()}</time></div>`).join('');
                 const monthHeader = monthSpans.map(span => `<div class="tl-month" style="grid-column: ${span.start + 1} / span ${span.length}">${span.label}</div>`).join('');
                 const taskTimelineRows = taskActivityRows.map(({ date, events }, index) => {
@@ -5060,85 +5721,6 @@
                     const height = events.length > 0 ? 62 : 56;
                     return `<div class="tl-row" data-tl-row="subtasks" data-subtask-activity-index="${index}" style="min-height:${height}px">${eventsMarkup ? `<span class="tl-row-copy tl-row-copy--daily" style="--tl-start:${dayIndex(date)}">${eventsMarkup}</span>` : ''}</div>`;
                 }).join('');
-                const updateTimelineRows = updateRows.map(({ date, state, events, waiting, noUpdateToday }, index) => {
-                    const eventLines = events.map((event, eventIndex) => {
-                        const type = String(event.type || '').toLowerCase().replaceAll(' ', '_');
-                        const label = eventLabel(type, event);
-                        const detail = taskEventDetails(event);
-                        const meta = event.actor || 'System';
-                        const isAlert = [
-                            'cancellation',
-                            'cancelled',
-                            'daily_task_cancelled',
-                            'daily_task_missed',
-                            'daily_accountability_missed',
-                        ].includes(type);
-                        const isDailyTaskActivity = Boolean(event.isDailyTask);
-                        const eventTone = event.isAccountability
-                            ? event.accountabilityTone
-                            : event.isDailyTask
-                            ? (type === 'daily_task_update_submitted' ? 'update-submitted' : event.eventStatus)
-                            : '';
-                        const workflowTone = type === 'start'
-                            ? 'is-workflow-start'
-                            : ['hold', 'on_hold'].includes(type)
-                                ? 'is-workflow-hold'
-                                : type === 'resume' ? 'is-workflow-resume' : '';
-                        const timestamp = `${parseDay(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}${event.time ? ` · ${event.time}` : ''}`;
-                        const dailyInfo = isDailyTaskActivity && !event.isAccountability
-                            ? {
-                                progress: event.progress,
-                                workDate: event.workDate
-                                    ? parseDay(event.workDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                                    : '—',
-                                currentStatus: event.currentStatus,
-                            }
-                            : null;
-                        const tooltip = eventTooltip(
-                            label,
-                            timestamp,
-                            detail,
-                            meta,
-                            event.dailyTaskTitle,
-                            isDailyTaskActivity ? { employee: event.employee, department: event.department } : null,
-                            dailyInfo,
-                        );
-                        const isDailyTaskUpdate = isDailyTaskActivity && ['daily_task_update_submitted', 'daily_task_update'].includes(type);
-                        const badgeIcon = isDailyTaskUpdate ? '<i class="bi bi-clipboard-check" aria-hidden="true"></i>' : '';
-                        const isExtraEvent = eventIndex > 0;
-                        return `<span class="tl-daily-event ${isDailyTaskActivity ? 'is-daily-task-activity' : ''} ${isDailyTaskUpdate ? 'is-daily-task-update' : ''} ${eventTone ? `tl-daily-event--${escapeHtml(eventTone)}` : ''} ${workflowTone} ${isAlert ? 'is-alert' : ''} ${isExtraEvent ? 'is-daily-extra' : ''}" ${isExtraEvent ? 'hidden' : ''} tabindex="0" aria-label="${escapeHtml([label, timestamp, detail, `By ${meta}`].filter(Boolean).join('. '))}"><strong>${badgeIcon}${escapeHtml(label)}</strong>${tooltip}</span>`;
-                    }).join('');
-                    const eventBlock = eventLines ? `<span class="tl-daily-events">${eventLines}</span>` : '';
-                    const copy = eventBlock;
-                    const dependency = index < updateRows.length - 1 ? '<span class="tl-dependency" aria-label="Dependency to the next daily update"></span>' : '';
-                    const icon = state === 'submitted' || state === 'open' || state === 'upcoming'
-                    ? ''
-                    : state === 'missed' ? 'flag-fill' : state === 'exempted' ? 'shield-check' : 'clock';
-                    const marker = icon ? `<span class="tl-update tl-update--${state}" style="--tl-start:${dayIndex(date)}" aria-label="${state} work update"><i class="bi bi-${icon}"></i></span>` : '';
-                    const waitingBadge = waiting
-                        ? `<span class="tl-daily-waiting tl-daily-waiting--upcoming"
-                                style="--tl-start:${dayIndex(date)}"
-                                title="Upcoming Daily Task activity · ${escapeHtml(formatEventDate(date))}"
-                                aria-label="Upcoming Daily Task activity on ${escapeHtml(formatEventDate(date))}">
-                                <i class="bi bi-calendar-event" aria-hidden="true"></i>
-                                <strong>Upcoming</strong>
-                           </span>`
-                        : '';
-                    const noUpdateBadge = noUpdateToday
-                        ? `<span class="tl-daily-no-update"
-                                style="--tl-start:${dayIndex(date)}"
-                                title="No Daily Task status update recorded today for ${escapeHtml(model.task.assignee || 'the assigned employee')}"
-                                aria-label="No Daily Task updated today for ${escapeHtml(model.task.assignee || 'the assigned employee')}">
-                                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
-                                <strong>No task updated today</strong>
-                           </span>`
-                        : '';
-                    const copyMarkup = copy ? `<span class="tl-row-copy tl-row-copy--daily" style="--tl-start:${dayIndex(date)}">${copy}</span>` : '';
-                    // Match the compact default state; the existing data-daily-expand
-                    // handler recalculates the row height when the user expands it.
-                    const rowHeight = events.length > 0 ? 62 : 56;
-                    return `<div class="tl-row tl-row--daily-${state}${noUpdateToday ? ' tl-row--daily-warning' : ''}" data-tl-row="updates" data-daily-index="${index}" style="min-height:${rowHeight}px">${marker}${waitingBadge}${noUpdateBadge}${copyMarkup}${dependency}</div>`;
-                }).join('');
                 const milestoneRows = visibleMilestones.map(item => {
                         const dateLabel = formatEventDate(item.date);
 
@@ -5158,8 +5740,7 @@
                         return `<div class="tl-row${item.type === 'deadline' ? ' tl-row--deadline' : ''}" data-tl-row="milestones" ${item.type === 'deadline' ? `style="--tl-start:${dayIndex(item.date)}"` : ''}>${milestoneDisplay}</div>`;
                     }).join('');
                 const recurringRows = recurrence ? recurrence.occurrences.filter(item => item.date >= visibleRange.start && item.date <= visibleRange.end).map(item => `<div class="tl-row" data-tl-row="recurring"><span class="tl-recurring tl-recurring--${escapeHtml(item.status)}" style="--tl-start:${dayIndex(item.date)}" aria-label="${escapeHtml(item.status)} recurring occurrence"><i class="bi bi-arrow-repeat"></i></span><span class="tl-row-copy" style="--tl-start:${dayIndex(item.date)}"><strong>${escapeHtml(item.title || 'Recurring occurrence')}</strong> <span>· ${escapeHtml(item.status.replaceAll('_', ' '))}</span></span></div>`).join('') : '';
-                const escalation = missedUpdateRows.length >= 2 ? `<div class="tl-row" data-tl-row="milestones"><span class="tl-escalation" style="--tl-start:${dayIndex(missedUpdateRows[1].date)}"><i class="bi bi-diamond-fill"></i> Escalated to DM Manager · 2 missed days in a row</span></div>` : '';
-                const calendar = `<div class="tl-calendar" style="--tl-days:${dayCount}"><div class="tl-months">${monthHeader}</div><div class="tl-dates">${dateHeader}</div>${todayIndex === undefined ? '' : `<span class="tl-today-column" style="left: calc(${todayIndex} * var(--tl-cell))"></span>`}<div class="tl-section-row"></div>${milestoneRows}${escalation}<div class="tl-section-row"></div>${taskTimelineRows}${showSubtasks ? `<div class="tl-section-row"></div>${subtaskTimelineRows}` : ''}<div class="tl-section-row"></div>${updateTimelineRows}${recurrence ? `<div class="tl-section-row"></div>${recurringRows}` : ''}</div>`;
+                const calendar = `<div class="tl-calendar" style="--tl-days:${dayCount}"><div class="tl-months">${monthHeader}</div><div class="tl-dates">${dateHeader}</div>${todayIndex === undefined ? '' : `<span class="tl-today-column" style="left: calc(${todayIndex} * var(--tl-cell))"></span>`}<div class="tl-section-row"></div>${milestoneRows}<div class="tl-section-row"></div>${taskTimelineRows}${showSubtasks ? `<div class="tl-section-row"></div>${subtaskTimelineRows}` : ''}${recurrence ? `<div class="tl-section-row"></div>${recurringRows}` : ''}</div>`;
                 grid.innerHTML = left + calendar;
                 scroller.scrollLeft = scrollLeft;
                 grid.querySelectorAll('.tl-daily-event').forEach(badge => {
@@ -5198,41 +5779,6 @@
                         button.setAttribute('aria-expanded', String(!expanded));
                         grid.querySelectorAll(`[data-tl-row="${key}"]`).forEach(row => { row.hidden = expanded; });
                     });
-                });
-                grid.querySelectorAll('[data-daily-expand]').forEach(button => {
-                    const index = Number(button.dataset.dailyExpand);
-                    const setExpanded = nextExpanded => {
-                        const labelRow = grid.querySelector(`.tl-daily-label-row[data-daily-index="${index}"]`);
-                        const timelineRow = grid.querySelector(`.tl-row[data-tl-row="updates"][data-daily-index="${index}"]`);
-                        const extras = timelineRow?.querySelectorAll('.is-daily-extra') || [];
-                        extras.forEach(item => { item.hidden = !nextExpanded; });
-                        if (nextExpanded) {
-                            expandedDailyUpdates.add(index);
-                        } else {
-                            expandedDailyUpdates.delete(index);
-                        }
-                        button.setAttribute('aria-expanded', String(nextExpanded));
-                        button.innerHTML = `<span>${nextExpanded ? 'Hide' : `${extras.length + 1} events`}</span><i class="bi bi-chevron-down"></i>`;
-                        button.setAttribute('aria-label', `${nextExpanded ? 'Hide' : 'Show'} ${extras.length + 1} activities`);
-                        const eventsContainer = timelineRow?.querySelector('.tl-daily-events');
-                        const applyRowHeight = () => {
-                            const measuredContentHeight = eventsContainer
-                                ? Math.ceil(eventsContainer.getBoundingClientRect().height)
-                                : 0;
-                            const hasWaitingBadge = Boolean(timelineRow?.querySelector('.tl-daily-waiting--below'));
-                            const collapsedHeight = hasWaitingBadge ? 82 : 62;
-                            const newHeight = nextExpanded
-                                ? Math.max(collapsedHeight, measuredContentHeight + 20)
-                                : collapsedHeight;
-                            if (labelRow) labelRow.style.minHeight = `${newHeight}px`;
-                            if (timelineRow) timelineRow.style.minHeight = `${newHeight}px`;
-                        };
-                        applyRowHeight();
-                    };
-                    button.addEventListener('click', () => {
-                        setExpanded(!expandedDailyUpdates.has(index));
-                    });
-                    if (expandedDailyUpdates.has(index)) setExpanded(true);
                 });
                 grid.querySelectorAll('[data-task-expand]').forEach(button => {
                     const index = Number(button.dataset.taskExpand);

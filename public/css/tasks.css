@@ -2778,11 +2778,7 @@
     display: none;
 }
 
-.tf-task-detail__main > [data-task-detail-panel="files"] {
-    display: block;
-}
-
-.tf-task-detail__main > [data-task-detail-panel="overview"] > section, .tf-task-detail__main > [data-task-detail-panel="files"] {
+.tf-task-detail__main > [data-task-detail-panel="overview"] > section {
     min-width: 0;
     grid-column: 1;
 }
@@ -3740,11 +3736,6 @@
 .tf-task-detail__main > [data-task-detail-panel="overview"] > section[aria-labelledby="task-labels-title"] {
     grid-column: 2;
     order: 5;
-}
-
-.tf-task-detail__main > [data-task-detail-panel="files"] {
-    grid-column: 2;
-    order: 6;
 }
 
 @media (max-width: 680px) {
@@ -7215,9 +7206,7 @@
     grid-row: 1;
 }
 
-.tf-task-detail__grid[data-activity-view="overview"] .tf-task-detail__main > [data-task-detail-panel="overview"] > section,
-.tf-task-detail__grid[data-activity-view="overview"] .tf-task-detail__main > [data-task-detail-panel="overview"] > .tf-task-detail__people-cards,
-.tf-task-detail__grid[data-activity-view="overview"] .tf-task-detail__main > [data-task-detail-panel="files"] {
+.tf-task-detail__grid[data-activity-view="overview"] .tf-task-detail__main > [data-task-detail-panel="overview"] > section {
     grid-column: 1;
     order: 0;
 }

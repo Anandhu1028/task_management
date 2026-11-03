@@ -226,11 +226,6 @@ class Task extends Model
         return $this->hasMany(Subtask::class)->orderBy('sort_order')->orderBy('id');
     }
 
-    public function dailyTasks(): HasMany
-    {
-        return $this->hasMany(DailyTask::class)->orderBy('work_date')->orderBy('planned_start_time');
-    }
-
     public function milestones(): HasMany
     {
         return $this->hasMany(Milestone::class)->orderBy('target_date')->orderBy('id');
@@ -357,9 +352,7 @@ class Task extends Model
                     ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                         ->whereKey($user->id)
                         ->where('users.company_id', $user->company_id)
-                        ->where('users.department_id', $user->department_id))
-                    ->orWhereHas('dailyTasks', fn (Builder $dailyTaskQuery) => $dailyTaskQuery
-                        ->where('daily_tasks.assigned_to', $user->id));
+                        ->where('users.department_id', $user->department_id));
             });
         }
 
@@ -381,9 +374,7 @@ class Task extends Model
                 ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                     ->whereKey($user->id)
                     ->where('users.company_id', $user->company_id)
-                    ->where('users.department_id', $user->department_id))
-                ->orWhereHas('dailyTasks', fn (Builder $dailyTaskQuery) => $dailyTaskQuery
-                    ->where('daily_tasks.assigned_to', $user->id));
+                    ->where('users.department_id', $user->department_id));
         });
     }
 

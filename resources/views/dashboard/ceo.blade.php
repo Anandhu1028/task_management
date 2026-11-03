@@ -116,7 +116,7 @@
             {{-- Header --}}
             <div class="cwt2-head">
                 <div class="cwt2-head__title">
-                    <span class="cwt2-head__icon"><i class="bi bi-graph-up-arrow"></i></span>
+                    <span class="tf-head-icon"><i class="bi bi-graph-up-arrow"></i></span>
                     <div>
                         <h2 class="cwt2-title">Company-wise tasks Graph</h2>
                         <p class="cwt2-sub" id="cwt2Sub">Completed tasks by company</p>
@@ -176,7 +176,7 @@
         <article class="tf-card" id="organizationTaskStatusCard">
             <div class="tf-card__head">
                 <div class="tf-card__title">
-                    <i class="bi bi-pie-chart-fill tf-card__icon text-primary"></i>
+                    <span class="tf-head-icon"><i class="bi bi-pie-chart-fill"></i></span>
                     <div>
                         <h2>Organization Task Status</h2>
                         <p>Company-wise task distribution's</p>
@@ -280,7 +280,7 @@
         {{-- ROW 1: Heading (left) + Daily / Weekly / Monthly tabs + View All (right) --}}
         <div class="tf-card__head tf-card__head--tabs">
             <div class="tf-card__title">
-                <i class="bi bi-building-check tf-card__icon text-primary"></i>
+                <span class="tf-head-icon"><i class="bi bi-building-check"></i></span>
                 <div>
                     <h2>
                         Company-Wise Task
@@ -462,7 +462,7 @@
     <section class="tf-card dpf-card mb-4" id="departmentPerformanceSection">
         <div class="dpf-head">
             <div class="dpf-head__title">
-                <span class="dpf-head__icon"><i class="bi bi-diagram-3-fill"></i></span>
+                <span class="tf-head-icon"><i class="bi bi-diagram-3-fill"></i></span>
                 <div>
                     <h2>Department-wise performance</h2>
                     <p>High-performing vs low-performing departments for {{ $period['label'] }}</p>
@@ -580,7 +580,7 @@
         <div class="dpf-chart">
             <div class="dpf-chart__head">
                 <div class="dpf-chart__title">
-                    <span class="dpf-panel__icon dpf-panel__icon--high"><i class="bi bi-graph-up"></i></span>
+                    <span class="tf-head-icon"><i class="bi bi-graph-up"></i></span>
                     <div>
                         <h3>Completed vs pending by department</h3>
                         <p>Task volume across active departments</p>

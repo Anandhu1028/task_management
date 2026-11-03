@@ -17,7 +17,6 @@ class DatabaseSeeder extends Seeder
         if (app()->environment('testing')) {
             $this->call([
                 RolePermissionSeeder::class,
-                DailyAccountabilitySettingsSeeder::class,
                 DemoOrganizationSeeder::class,
             ]);
 
@@ -26,7 +25,6 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             PermissionSeeder::class,
-            DailyAccountabilitySettingsSeeder::class,
             CompanySeeder::class,
             DepartmentSeeder::class,
             UserSeeder::class,

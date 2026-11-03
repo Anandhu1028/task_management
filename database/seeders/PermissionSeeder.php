@@ -42,11 +42,6 @@ class PermissionSeeder extends Seeder
             'subtasks.manage',
             'milestones.create',
             'milestones.manage',
-            'daily_tasks.create_own',
-            'daily_tasks.create_for_others',
-            'daily_tasks.view_team',
-            'daily_tasks.update_own',
-            'daily_tasks.manage',
         ];
 
         $roleManagementPermissions = config('role-management.management_permissions', []);
@@ -63,9 +58,6 @@ class PermissionSeeder extends Seeder
             'subtasks.manage',
             'milestones.create',
             'milestones.manage',
-            'daily_tasks.create_for_others',
-            'daily_tasks.view_team',
-            'daily_tasks.manage',
         ]));
 
         $roles = [
@@ -79,10 +71,6 @@ class PermissionSeeder extends Seeder
                 'subtasks.manage',
                 'milestones.create',
                 'milestones.manage',
-                'daily_tasks.create_own',
-                'daily_tasks.create_for_others',
-                'daily_tasks.view_team',
-                'daily_tasks.manage',
             ],
             'Team Leader' => array_values(array_diff($permissions, ['tasks.create', 'tasks.delete'])),
             'Employee' => $employeePermissions,

@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Subtask extends Model
 {
@@ -83,11 +82,6 @@ class Subtask extends Model
     public function completedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'completed_by');
-    }
-
-    public function dailyTasks(): HasMany
-    {
-        return $this->hasMany(DailyTask::class);
     }
 
     public function getIsOverdueAttribute(): bool
