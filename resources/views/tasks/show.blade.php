@@ -17,7 +17,7 @@
         if ($currentAssignees->isEmpty() && $task->assignee) {
             $currentAssignees = collect([$task->assignee]);
         }
-        $currentAssigneeIds = $currentAssignees->modelKeys();
+        $currentAssigneeIds = $currentAssignees->pluck('id')->all();
         $assigneeHistoryRows = $task->assignments
             ->sortByDesc('assigned_at')
             ->filter(fn ($assignment) => $assignment->user)
@@ -1526,7 +1526,7 @@
                                         <article @class([
                                             'task-activity-feed__card',
                                             'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
-                                        ])>
+                                        ]) data-tone="{{ $feedActivity['tone'] }}">
                                             <header class="task-activity-feed__card-header">
                                                 <div class="task-activity-feed__author-details">
                                                     <p class="task-activity-feed__author">
@@ -1988,11 +1988,11 @@
                             <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtasks
                             <span class="tf-activity-tab-badge">{{ $task->subtasks->count() }}</span>
                         </button>
-                        <button type="button" class="tf-activity-tab-btn" id="tab-milestones-btn" data-activity-tab="milestones"
+                        <!-- <button type="button" class="tf-activity-tab-btn" id="tab-milestones-btn" data-activity-tab="milestones"
                             role="tab" aria-selected="false" aria-controls="panel-milestones">
                             <i class="bi bi-flag" aria-hidden="true"></i> Milestones
                             <span class="tf-activity-tab-badge">{{ $milestones->count() }}</span>
-                        </button>
+                        </button> -->
                         <button type="button" class="tf-activity-tab-btn" id="tab-requests-btn" data-activity-tab="requests"
                             role="tab" aria-selected="false" aria-controls="panel-requests">
                             <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Requests
@@ -2047,7 +2047,7 @@
                                                 @csrf
                                                 <div class="tf-quick-add-fields">
                                                     <label class="tf-quick-add-field tf-quick-add-field--full">
-                                                        <span>Title <em>*</em></span>
+                                                        <span>Subtask name <em>*</em></span>
                                                         <input type="text" name="title" id="quick-add-title"
                                                             class="form-control form-control-sm"
                                                             placeholder="Enter subtask title" required maxlength="500"
@@ -2058,7 +2058,7 @@
                                                         <textarea name="description" id="quick-add-desc"
                                                             class="form-control form-control-sm"
                                                             placeholder="Short description or details" rows="2"
-                                                            maxlength="1000"></textarea>
+                                                            maxlength="5000"></textarea>
                                                     </label>
                                                     <label class="tf-quick-add-field tf-quick-add-field--full">
                                                         <span>Assignee</span>
@@ -2068,27 +2068,6 @@
                                                             @foreach ($employees->where('company_id', $task->company_id)->where('department_id', $task->department_id) as $emp)
                                                                 <option value="{{ $emp->id }}">{{ $emp->name }}</option>
                                                             @endforeach
-                                                        </select>
-                                                    </label>
-                                                    <label class="tf-quick-add-field">
-                                                        <span>Start date</span>
-                                                        <input type="date" name="start_date"
-                                                            class="form-control form-control-sm" aria-label="Start date">
-                                                    </label>
-                                                    <label class="tf-quick-add-field">
-                                                        <span>Due date</span>
-                                                        <input type="date" name="due_date" class="form-control form-control-sm"
-                                                            aria-label="Due date" @if ($task->due_date)
-                                                            max="{{ $task->due_date->format('Y-m-d') }}" @endif>
-                                                    </label>
-                                                    <label class="tf-quick-add-field">
-                                                        <span>Priority</span>
-                                                        <select name="priority" class="form-select form-select-sm"
-                                                            aria-label="Priority">
-                                                            <option value="medium" selected>Medium</option>
-                                                            <option value="high">High</option>
-                                                            <option value="critical">Critical</option>
-                                                            <option value="low">Low</option>
                                                         </select>
                                                     </label>
                                                 </div>
@@ -2121,10 +2100,11 @@
                             <table class="tf-subtask-table" id="subtasks-table">
                                 <thead>
                                     <tr>
+                                        <th class="col-number">#</th>
                                         <th class="col-subtask">Subtask</th>
-                                        <th class="col-assignee">Assignee</th>
-                                        <th class="col-timeframe">Timeframe</th>
-                                        <th class="col-priority">Priority</th>
+                                        <th class="col-description">Description</th>
+                                        <th class="col-assignee">Assign</th>
+                                        <th class="col-created">Created date</th>
                                         <th class="col-status">Status</th>
                                         <th class="col-actions">Actions</th>
                                     </tr>
@@ -2132,11 +2112,6 @@
                                 <tbody id="subtasks-list" data-reorder-url="{{ route('subtasks.reorder', $task) }}">
                                     @forelse ($task->subtasks->sortBy('sort_order') as $subtask)
                                         @php
-                                            $stStart = $subtask->start_date;
-                                            $stDue = $subtask->due_date;
-                                            $stDurationDays = ($stStart && $stDue)
-                                                ? max(1, (int) $stStart->diffInDays($stDue) + 1)
-                                                : null;
                                             $stStatus = $subtask->status ?? ($subtask->is_completed ? 'completed' : 'todo');
                                             $statusLabel = match ($stStatus) {
                                                 'completed' => 'Completed',
@@ -2164,19 +2139,17 @@
                                             data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
                                             data-delete-url="{{ route('subtasks.destroy', [$task, $subtask]) }}"
                                             draggable="true">
+                                            <td class="col-number">{{ $loop->iteration }}</td>
                                             <td class="col-subtask">
-                                                <div class="tf-st-subtask-cell">
-                                                    <div class="tf-st-title-desc">
-                                                        <span class="tf-subtasks__title tf-st-title" contenteditable="false"
-                                                            data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
-                                                            data-original="{{ e($subtask->title) }}"
-                                                            title="Double-click to inline edit">{{ $subtask->title }}</span>
-                                                        <div class="tf-st-description"
-                                                            title="{{ $subtask->description ?: 'No details provided.' }}">
-                                                            {{ $subtask->description ?: 'No details provided.' }}
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                <span class="tf-subtasks__title tf-st-title" contenteditable="false"
+                                                    data-update-url="{{ route('subtasks.update', [$task, $subtask]) }}"
+                                                    data-original="{{ e($subtask->title) }}"
+                                                    title="Double-click to inline edit">{{ $subtask->title }}</span>
+                                            </td>
+                                            <td class="col-description">
+                                                <span class="tf-st-description">
+                                                    {{ $subtask->description ?: '—' }}
+                                                </span>
                                             </td>
                                             <td class="col-assignee">
                                                 @if ($subtask->assignee)
@@ -2193,27 +2166,8 @@
                                                     </div>
                                                 @endif
                                             </td>
-                                            <td class="col-timeframe">
-                                                <div class="tf-st-timeframe">
-                                                    @if ($stStart && $stDue)
-                                                        <span class="tf-st-dates">From {{ $stStart->format('M d') }} to
-                                                            {{ $stDue->format('M d') }}</span>
-                                                        <span class="tf-st-duration-badge">{{ $stDurationDays }}
-                                                            {{ Str::plural('day', $stDurationDays) }}</span>
-                                                    @elseif ($stDue)
-                                                        <span class="tf-st-dates">Due {{ $stDue->format('M d') }}</span>
-                                                    @elseif ($stStart)
-                                                        <span class="tf-st-dates">From {{ $stStart->format('M d') }}</span>
-                                                    @else
-                                                        <span class="text-muted">—</span>
-                                                    @endif
-                                                </div>
-                                            </td>
-                                            <td class="col-priority">
-                                                <span
-                                                    class="tf-st-priority-badge tf-subtasks__meta tf-subtasks__priority--{{ $subtask->priority ?? 'medium' }}">
-                                                    {{ ucfirst($subtask->priority ?? 'medium') }}
-                                                </span>
+                                            <td class="col-created">
+                                                {{ $subtask->created_at?->format('M j, Y') ?? '—' }}
                                             </td>
                                             <td class="col-status">
                                                 <span class="tf-st-status-pill {{ $statusClass }}">{{ $statusLabel }}</span>
@@ -2233,7 +2187,7 @@
                                         </tr>
                                     @empty
                                         <tr id="subtasks-empty-row">
-                                            <td colspan="6" class="text-center py-4 text-muted">
+                                            <td colspan="7" class="text-center py-4 text-muted">
                                                 <i class="bi bi-check2-square d-block fs-3 mb-2 text-primary opacity-50"></i>
                                                 No subtasks created yet. Click <strong>+ Add Subtask</strong> above to create
                                                 one.
@@ -2526,7 +2480,7 @@
                             ] : null,
                         ];
                     @endphp
-                    <section class="task-timeline" data-task-timeline data-timeline-model='@json($timelineModel)'
+                    <!-- <section class="task-timeline" data-task-timeline data-timeline-model='@json($timelineModel)'
                         aria-label="Task update timeline">
                         <style>
                             .task-timeline {
@@ -3794,7 +3748,7 @@
                                     class="missed"></i>No update</span><span><i class="upcoming"></i>Upcoming</span><span><i
                                     class="milestone"></i>Milestone</span><span><i
                                     class="dependency"></i>Dependency</span><span><i class="today"></i>Today</span></div>
-                    </section>
+                    </section> -->
 
                     <section class="task-activity-feed" data-task-activity-feed
                         data-task-id="{{ $task->id }}" data-user-id="{{ auth()->id() }}"
@@ -3935,6 +3889,42 @@
                                 border: 1px dotted #d5dbe5;
                                 border-radius: 12px;
                                 background: #f7f7f8;
+                            }
+
+                            .task-activity-feed__card[data-tone="created"],
+                            .task-activity-feed__card[data-tone="assigned"],
+                            .task-activity-feed__card[data-tone="reassigned"],
+                            .task-activity-feed__card[data-tone="accepted"],
+                            .task-activity-feed__card[data-tone="poc"],
+                            .task-activity-feed__card[data-tone="start"],
+                            .task-activity-feed__card[data-tone="resume"],
+                            .task-activity-feed__card[data-tone="work_update"] {
+                                border-color: #93c5fd;
+                                background: #eff6ff;
+                            }
+
+                            .task-activity-feed__card[data-tone="risk"],
+                            .task-activity-feed__card[data-tone="cancelled"],
+                            .task-activity-feed__card[data-tone="deadline_extension_requested"],
+                            .task-activity-feed__card[data-tone="deadline_extension_rejected"] {
+                                border-color: #fca5a5;
+                                background: #fef2f2;
+                            }
+
+                            .task-activity-feed__card[data-tone="hold"] {
+                                border-color: #fbbf24;
+                                background: #fffbeb;
+                            }
+
+                            .task-activity-feed__card[data-tone="submission"],
+                            .task-activity-feed__card[data-tone="review"] {
+                                border-color: #7dd3fc;
+                                background: #f0f9ff;
+                            }
+
+                            .task-activity-feed__card[data-tone="deadline_extension_approved"] {
+                                border-color: #86efac;
+                                background: #f0fdf4;
                             }
 
                             .task-activity-feed__card--completed {
@@ -4144,7 +4134,7 @@
                                         <article @class([
                                             'task-activity-feed__card',
                                             'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
-                                        ])>
+                                        ]) data-tone="{{ $feedActivity['tone'] }}">
                                             <header class="task-activity-feed__card-header">
                                                 <div class="task-activity-feed__author-details">
                                                     <p class="task-activity-feed__author">
@@ -5103,53 +5093,14 @@
                         const idInput = document.getElementById('subtaskModalId');
                         const titleInput = document.getElementById('subtaskModalTitle');
                         const descInput = document.getElementById('subtaskModalDescription');
-                        const creatorEl = document.getElementById('subtaskModalCreatorName');
-                        const createdDateEl = document.getElementById('subtaskModalCreatedAt');
                         const assigneeSelect = document.getElementById('subtaskModalAssignee');
-                        const statusSelect = document.getElementById('subtaskModalStatus');
-                        const prioritySelect = document.getElementById('subtaskModalPriority');
-                        const startDateInput = document.getElementById('subtaskModalStartDate');
-                        const dueDateInput = document.getElementById('subtaskModalDueDate');
-                        const stampEl = document.getElementById('subtaskModalCompletedStamp');
-                        const completedByEl = document.getElementById('subtaskModalCompletedBy');
-                        const completedAtEl = document.getElementById('subtaskModalCompletedAt');
 
                         if (idInput) { idInput.value = st.id; }
                         if (titleInput) { titleInput.value = st.title; }
                         if (descInput) { descInput.value = st.description || ''; }
 
-                        // Creator attribution (separate from assignee)
-                        if (creatorEl) {
-                            const cRole = st.created_by.designation ? ` (${st.created_by.designation})` : '';
-                            creatorEl.textContent = (st.created_by.name || 'Unknown') + cRole;
-                        }
-                        if (createdDateEl) {
-                            createdDateEl.textContent = st.created_at_formatted ? `Created on ${st.created_at_formatted}` : '';
-                        }
-
                         if (assigneeSelect) {
                             assigneeSelect.value = st.assigned_to.id || '';
-                        }
-                        if (statusSelect) {
-                            statusSelect.value = st.status || (st.is_completed ? 'completed' : 'todo');
-                        }
-                        if (prioritySelect) {
-                            prioritySelect.value = st.priority || 'medium';
-                        }
-                        if (startDateInput) {
-                            startDateInput.value = st.start_date || '';
-                        }
-                        if (dueDateInput) {
-                            dueDateInput.value = st.due_date || '';
-                        }
-
-                        // Completed stamp
-                        if (st.is_completed && stampEl) {
-                            stampEl.classList.remove('d-none');
-                            if (completedByEl) { completedByEl.textContent = st.completed_by.name || 'User'; }
-                            if (completedAtEl) { completedAtEl.textContent = st.completed_at_formatted || '—'; }
-                        } else if (stampEl) {
-                            stampEl.classList.add('d-none');
                         }
 
                         const bsModal = getModalInstance();
@@ -5179,10 +5130,6 @@
                 const title = document.getElementById('subtaskModalTitle')?.value.trim();
                 const description = document.getElementById('subtaskModalDescription')?.value.trim();
                 const assigned_to = document.getElementById('subtaskModalAssignee')?.value || null;
-                const status = document.getElementById('subtaskModalStatus')?.value;
-                const priority = document.getElementById('subtaskModalPriority')?.value;
-                const start_date = document.getElementById('subtaskModalStartDate')?.value || null;
-                const due_date = document.getElementById('subtaskModalDueDate')?.value || null;
 
                 modalAlert?.classList.add('d-none');
 
@@ -5197,16 +5144,12 @@
                         title,
                         description,
                         assigned_to,
-                        status,
-                        priority,
-                        start_date,
-                        due_date,
                     }),
                 })
                     .then(async r => {
                         const res = await r.json();
                         if (!r.ok) {
-                            throw new Error(res.errors?.due_date?.[0] || res.errors?.start_date?.[0] || res.message || 'Update failed');
+                            throw new Error(res.errors?.title?.[0] || res.errors?.description?.[0] || res.errors?.assigned_to?.[0] || res.message || 'Update failed');
                         }
                         return res;
                     })

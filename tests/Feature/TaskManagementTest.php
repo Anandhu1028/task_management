@@ -348,6 +348,13 @@ class TaskManagementTest extends TestCase
         $this->assertStringContainsString('class="task-activity-feed__date"', $html);
         $this->assertStringContainsString('class="task-activity-feed__card-footer"', $html);
         $this->assertStringContainsString('class="task-activity-feed__author-details"', $html);
+        $this->assertStringContainsString('data-tone="created"', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="created"]', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="assigned"]', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="risk"]', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="hold"]', $html);
+        $this->assertStringContainsString('.task-activity-feed__card[data-tone="submission"]', $html);
+        $this->assertStringContainsString('.task-activity-feed__card--completed', $html);
         $this->assertStringNotContainsString('class="task-activity-feed__time"', $html);
         $this->assertStringContainsString('border: 1px dotted #22c55e;', $html);
         $this->assertSame(

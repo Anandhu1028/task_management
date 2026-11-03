@@ -7,10 +7,10 @@ use App\Models\Task;
 use App\Models\User;
 use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -38,6 +38,17 @@ class SubtaskController extends Controller
             'progress_percentage' => ['nullable', 'integer', 'min:0', 'max:100'],
         ]);
         $data = $this->prepareNewSubtaskData($task, $validated);
+        if (! $request->user()->can('updateSubtask', $task)) {
+            $data = [
+                ...$data,
+                'assigned_to' => $request->user()->id,
+                'status' => 'assigned',
+                'priority' => 'medium',
+                'start_date' => null,
+                'estimated_hours' => null,
+                'progress_percentage' => 0,
+            ];
+        }
         $this->validateSubtaskDates($task, $data['start_date'], $data['due_date']);
         $this->validateAssignee($task, $data['assigned_to']);
 
@@ -81,12 +92,18 @@ class SubtaskController extends Controller
         $rows = [];
         foreach ($validated['subtasks'] as $index => $row) {
             $rows[$index] = $this->prepareNewSubtaskData($task, $row);
-            $this->validateSubtaskDates(
-                $task,
-                $rows[$index]['start_date'],
-                $rows[$index]['due_date'],
-                "subtasks.{$index}.",
-            );
+            if (! $request->user()->can('updateSubtask', $task)) {
+                $rows[$index] = [
+                    ...$rows[$index],
+                    'assigned_to' => $request->user()->id,
+                    'status' => 'assigned',
+                    'priority' => 'medium',
+                    'start_date' => null,
+                    'estimated_hours' => null,
+                    'progress_percentage' => 0,
+                ];
+            }
+            $this->validateSubtaskDates($task, $rows[$index]['start_date'], $rows[$index]['due_date'], "subtasks.{$index}.");
             $this->validateAssignee($task, $rows[$index]['assigned_to'], "subtasks.{$index}.");
         }
 
@@ -135,8 +152,8 @@ class SubtaskController extends Controller
 
     public function toggle(Request $request, Task $task, Subtask $subtask): JsonResponse
     {
-        $this->authorize('updateSubtask', $task);
         abort_if($subtask->task_id !== $task->id, 404);
+        $this->authorize('updateSubtask', [$task, $subtask]);
 
         $actor = $request->user();
         $wasCompleted = $subtask->is_completed || $subtask->status === 'completed';
@@ -194,20 +211,22 @@ class SubtaskController extends Controller
             'start_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'estimated_hours' => ['sometimes', 'nullable', 'numeric', 'min:0.01', 'max:9999.99'],
+            'actual_hours' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:9999.99'],
             'progress_percentage' => ['sometimes', 'required', 'integer', 'min:0', 'max:100'],
         ]);
 
         $actor = $request->user();
-        $managerFields = ['title', 'description', 'assigned_to', 'priority', 'start_date', 'due_date', 'estimated_hours'];
+        $managerFields = ['title', 'description', 'assigned_to', 'priority', 'start_date', 'due_date', 'estimated_hours', 'actual_hours'];
         $managerChanges = $this->hasManagerChanges($subtask, $validated, $managerFields);
-        $statusOrProgressChanged = $this->hasStatusOrProgressChanges($subtask, $validated);
-        $assigneeChanged = array_key_exists('assigned_to', $validated)
-            && (int) ($validated['assigned_to'] ?? 0) !== (int) ($subtask->assigned_to ?? 0);
+        $statusChanged = isset($validated['status'])
+            && $validated['status'] !== ($subtask->is_completed ? 'completed' : $subtask->status);
+        $progressChanged = isset($validated['progress_percentage'])
+            && (int) $validated['progress_percentage'] !== (int) $subtask->progress_percentage;
 
         if ($managerChanges) {
-            $this->authorize('updateSubtask', $task);
-        } elseif ($statusOrProgressChanged) {
-            $this->authorize('updateSubtask', $task);
+            $this->authorize('updateSubtask', [$task, $subtask]);
+        } elseif ($statusChanged || $progressChanged) {
+            $this->authorize('updateSubtask', [$task, $subtask]);
         } else {
             $this->authorize('view', $task);
 
@@ -225,25 +244,25 @@ class SubtaskController extends Controller
         $dueDate = array_key_exists('due_date', $validated)
             ? $validated['due_date']
             : $subtask->due_date?->format('Y-m-d');
-
         if (array_key_exists('start_date', $validated) || array_key_exists('due_date', $validated)) {
             $this->validateSubtaskDates($task, $startDate, $dueDate);
         }
+
         if (array_key_exists('assigned_to', $validated)
             && (int) ($validated['assigned_to'] ?? 0) !== (int) ($subtask->assigned_to ?? 0)) {
+            $this->authorize('reassignSubtask', [$task, $subtask]);
             $this->validateAssignee($task, $validated['assigned_to']);
         }
 
         $oldStatus = $subtask->is_completed ? 'completed' : $subtask->status;
-        $oldProgress = $subtask->is_completed ? 100 : (int) $subtask->progress_percentage;
+        $oldProgress = (int) $subtask->progress_percentage;
         $oldAssigneeId = $subtask->assigned_to;
-        $oldDueDate = $subtask->due_date?->format('Y-m-d');
-        $oldStartDate = $subtask->start_date?->format('Y-m-d');
         $oldTitle = $subtask->title;
         $oldDescription = $subtask->description;
         $oldPriority = $subtask->priority;
-        $oldEffort = $subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours;
-
+        $oldStartDate = $subtask->start_date?->format('Y-m-d');
+        $oldDueDate = $subtask->due_date?->format('Y-m-d');
+        $oldEstimatedHours = $subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours;
         $newStatus = $validated['status'] ?? $oldStatus;
         $newProgress = array_key_exists('progress_percentage', $validated)
             ? (int) $validated['progress_percentage']
@@ -268,17 +287,17 @@ class SubtaskController extends Controller
             $oldStatus,
             $oldProgress,
             $oldAssigneeId,
-            $oldDueDate,
-            $oldStartDate,
             $oldTitle,
             $oldDescription,
             $oldPriority,
-            $oldEffort,
+            $oldStartDate,
+            $oldDueDate,
+            $oldEstimatedHours,
             $newStatus,
             $newProgress,
         ): void {
             $updates = [];
-            foreach (['title', 'description', 'assigned_to', 'priority', 'start_date', 'due_date', 'estimated_hours'] as $field) {
+            foreach (['title', 'description', 'assigned_to', 'priority', 'start_date', 'due_date', 'estimated_hours', 'actual_hours'] as $field) {
                 if (array_key_exists($field, $validated)) {
                     $updates[$field] = $validated[$field];
                 }
@@ -296,6 +315,7 @@ class SubtaskController extends Controller
                     'completed_by' => $subtask->completed_by,
                     'actual_started_at' => $subtask->actual_started_at,
                     'actual_elapsed_minutes' => $subtask->actual_elapsed_minutes,
+                    'actual_start_at' => $subtask->actual_start_at,
                 ];
             }
 
@@ -331,28 +351,6 @@ class SubtaskController extends Controller
                 );
             }
 
-            $newStartDate = $subtask->start_date?->format('Y-m-d');
-            $newDueDate = $subtask->due_date?->format('Y-m-d');
-            if ($oldStartDate !== $newStartDate || $oldDueDate !== $newDueDate) {
-                $this->activity->record(
-                    $task,
-                    $subtask,
-                    $actor,
-                    'deadline',
-                    'start: '.($oldStartDate ?? 'none').'; due: '.($oldDueDate ?? 'none'),
-                    'start: '.($newStartDate ?? 'none').'; due: '.($newDueDate ?? 'none'),
-                    "changed the timeframe for subtask \"{$subtask->title}\"",
-                );
-                $this->activity->notifyParticipants(
-                    $task,
-                    $subtask,
-                    $actor,
-                    'deadline_changed',
-                    'Subtask deadline updated',
-                    "{$actor->name} changed the dates for {$subtask->title} on {$task->task_code}.",
-                );
-            }
-
             if ($statusChanged) {
                 $event = $newStatus === 'completed'
                     ? 'completed'
@@ -381,30 +379,24 @@ class SubtaskController extends Controller
                 );
             }
 
-            if ($progressChanged && ! $statusChanged) {
+            $newStartDate = $subtask->start_date?->format('Y-m-d');
+            $newDueDate = $subtask->due_date?->format('Y-m-d');
+            if ($oldStartDate !== $newStartDate || $oldDueDate !== $newDueDate) {
                 $this->activity->record(
                     $task,
                     $subtask,
                     $actor,
-                    'progress',
-                    (string) $oldProgress,
-                    (string) $newProgress,
-                    "updated subtask \"{$subtask->title}\" progress from {$oldProgress}% to {$newProgress}%",
-                );
-                $this->activity->notifyParticipants(
-                    $task,
-                    $subtask,
-                    $actor,
-                    'progress_updated',
-                    'Subtask progress updated',
-                    "{$actor->name} updated {$subtask->title} progress to {$newProgress}% on {$task->task_code}.",
+                    'deadline',
+                    'start: '.($oldStartDate ?? 'none').'; due: '.($oldDueDate ?? 'none'),
+                    'start: '.($newStartDate ?? 'none').'; due: '.($newDueDate ?? 'none'),
+                    "changed the timeframe for subtask \"{$subtask->title}\"",
                 );
             }
 
             if ($oldTitle !== $subtask->title
                 || $oldDescription !== $subtask->description
                 || $oldPriority !== $subtask->priority
-                || $oldEffort !== ($subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours)) {
+                || $oldEstimatedHours !== ($subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours)) {
                 $this->activity->record(
                     $task,
                     $subtask,
@@ -448,8 +440,6 @@ class SubtaskController extends Controller
                     'description' => $subtask->description,
                     'assigned_to' => $subtask->assigned_to,
                     'assignee' => $subtask->assignee?->name ?? 'Unassigned',
-                    'start_date' => $subtask->start_date?->toDateString(),
-                    'due_date' => $subtask->due_date?->toDateString(),
                     'deleted_subtask_id' => $subtask->id,
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             );
@@ -495,51 +485,14 @@ class SubtaskController extends Controller
 
     /**
      * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    private function prepareNewSubtaskData(Task $task, array $data): array
-    {
-        $parentDeadline = $task->due_date ?? $task->original_deadline;
-        $data['assigned_to'] = isset($data['assigned_to']) ? (int) $data['assigned_to'] : null;
-        $data['priority'] = $data['priority'] ?? 'medium';
-        $data['status'] = $data['status'] ?? ($data['assigned_to'] ? 'assigned' : 'todo');
-        $data['start_date'] = $data['start_date'] ?? null;
-        $data['due_date'] = $data['due_date'] ?? $parentDeadline?->format('Y-m-d');
-        $data['estimated_hours'] = $data['estimated_hours'] ?? null;
-        $data['progress_percentage'] = (int) ($data['progress_percentage'] ?? 0);
-
-        if ($data['status'] === 'completed') {
-            $data['progress_percentage'] = 100;
-        } elseif ($data['progress_percentage'] === 100) {
-            throw ValidationException::withMessages([
-                'progress_percentage' => 'Set the status to Completed to reach 100% progress.',
-            ]);
-        }
-
-        return $data;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
      */
     private function createSubtask(Task $task, array $data, User $actor, int $sortOrder): Subtask
     {
-        $now = now();
-        $isCompleted = $data['status'] === 'completed';
-        $actualStartedAt = in_array($data['status'], ['in_progress', 'in_review', 'completed'], true)
-            ? $now
-            : null;
-        $completedAt = $isCompleted ? $now : null;
-
         $subtask = $task->subtasks()->create([
             ...$data,
             'created_by' => $actor->id,
-            'is_completed' => $isCompleted,
+            'is_completed' => false,
             'sort_order' => $sortOrder,
-            'completed_at' => $completedAt,
-            'completed_by' => $isCompleted ? $actor->id : null,
-            'actual_started_at' => $actualStartedAt,
-            'actual_elapsed_minutes' => $isCompleted ? 0 : null,
         ]);
 
         $this->activity->record(
@@ -563,6 +516,16 @@ class SubtaskController extends Controller
         return $subtask;
     }
 
+    private function applyStatus(Subtask $subtask, string $status, User $actor): void
+    {
+        $this->applyStatusAndProgress(
+            $subtask,
+            $status,
+            $status === 'completed' ? 100 : (int) $subtask->progress_percentage,
+            $actor,
+        );
+    }
+
     private function applyStatusAndProgress(Subtask $subtask, string $status, int $progress, User $actor): void
     {
         $now = now();
@@ -576,7 +539,9 @@ class SubtaskController extends Controller
             : null;
         $elapsedMinutes = $isCompleted && $actualStartedAt !== null
             ? max(0, (int) $actualStartedAt->diffInMinutes($completedAt))
-            : null;
+            : ($status === 'on_hold' && $actualStartedAt !== null
+                ? max(0, (int) $actualStartedAt->diffInMinutes($now))
+                : $subtask->actual_elapsed_minutes);
 
         $subtask->forceFill([
             'status' => $status,
@@ -587,16 +552,16 @@ class SubtaskController extends Controller
                 ? ($subtask->status === 'completed' ? $subtask->completed_by : $actor->id)
                 : null,
             'actual_started_at' => $actualStartedAt,
+            'actual_start_at' => $subtask->actual_start_at ?? $actualStartedAt,
             'actual_elapsed_minutes' => $elapsedMinutes,
+            'actual_hours' => $elapsedMinutes === null
+                ? $subtask->actual_hours
+                : number_format($elapsedMinutes / 60, 2, '.', ''),
         ]);
     }
 
-    private function validateSubtaskDates(
-        Task $task,
-        ?string $startDate,
-        ?string $dueDate,
-        string $fieldPrefix = '',
-    ): void {
+    private function validateSubtaskDates(Task $task, ?string $startDate, ?string $dueDate, string $fieldPrefix = ''): void
+    {
         $errors = [];
         $parentStart = $task->start_date?->toDateString();
         $parentDeadline = ($task->due_date ?? $task->original_deadline)?->toDateString();
@@ -651,13 +616,17 @@ class SubtaskController extends Controller
                 'assigned_to' => $subtask->assigned_to === null ? null : (int) $subtask->assigned_to,
                 'start_date' => $subtask->start_date?->format('Y-m-d'),
                 'due_date' => $subtask->due_date?->format('Y-m-d'),
-                'estimated_hours' => $subtask->estimated_hours === null ? null : number_format((float) $subtask->estimated_hours, 2, '.', ''),
+                'estimated_hours', 'actual_hours' => $subtask->{$field} === null
+                    ? null
+                    : number_format((float) $subtask->{$field}, 2, '.', ''),
                 'description' => $subtask->description,
                 default => $subtask->{$field},
             };
             $candidate = match ($field) {
                 'assigned_to' => $validated[$field] === null ? null : (int) $validated[$field],
-                'estimated_hours' => $validated[$field] === null ? null : number_format((float) $validated[$field], 2, '.', ''),
+                'estimated_hours', 'actual_hours' => $validated[$field] === null
+                    ? null
+                    : number_format((float) $validated[$field], 2, '.', ''),
                 default => $validated[$field],
             };
 
@@ -670,43 +639,26 @@ class SubtaskController extends Controller
     }
 
     /**
-     * @param  array<string, mixed>  $validated
-     */
-    private function hasStatusOrProgressChanges(Subtask $subtask, array $validated): bool
-    {
-        if (array_key_exists('status', $validated)) {
-            $currentStatus = $subtask->is_completed ? 'completed' : $subtask->status;
-            if ($validated['status'] !== $currentStatus) {
-                return true;
-            }
-        }
-
-        return array_key_exists('progress_percentage', $validated)
-            && (int) $validated['progress_percentage'] !== ($subtask->is_completed ? 100 : (int) $subtask->progress_percentage);
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function formatSubtask(Subtask $subtask): array
     {
+        $isCompleted = $subtask->is_completed || $subtask->status === 'completed';
+        $status = $isCompleted ? 'completed' : ($subtask->status ?? 'todo');
+
         return [
             'id' => $subtask->id,
             'title' => $subtask->title,
             'description' => $subtask->description ?? '',
-            'priority' => $subtask->priority ?? 'medium',
-            'status' => $subtask->is_completed ? 'completed' : ($subtask->status ?? 'todo'),
-            'status_label' => Subtask::STATUS_LABELS[$subtask->is_completed ? 'completed' : $subtask->status] ?? 'Pending',
-            'is_completed' => (bool) $subtask->is_completed,
-            'progress_percentage' => $subtask->is_completed ? 100 : (int) $subtask->progress_percentage,
-            'start_date' => $subtask->start_date?->format('Y-m-d'),
-            'start_date_formatted' => $subtask->start_date?->format('d M Y'),
-            'due_date' => $subtask->due_date?->format('Y-m-d'),
-            'due_date_formatted' => $subtask->due_date?->format('d M Y'),
+            'priority' => $subtask->priority,
+            'status' => $status,
+            'status_label' => Subtask::STATUS_LABELS[$status] ?? 'Pending',
+            'is_completed' => $isCompleted,
+            'progress_percentage' => (int) $subtask->progress_percentage,
+            'start_date' => $subtask->start_date?->toDateString(),
+            'due_date' => $subtask->due_date?->toDateString(),
             'estimated_hours' => $subtask->estimated_hours,
-            'actual_started_at' => $subtask->actual_started_at?->toIso8601String(),
-            'actual_elapsed_minutes' => $subtask->actual_elapsed_minutes,
-            'is_overdue' => $subtask->is_overdue,
+            'actual_hours' => $subtask->actual_hours,
             'sort_order' => $subtask->sort_order,
             'created_at_formatted' => $subtask->created_at?->format('d M Y, h:i A'),
             'completed_at_formatted' => $subtask->completed_at?->format('d M Y, h:i A'),
@@ -725,5 +677,31 @@ class SubtaskController extends Controller
                 'name' => $subtask->completedBy?->name,
             ],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function prepareNewSubtaskData(Task $task, array $data): array
+    {
+        $parentDeadline = $task->due_date ?? $task->original_deadline;
+        $data['assigned_to'] = isset($data['assigned_to']) ? (int) $data['assigned_to'] : null;
+        $data['priority'] = $data['priority'] ?? 'medium';
+        $data['status'] = $data['status'] ?? ($data['assigned_to'] ? 'assigned' : 'todo');
+        $data['start_date'] = $data['start_date'] ?? null;
+        $data['due_date'] = $data['due_date'] ?? $parentDeadline?->format('Y-m-d');
+        $data['estimated_hours'] = $data['estimated_hours'] ?? null;
+        $data['progress_percentage'] = (int) ($data['progress_percentage'] ?? 0);
+
+        if ($data['status'] === 'completed') {
+            $data['progress_percentage'] = 100;
+        } elseif ($data['progress_percentage'] === 100) {
+            throw ValidationException::withMessages([
+                'progress_percentage' => 'Set the status to Completed to reach 100% progress.',
+            ]);
+        }
+
+        return $data;
     }
 }

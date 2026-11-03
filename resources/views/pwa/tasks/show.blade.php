@@ -150,7 +150,10 @@
                         @foreach ($task->subtasks as $subtask)
                             <li>
                                 <span class="pwa-subtasks__title {{ $subtask->is_completed ? 'is-done' : '' }}">{{ $subtask->title }}</span>
-                                <span class="pwa-subtasks__meta">{{ \App\Models\Subtask::STATUS_LABELS[$subtask->status] ?? ucfirst($subtask->status) }}@if ($subtask->assignee) · {{ $subtask->assignee->name }}@endif @if ($subtask->due_date) · Due {{ $subtask->due_date->format('M j') }}@endif</span>
+                                @if ($subtask->description)
+                                    <span class="pwa-subtasks__meta">{{ $subtask->description }}</span>
+                                @endif
+                                <span class="pwa-subtasks__meta">{{ \App\Models\Subtask::STATUS_LABELS[$subtask->status] ?? ucfirst($subtask->status) }}@if ($subtask->assignee) · {{ $subtask->assignee->name }}@endif</span>
                             </li>
                         @endforeach
                     </ul>

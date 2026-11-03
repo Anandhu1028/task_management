@@ -87,7 +87,12 @@ class TaskPolicy
 
     public function createSubtask(User $user, Task $task): bool
     {
-        return $user->can('subtasks.create') && $this->canManageOperationalTask($user, $task);
+        return ($user->can('subtasks.create')
+                && $this->isVisibleTask($user, $task)
+                && $this->canManageOperationalTask($user, $task))
+            || ($user->can('tasks.view')
+                && $this->isVisibleTask($user, $task)
+                && $this->isActiveAssignee($user, $task));
     }
 
     public function createMilestone(User $user, Task $task): bool
@@ -105,16 +110,28 @@ class TaskPolicy
             && $this->canManageOperationalTask($user, $task);
     }
 
-    public function updateSubtask(User $user, Task $task): bool
+    public function updateSubtask(User $user, Task $task, ?Subtask $subtask = null): bool
     {
-        return $user->can('subtasks.manage')
-            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
-            && $this->canManageOperationalTask($user, $task);
+        if ($this->canManageSubtasks($user, $task)) {
+            return true;
+        }
+
+        return $subtask !== null
+            && $subtask->task_id === $task->id
+            && (int) $subtask->assigned_to === (int) $user->id
+            && $user->can('tasks.view')
+            && $this->isVisibleTask($user, $task)
+            && $this->isActiveAssignee($user, $task);
+    }
+
+    public function reassignSubtask(User $user, Task $task, Subtask $subtask): bool
+    {
+        return $subtask->task_id === $task->id && $this->canManageSubtasks($user, $task);
     }
 
     public function deleteSubtask(User $user, Task $task, ?Subtask $subtask = null): bool
     {
-        return $subtask !== null && $this->updateSubtask($user, $task);
+        return $subtask !== null && $this->updateSubtask($user, $task, $subtask);
     }
 
     public function delete(User $user, Task $task): bool
@@ -255,6 +272,18 @@ class TaskPolicy
         return $user->company_id === $task->company_id
             && $user->department_id === $task->department_id
             && $this->isTaskPoc($user, $task);
+    }
+
+    private function canManageSubtasks(User $user, Task $task): bool
+    {
+        return $user->can('subtasks.manage')
+            && $this->isVisibleTask($user, $task)
+            && $this->canManageOperationalTask($user, $task);
+    }
+
+    private function isVisibleTask(User $user, Task $task): bool
+    {
+        return Task::query()->visibleTo($user)->whereKey($task->getKey())->exists();
     }
 
     private function isTaskPoc(User $user, Task $task): bool

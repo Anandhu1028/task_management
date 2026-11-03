@@ -67,7 +67,7 @@ class GetSubtaskReportTool implements McpToolInterface
             $total = $subtasks->count();
             $completed = $subtasks->where('is_completed', true)->count();
             $pending = $total - $completed;
-            $overdue = $subtasks->filter(fn (Subtask $st) => $st->is_overdue)->count();
+            $overdue = $subtasks->filter(fn (Subtask $subtask) => $subtask->is_overdue)->count();
 
             $completionPercentage = $total > 0 ? round(($completed / $total) * 100, 1) : 0.0;
 

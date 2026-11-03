@@ -4,10 +4,14 @@ namespace App\Providers;
 
 use App\Models\Company;
 use App\Models\DeadlineExtensionRequest;
+use App\Models\SubtaskDailyUpdate;
 use App\Models\Task;
+use App\Models\TaskStatusHistory;
 use App\Models\User;
+use App\Observers\TaskStatusHistoryObserver;
 use App\Policies\CompanyPolicy;
 use App\Policies\DeadlineExtensionRequestPolicy;
+use App\Policies\SubtaskDailyUpdatePolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Auth;
@@ -34,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(DeadlineExtensionRequest::class, DeadlineExtensionRequestPolicy::class);
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
+        Gate::policy(SubtaskDailyUpdate::class, SubtaskDailyUpdatePolicy::class);
+        TaskStatusHistory::observe(TaskStatusHistoryObserver::class);
 
         View::composer('components.navbar', function ($view): void {
             $user = Auth::user();

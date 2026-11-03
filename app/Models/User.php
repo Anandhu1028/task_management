@@ -89,4 +89,14 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Task::class, 'task_pocs', 'user_id', 'task_id')->withTimestamps();
     }
+
+    public function subtaskDailyUpdates(): HasMany
+    {
+        return $this->hasMany(SubtaskDailyUpdate::class, 'employee_id');
+    }
+
+    public function dailyAccountabilities(): HasMany
+    {
+        return $this->hasMany(EmployeeDailyAccountability::class, 'employee_id');
+    }
 }

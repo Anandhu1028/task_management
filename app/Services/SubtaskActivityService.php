@@ -19,6 +19,7 @@ class SubtaskActivityService
         ?string $oldValue,
         ?string $newValue,
         string $remarks,
+        ?string $activityDate = null,
     ): TaskStatusHistory {
         return TaskStatusHistory::query()->create([
             'task_id' => $task->id,
@@ -27,6 +28,7 @@ class SubtaskActivityService
             'old_status' => $oldValue === null ? null : mb_substr($oldValue, 0, 255),
             'new_status' => $newValue === null ? 'Updated' : mb_substr($newValue, 0, 255),
             'event_type' => 'subtask_'.$event,
+            'activity_date' => $activityDate ?? now()->toDateString(),
             'remarks' => $remarks,
         ]);
     }
@@ -45,7 +47,7 @@ class SubtaskActivityService
         $recipientIds = collect([
             $task->created_by,
             $task->assigned_to,
-            ...$task->activeAssignees->modelKeys(),
+            ...$task->activeAssignees->pluck('id')->all(),
             $subtask->assigned_to,
         ])
             ->filter()

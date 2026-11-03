@@ -206,6 +206,7 @@ class DesktopApiPresenter
             'estimated_hours' => $subtask->estimated_hours,
             'is_overdue' => $subtask->is_overdue,
             'sort_order' => $subtask->sort_order,
+            'created_at' => $subtask->created_at?->toIso8601String(),
             'created_by' => [
                 'id' => $subtask->creator?->id,
                 'name' => $subtask->creator?->name ?? 'Unknown user',

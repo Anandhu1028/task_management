@@ -4525,7 +4525,7 @@
 
 .tf-subtask-table {
     width: 100%;
-    min-width: 0;
+    min-width: 860px;
     table-layout: fixed;
     border-collapse: collapse;
     text-align: left;
@@ -4560,9 +4560,51 @@
     background: #fbfcfe;
 }
 
-.tf-subtask-table th:is(.col-assignee, .col-timeframe, .col-priority, .col-status), .tf-subtask-table td:is(.col-assignee, .col-timeframe, .col-priority, .col-status) {
+.tf-subtask-table th.col-number,
+.tf-subtask-table td.col-number,
+.tf-subtask-table th.col-assignee,
+.tf-subtask-table td.col-assignee,
+.tf-subtask-table th.col-created,
+.tf-subtask-table td.col-created,
+.tf-subtask-table th.col-status,
+.tf-subtask-table td.col-status {
     padding-left: 4px;
     text-align: center;
+}
+
+.tf-subtask-table .col-number {
+    width: 5%;
+}
+
+.tf-subtask-table .col-subtask {
+    width: 20%;
+}
+
+.tf-subtask-table .col-description {
+    width: 28%;
+}
+
+.tf-subtask-table .col-assignee {
+    width: 16%;
+}
+
+.tf-subtask-table .col-created {
+    width: 13%;
+}
+
+.tf-subtask-table .col-status {
+    width: 12%;
+}
+
+.tf-subtask-table .col-actions {
+    width: 6%;
+}
+
+.tf-subtask-table td.col-description .tf-st-description {
+    display: block;
+    color: #64748b;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 .tf-subtask-table th.col-actions, .tf-subtask-table td.col-actions {
@@ -4572,10 +4614,6 @@
 
 .tf-subtask-table td.col-assignee .tf-st-assignee, .tf-subtask-table td.col-actions .tf-st-actions-wrap {
     justify-content: center;
-}
-
-.tf-subtask-table td.col-timeframe .tf-st-timeframe {
-    align-items: center;
 }
 
 .tf-subtask-row.is-done .tf-st-title {
@@ -7234,8 +7272,7 @@
 }
 
 #panel-subtasks .tf-st-duration-badge,
-#panel-subtasks .tf-st-status-pill,
-#panel-subtasks .tf-st-priority-badge {
+#panel-subtasks .tf-st-status-pill {
     font-size: 11px;
 }
 

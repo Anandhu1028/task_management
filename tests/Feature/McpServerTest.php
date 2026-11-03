@@ -354,6 +354,11 @@ class McpServerTest extends TestCase
         $this->assertTrue($content['found']);
         $this->assertSame('Detailed Task Specifications', $content['task']['title']);
         $this->assertCount(1, $content['task']['subtasks']);
+        $subtask = $content['task']['subtasks'][0];
+        $this->assertSame(100, $subtask['progress_percentage']);
+        $this->assertArrayNotHasKey('priority', $subtask);
+        $this->assertArrayNotHasKey('due_date', $subtask);
+        $this->assertArrayNotHasKey('is_overdue', $subtask);
 
         // Employee 2 cannot view task details (belongs to company 1)
         $unauthResponse = $this->withHeader('Authorization', 'Bearer '.$this->teamLeaderToken)
@@ -442,6 +447,7 @@ class McpServerTest extends TestCase
         Subtask::create([
             'task_id' => $parent->id,
             'title' => 'Subtask Step 1',
+            'description' => 'First step details',
             'status' => 'completed',
             'is_completed' => true,
             'created_by' => $this->admin->id,
@@ -475,6 +481,13 @@ class McpServerTest extends TestCase
         $this->assertSame(2, $content['parent_tasks'][0]['subtask_metrics']['total_subtasks']);
         $this->assertSame(1, $content['parent_tasks'][0]['subtask_metrics']['completed_subtasks']);
         $this->assertSame(1, $content['parent_tasks'][0]['subtask_metrics']['pending_subtasks']);
+        $this->assertArrayNotHasKey('overdue_subtasks', $content['parent_tasks'][0]['subtask_metrics']);
+        $subtask = collect($content['parent_tasks'][0]['subtasks'])->firstWhere('title', 'Subtask Step 1');
+        $this->assertNotNull($subtask);
+        $this->assertSame('First step details', $subtask['description']);
+        $this->assertArrayNotHasKey('priority', $subtask);
+        $this->assertArrayNotHasKey('due_date', $subtask);
+        $this->assertArrayNotHasKey('is_overdue', $subtask);
     }
 
     public function test_get_deadline_requests_tool(): void

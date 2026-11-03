@@ -4,6 +4,7 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\DwrDashboardController;
 use App\Http\Controllers\MilestoneController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PwaTaskController;
@@ -11,6 +12,8 @@ use App\Http\Controllers\RecurringTaskController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SubtaskController;
+use App\Http\Controllers\SubtaskDailyUpdateController;
+use App\Http\Controllers\SubtaskManagementController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -24,7 +27,12 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     });
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
+
+    // DWR Dashboard
+    Route::get('/dwr-dashboard', [DwrDashboardController::class, 'index'])->name('dwr_dashboard');
+
     Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index');
+    Route::get('/dwr', [SubtaskManagementController::class, 'index'])->name('dwr.index');
     Route::prefix('settings/roles')->name('roles.')->group(function (): void {
         Route::get('/', [RoleController::class, 'index'])->middleware('can:roles.view')->name('index');
         Route::post('/', [RoleController::class, 'store'])->middleware('can:roles.create')->name('store');
@@ -67,6 +75,10 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     // Subtask routes
     Route::post('/tasks/{task}/subtasks', [SubtaskController::class, 'store'])->name('subtasks.store');
     Route::post('/tasks/{task}/subtasks/bulk', [SubtaskController::class, 'bulkStore'])->name('subtasks.bulk-store');
+    Route::get('/tasks/{task}/subtasks/{subtask}/daily-updates', [SubtaskDailyUpdateController::class, 'history'])
+        ->name('dwr.subtasks.updates')->scopeBindings();
+    Route::post('/tasks/{task}/subtasks/{subtask}/daily-updates', [SubtaskDailyUpdateController::class, 'store'])
+        ->name('dwr.subtasks.daily-updates.store')->scopeBindings();
     Route::get('/tasks/{task}/subtasks/{subtask}', [SubtaskController::class, 'show'])->name('subtasks.show')->scopeBindings();
     Route::patch('/tasks/{task}/subtasks/{subtask}/toggle', [SubtaskController::class, 'toggle'])->name('subtasks.toggle')->scopeBindings();
     Route::patch('/tasks/{task}/subtasks/{subtask}', [SubtaskController::class, 'update'])->name('subtasks.update')->scopeBindings();

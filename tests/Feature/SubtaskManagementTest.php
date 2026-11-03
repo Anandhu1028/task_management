@@ -9,6 +9,7 @@ use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -54,8 +55,6 @@ class SubtaskManagementTest extends TestCase
     public function test_admin_can_create_subtask_via_json(): void
     {
         $task = $this->createTask();
-        $startDate = now()->addDay()->toDateString();
-        $dueDate = now()->addDays(5)->toDateString();
         $description = 'Build the requested feature.';
 
         $response = $this->postJson(
@@ -64,9 +63,6 @@ class SubtaskManagementTest extends TestCase
                 'title' => 'My first subtask',
                 'description' => $description,
                 'assigned_to' => $this->employee->id,
-                'priority' => 'high',
-                'start_date' => $startDate,
-                'due_date' => $dueDate,
             ],
         );
 
@@ -74,20 +70,61 @@ class SubtaskManagementTest extends TestCase
             ->assertJsonPath('ok', true)
             ->assertJsonPath('subtask.description', $description)
             ->assertJsonPath('subtask.assigned_to.id', $this->employee->id)
-            ->assertJsonPath('subtask.priority', 'high')
-            ->assertJsonPath('subtask.start_date', $startDate)
-            ->assertJsonPath('subtask.due_date', $dueDate);
+            ->assertJsonPath('subtask.status', 'assigned');
         $this->assertDatabaseHas('subtasks', [
             'task_id' => $task->id,
             'title' => 'My first subtask',
             'description' => $description,
             'assigned_to' => $this->employee->id,
-            'priority' => 'high',
-            'start_date' => "{$startDate} 00:00:00",
-            'due_date' => "{$dueDate} 00:00:00",
-            'estimated_hours' => null,
             'created_by' => $this->admin->id,
         ]);
+    }
+
+    public function test_subtask_schema_preserves_existing_metadata_and_status_fields(): void
+    {
+        foreach ([
+            'task_id',
+            'created_by',
+            'assigned_to',
+            'title',
+            'description',
+            'priority',
+            'status',
+            'start_date',
+            'due_date',
+            'estimated_hours',
+            'actual_hours',
+            'progress_percentage',
+            'actual_start_at',
+            'actual_started_at',
+            'actual_elapsed_minutes',
+            'is_completed',
+            'created_at',
+        ] as $retainedColumn) {
+            $this->assertTrue(Schema::hasColumn('subtasks', $retainedColumn), "{$retainedColumn} should remain.");
+        }
+    }
+
+    public function test_task_subtask_table_shows_requested_columns_and_preserves_status_actions(): void
+    {
+        $task = $this->createTask();
+        $subtask = $this->createSubtask($task, [
+            'title' => 'Render API contract',
+            'description' => 'Verify the response structure.',
+        ]);
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+
+        $this->assertSame(
+            1,
+            preg_match('/<thead>.*?<th class="col-number">#<\/th>.*?<th class="col-subtask">Subtask<\/th>.*?<th class="col-description">Description<\/th>.*?<th class="col-assignee">Assign<\/th>.*?<th class="col-created">Created date<\/th>.*?<th class="col-status">Status<\/th>.*?<th class="col-actions">Actions<\/th>.*?<\/thead>/s', $html),
+        );
+        $this->assertStringContainsString('Render API contract', $html);
+        $this->assertStringContainsString('Verify the response structure.', $html);
+        $this->assertStringContainsString($subtask->created_at->format('M j, Y'), $html);
+        $this->assertStringNotContainsString('class="col-timeframe"', $html);
+        $this->assertStringNotContainsString('class="col-priority"', $html);
+        $this->assertStringContainsString('tf-subtask-status-trigger', $html);
     }
 
     public function test_employee_cannot_create_subtasks_for_a_visible_task_they_do_not_manage(): void
@@ -144,17 +181,6 @@ class SubtaskManagementTest extends TestCase
         $this->postJson(route('subtasks.store', $task), ['title' => 'Tracking creator']);
         $subtask = Subtask::query()->where('title', 'Tracking creator')->firstOrFail();
         $this->assertSame($this->admin->id, (int) $subtask->created_by);
-    }
-
-    public function test_subtask_creation_rejects_due_date_exceeding_parent_deadline(): void
-    {
-        $task = $this->createTask(['due_date' => now()->addDays(5)->toDateString()]);
-        $response = $this->postJson(route('subtasks.store', $task), [
-            'title' => 'Late subtask',
-            'due_date' => now()->addDays(20)->toDateString(),
-        ]);
-        $response->assertUnprocessable();
-        $this->assertDatabaseMissing('subtasks', ['title' => 'Late subtask']);
     }
 
     public function test_subtask_creation_validates_required_title(): void
@@ -233,10 +259,7 @@ class SubtaskManagementTest extends TestCase
                 'title' => 'Updated subtask title',
                 'description' => 'Updated details',
                 'assigned_to' => $this->employee->id,
-                'priority' => 'high',
                 'status' => 'todo',
-                'start_date' => null,
-                'due_date' => null,
             ])
             ->assertOk()
             ->assertJsonPath('subtask.title', 'Updated subtask title')
@@ -247,7 +270,6 @@ class SubtaskManagementTest extends TestCase
             'title' => 'Updated subtask title',
             'description' => 'Updated details',
             'assigned_to' => $this->employee->id,
-            'priority' => 'high',
         ]);
     }
 
@@ -284,7 +306,7 @@ class SubtaskManagementTest extends TestCase
         ]);
     }
 
-    public function test_status_actions_update_subtask_status_and_completion_progress(): void
+    public function test_status_actions_update_subtask_status_and_completion_state(): void
     {
         $task = $this->createTask();
         $subtask = $this->createSubtask($task);
@@ -303,15 +325,6 @@ class SubtaskManagementTest extends TestCase
                 ->assertJsonPath('subtask.is_completed', $expected['is_completed'])
                 ->assertJsonPath('subtask.progress_percentage', $expected['progress_percentage']);
         }
-    }
-
-    public function test_update_rejects_due_date_exceeding_parent_deadline(): void
-    {
-        $task = $this->createTask(['due_date' => now()->addDays(5)->toDateString()]);
-        $subtask = $this->createSubtask($task);
-        $this->patchJson(route('subtasks.update', [$task, $subtask]), [
-            'due_date' => now()->addDays(30)->toDateString(),
-        ])->assertUnprocessable();
     }
 
     // Toggle
@@ -376,7 +389,7 @@ class SubtaskManagementTest extends TestCase
         $response = $this->postJson(route('subtasks.bulk-store', $task), [
             'subtasks' => [
                 ['title' => 'Bulk subtask 1'],
-                ['title' => 'Bulk subtask 2', 'priority' => 'critical'],
+                ['title' => 'Bulk subtask 2', 'description' => 'Optional details'],
             ],
         ]);
         $response->assertCreated()->assertJsonPath('ok', true);
@@ -419,7 +432,6 @@ class SubtaskManagementTest extends TestCase
         return $task->subtasks()->create(array_merge([
             'title' => 'Test subtask',
             'created_by' => $this->admin->id,
-            'priority' => 'medium',
             'status' => 'todo',
         ], $attributes));
     }

@@ -35,6 +35,9 @@
     @if (request()->routeIs('tasks.*'))
         <link href="{{ asset('css/tasks.css') }}?v={{ filemtime(public_path('css/tasks.css')) }}" rel="stylesheet">
     @endif
+    @if (request()->routeIs('dwr.*'))
+        <link href="{{ asset('css/dwr.css') }}?v={{ filemtime(public_path('css/dwr.css')) }}" rel="stylesheet">
+    @endif
     @if (request()->routeIs('users.*'))
         <link href="{{ asset('css/users.css') }}?v={{ filemtime(public_path('css/users.css')) }}" rel="stylesheet">
     @endif

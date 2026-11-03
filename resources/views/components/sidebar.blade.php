@@ -45,6 +45,13 @@
         </a>
 
         @if ($canViewTasks)
+            <a class="tf-nav__item {{ request()->routeIs('dwr.*') ? 'is-active' : '' }}" href="{{ route('dwr.index') }}">
+                <i class="bi bi-clipboard2-data"></i><span>DWR Dashboard</span>
+            </a>
+        @endif
+
+
+        @if ($canViewTasks)
             <a class="tf-nav__item {{ request()->routeIs('tasks.*') ? 'is-active' : '' }}" href="{{ route('tasks.index') }}">
                 <i class="bi bi-check2-square"></i><span> Tasks</span>
             </a>

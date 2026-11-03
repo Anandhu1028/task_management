@@ -81,6 +81,7 @@ class TaskController extends Controller
         $this->authorize('create', Task::class);
 
         $validated = $request->validated();
+        $this->preventConflictingSubtaskTimeframeChange($task, $validated, $request->user());
         $department = Department::query()
             ->where('id', $validated['department_id'])
             ->where('company_id', $validated['company_id'])
@@ -169,7 +170,6 @@ class TaskController extends Controller
         $this->authorize('update', $task);
 
         $validated = $request->validated();
-        $this->preventConflictingSubtaskTimeframeChange($task, $validated, $request->user());
 
         if (! empty($validated['department_id']) && ! empty($validated['company_id'])) {
             $department = Department::query()
