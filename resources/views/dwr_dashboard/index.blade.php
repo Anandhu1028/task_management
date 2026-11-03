@@ -157,13 +157,13 @@
             <article class="tf-dwr-panel tf-dwr-breakdown">
                 <div class="tf-dwr-panel__heading">
                     <div><h2>Main Task Priority</h2><p>Critical priority tasks are highlighted first.</p></div>
-                    <span>{{ number_format($metrics['total_subtasks']) }} subtasks</span>
+                    <span>{{ number_format($priorityTaskCountTotal) }} - {{ \Illuminate\Support\Pluralizer::plural('Task', $priorityTaskCountTotal) }}</span>
                 </div>
                 @foreach ($priorityLabels as $priority => $label)
                     @php
                         $priorityCount = $priorityBreakdown[$priority] ?? 0;
-                        $priorityPercent = $metrics['total_subtasks'] > 0
-                            ? round(($priorityCount / $metrics['total_subtasks']) * 100)
+                        $priorityPercent = $priorityTaskCountTotal > 0
+                            ? round(($priorityCount / $priorityTaskCountTotal) * 100)
                             : 0;
                     @endphp
                     <div class="tf-dwr-bar-row tf-dwr-bar-row--{{ $priority }}">
@@ -225,7 +225,6 @@
                 @forelse ($mainTaskSummaries as $taskSummary)
                     @php
                         $summaryPriority = $taskSummary->task_priority ?? 'low';
-                        $summaryTaskStatus = $taskSummary->task_status ?? 'unassigned';
                         $summaryTotal = (int) $taskSummary->total_subtasks;
                     @endphp
                     <article class="tf-dwr-main-task-summary">
@@ -240,9 +239,6 @@
                                     <span class="tf-dwr-code">{{ $taskSummary->task_code }}</span>
                                     <strong>{{ $taskSummary->task_title }}</strong>
                                 </a>
-                                <span class="tf-dwr-task-status tf-dwr-task-status--{{ $summaryTaskStatus }}">
-                                    {{ \App\Models\Task::STATUS_LABELS[$summaryTaskStatus] ?? ucwords(str_replace('_', ' ', $summaryTaskStatus)) }}
-                                </span>
                                 <span class="tf-dwr-priority tf-dwr-priority--{{ $summaryPriority }}">
                                     {{ $priorityLabels[$summaryPriority] ?? 'Low' }} priority
                                 </span>

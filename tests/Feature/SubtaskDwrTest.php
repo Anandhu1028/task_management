@@ -62,7 +62,7 @@ class SubtaskDwrTest extends TestCase
     public function test_dashboard_orders_critical_main_task_subtasks_first(): void
     {
         $criticalTask = $this->createTask($this->employee);
-        $criticalTask->update(['priority' => 'critical', 'status' => 'in_progress']);
+        $criticalTask->update(['priority' => 'critical']);
         $criticalSubtask = $this->createSubtask($criticalTask, $this->employee, 'Resolve critical blocker');
 
         $highPriorityTask = $this->createTask($this->employee);
@@ -78,10 +78,35 @@ class SubtaskDwrTest extends TestCase
             ->assertSee($criticalSubtask->title)
             ->assertDontSee('<table', false);
 
-        $response->assertSee('tf-dwr-task-status--in_progress', false)
-            ->assertSee('In Progress</span>', false)
-            ->assertSee('tf-dwr-priority--critical', false);
         $response->assertSeeInOrder([$criticalSubtask->title, $highPrioritySubtask->title]);
+    }
+
+    public function test_priority_breakdown_counts_main_tasks_without_subtasks(): void
+    {
+        $initialTaskCount = Task::query()->count();
+        $initialPriorityCounts = Task::query()
+            ->selectRaw('priority, COUNT(*) as total')
+            ->groupBy('priority')
+            ->pluck('total', 'priority');
+
+        $criticalTask = $this->createTask($this->employee);
+        $criticalTask->update(['priority' => 'critical']);
+
+        $mediumTask = $this->createTask($this->employee);
+        $mediumTask->update(['priority' => 'medium']);
+        $this->createSubtask($mediumTask, $this->employee, 'Medium priority subtask');
+
+        $this->actingAs($this->admin)
+            ->get(route('dwr.index'))
+            ->assertOk()
+            ->assertSee(($initialTaskCount + 2).' - Tasks')
+            ->assertViewHas('priorityTaskCountTotal', $initialTaskCount + 2)
+            ->assertViewHas('priorityBreakdown', function ($priorityBreakdown) use ($initialPriorityCounts): bool {
+                $this->assertSame((int) ($initialPriorityCounts['critical'] ?? 0) + 1, $priorityBreakdown['critical']);
+                $this->assertSame((int) ($initialPriorityCounts['medium'] ?? 0) + 1, $priorityBreakdown['medium']);
+
+                return true;
+            });
     }
 
     public function test_dashboard_metric_cards_show_filtered_task_and_subtask_totals(): void
@@ -246,10 +271,12 @@ class SubtaskDwrTest extends TestCase
     public function test_employee_filter_limits_dashboard_task_details_to_the_selected_employee(): void
     {
         $selectedTask = $this->createTask($this->employee);
+        $selectedTask->update(['priority' => 'critical']);
         $selectedSubtask = $this->createSubtask($selectedTask, $this->employee, 'Selected employee task detail');
 
         $otherEmployee = $this->createEmployee();
         $otherTask = $this->createTask($otherEmployee);
+        $otherTask->update(['priority' => 'high']);
         $otherSubtask = $this->createSubtask($otherTask, $otherEmployee, 'Other employee task detail');
 
         $response = $this->actingAs($this->admin)
@@ -270,6 +297,13 @@ class SubtaskDwrTest extends TestCase
 
             return true;
         });
+        $response->assertViewHas('priorityTaskCountTotal', 1)
+            ->assertViewHas('priorityBreakdown', function ($priorityBreakdown): bool {
+                $this->assertSame(1, $priorityBreakdown['critical']);
+                $this->assertSame(0, $priorityBreakdown['high']);
+
+                return true;
+            });
 
         $this->actingAs($this->admin)
             ->get(route('dwr.index'))

@@ -75,11 +75,28 @@ class SubtaskManagementController extends Controller
             ->selectRaw('dwr_tasks.priority as task_priority, subtasks.status, COUNT(*) as total')
             ->groupBy('dwr_tasks.priority', 'subtasks.status')
             ->get();
+        $priorityTaskQuery = clone $visibleTaskQuery;
+        if ($managerCanMonitor && ! empty($validated['employee_id'])) {
+            $employeeId = (int) $validated['employee_id'];
+            $priorityTaskQuery->where(function (Builder $query) use ($employeeId): void {
+                $query->where('tasks.assigned_to', $employeeId)
+                    ->orWhereHas('assignments', fn (Builder $assignmentQuery) => $assignmentQuery
+                        ->where('user_id', $employeeId)
+                        ->where('is_active', true)
+                        ->whereNull('unassigned_at'))
+                    ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery->whereKey($employeeId))
+                    ->orWhereHas('subtasks', fn (Builder $subtaskQuery) => $subtaskQuery
+                        ->where('subtasks.assigned_to', $employeeId));
+            });
+        }
+        $priorityTaskCounts = (clone $priorityTaskQuery)
+            ->selectRaw('tasks.priority, COUNT(*) as total')
+            ->groupBy('tasks.priority')
+            ->pluck('total', 'priority');
+        $priorityTaskCountTotal = (clone $priorityTaskQuery)->count();
         $priorityBreakdown = collect(Task::PRIORITIES)
             ->mapWithKeys(fn (string $priority): array => [
-                $priority => (int) $statusPriorityCounts
-                    ->where('task_priority', $priority)
-                    ->sum('total'),
+                $priority => (int) ($priorityTaskCounts[$priority] ?? 0),
             ]);
         $statusBreakdown = collect(Subtask::STATUSES)
             ->mapWithKeys(fn (string $status): array => [
@@ -94,7 +111,6 @@ class SubtaskManagementController extends Controller
                 'dwr_summary_tasks.task_code',
                 'dwr_summary_tasks.title as task_title',
                 'dwr_summary_tasks.priority as task_priority',
-                'dwr_summary_tasks.status as task_status',
             ])
             ->selectRaw('COUNT(subtasks.id) as total_subtasks');
 
@@ -111,7 +127,6 @@ class SubtaskManagementController extends Controller
                 'dwr_summary_tasks.task_code',
                 'dwr_summary_tasks.title',
                 'dwr_summary_tasks.priority',
-                'dwr_summary_tasks.status',
             )
             ->orderByRaw("CASE dwr_summary_tasks.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
             ->orderBy('dwr_summary_tasks.title')
@@ -215,6 +230,7 @@ class SubtaskManagementController extends Controller
                 'missing_updates' => $missingAccountabilities->unique('employee_id')->count(),
             ],
             'priorityBreakdown' => $priorityBreakdown,
+            'priorityTaskCountTotal' => $priorityTaskCountTotal,
             'statusBreakdown' => $statusBreakdown,
             'mainTaskSummaries' => $mainTaskSummaries,
             'subtaskStatuses' => Subtask::STATUSES,
