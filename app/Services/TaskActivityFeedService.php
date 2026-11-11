@@ -6,6 +6,7 @@ use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
 use App\Models\TaskStatusHistory;
+use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -17,6 +18,7 @@ class TaskActivityFeedService
      *     at: Carbon,
      *     actor: string,
      *     designation: ?string,
+     *     assigned_to: ?string,
      *     text: string,
      *     detail: ?string,
      *     badge: string,
@@ -27,17 +29,39 @@ class TaskActivityFeedService
     public function build(Task $task): Collection
     {
         $activities = collect();
+        $creator = $task->creator;
+        $creationPocs = $task->created_at === null
+            ? collect()
+            : $task->pocs->filter(
+                fn (User $poc): bool => $poc->pivot->created_at?->isSameSecond($task->created_at) ?? false,
+            );
+        $initialNotifiedHistory = $task->created_at === null
+            ? null
+            : $task->statusHistory->first(fn (TaskStatusHistory $history): bool => $history->event_type === 'status'
+                && $history->remarks === 'Initial task status.'
+                && $history->new_status === 'notified'
+                && (int) $history->changed_by === (int) $task->created_by
+                && ($history->created_at?->isSameSecond($task->created_at) ?? false));
+        $combinePocNotification = $creator?->hasAssignedRole('CEO') === true
+            && $creationPocs->isNotEmpty()
+            && $initialNotifiedHistory !== null;
+        $initialNotifiedHistoryId = $initialNotifiedHistory?->getKey();
 
         if ($task->created_at !== null) {
             $activities->push([
-                'id' => 'task-created-'.$task->id,
+                'id' => $combinePocNotification
+                    ? 'task-created-poc-notified-'.$task->id
+                    : 'task-created-'.$task->id,
                 'at' => $task->created_at,
-                'actor' => $task->creator?->name ?? 'Unknown user',
-                'designation' => $task->creator?->designation,
-                'text' => 'created the task',
-                'detail' => null,
-                'badge' => 'Created',
-                'tone' => 'created',
+                'actor' => $creator?->name ?? 'Unknown user',
+                'designation' => $creator?->designation,
+                'assigned_to' => $combinePocNotification
+                    ? $creationPocs->pluck('name')->sort()->implode(', ')
+                    : null,
+                'text' => $combinePocNotification ? $task->title : 'created the task',
+                'detail' => $combinePocNotification ? $task->description : null,
+                'badge' => $combinePocNotification ? 'Notified' : 'Created',
+                'tone' => $combinePocNotification ? 'poc_notification' : 'created',
                 'attachments' => collect(),
             ]);
         }
@@ -45,20 +69,32 @@ class TaskActivityFeedService
         $assignments = $task->assignments
             ->filter(fn (TaskAssignment $assignment): bool => $assignment->assigned_at !== null)
             ->sortBy('assigned_at')
+            ->groupBy(fn (TaskAssignment $assignment): string => implode('|', [
+                $assignment->assigned_at->format('Y-m-d H:i:s.u'),
+                (string) $assignment->assigned_by,
+                (string) $assignment->reason,
+            ]))
             ->values();
 
-        foreach ($assignments as $index => $assignment) {
-            $previousAssignment = $assignments->get($index - 1);
+        foreach ($assignments as $index => $assignmentGroup) {
+            /** @var TaskAssignment $assignment */
+            $assignment = $assignmentGroup->first();
+            $assignedUsers = $assignmentGroup
+                ->map(fn (TaskAssignment $assignment): string => $assignment->user?->name ?? 'Unknown user')
+                ->unique()
+                ->implode(', ');
+            $isReassignment = $index > 0;
+
             $activities->push([
                 'id' => 'task-assignment-'.$assignment->id,
                 'at' => $assignment->assigned_at,
                 'actor' => $assignment->assignedBy?->name ?? 'System',
                 'designation' => $assignment->assignedBy?->designation,
-                'text' => ($previousAssignment ? 'reassigned the task to ' : 'assigned the task to ')
-                    .($assignment->user?->name ?? 'Unknown user'),
+                'assigned_to' => $assignedUsers,
+                'text' => ($isReassignment ? 'reassigned the task to ' : 'assigned the task to ').$assignedUsers,
                 'detail' => $assignment->reason === 'Initial assignment' ? null : $assignment->reason,
-                'badge' => $previousAssignment ? 'Reassigned' : 'Assigned',
-                'tone' => $previousAssignment ? 'reassigned' : 'assigned',
+                'badge' => $isReassignment ? 'Reassigned' : 'Assigned',
+                'tone' => $isReassignment ? 'reassigned' : 'assigned',
                 'attachments' => collect(),
             ]);
         }
@@ -68,11 +104,16 @@ class TaskActivityFeedService
                 continue;
             }
 
+            if ($combinePocNotification && $poc->pivot->created_at->isSameSecond($task->created_at)) {
+                continue;
+            }
+
             $activities->push([
                 'id' => 'task-poc-'.$poc->id,
                 'at' => $poc->pivot->created_at,
                 'actor' => $poc->name,
                 'designation' => $poc->designation,
+                'assigned_to' => null,
                 'text' => 'added as a department point of contact',
                 'detail' => null,
                 'badge' => 'Point of Contact',
@@ -83,6 +124,10 @@ class TaskActivityFeedService
 
         foreach ($task->statusHistory as $history) {
             if ($this->isSubtaskActivity($history)) {
+                continue;
+            }
+
+            if ($combinePocNotification && $history->getKey() === $initialNotifiedHistoryId) {
                 continue;
             }
 
@@ -101,6 +146,7 @@ class TaskActivityFeedService
      *     at: Carbon,
      *     actor: string,
      *     designation: ?string,
+     *     assigned_to: ?string,
      *     text: string,
      *     detail: ?string,
      *     badge: string,
@@ -122,6 +168,7 @@ class TaskActivityFeedService
             'at' => $history->created_at,
             'actor' => $history->changedBy?->name ?? 'System',
             'designation' => $history->changedBy?->designation,
+            'assigned_to' => null,
             'text' => $this->historyText($history, $oldStatus, $newStatus),
             'detail' => $eventType === 'subtask' ? null : $history->remarks,
             'badge' => $this->historyBadge($history, $newStatus),

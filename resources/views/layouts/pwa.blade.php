@@ -9,6 +9,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="{{ config('pwa.theme_color') }}">
+    @if (isset($recurringVisibilityRefreshAt) && $recurringVisibilityRefreshAt)
+        <meta
+            name="recurring-task-next-transition"
+            content="{{ $recurringVisibilityRefreshAt->timestamp }}"
+            data-delay-ms="{{ max(0, now('UTC')->diffInMilliseconds($recurringVisibilityRefreshAt)) }}"
+        >
+    @endif
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <link rel="icon" href="{{ asset('icons/task-manager-192.png') }}" type="image/png">
@@ -19,6 +26,7 @@
 <body class="pwa @yield('body_class')">
 @yield('content')
 <button type="button" data-pwa-install hidden class="fixed bottom-4 right-4 z-50 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">Install app</button>
+<script src="{{ asset('js/recurring-task-visibility.js') }}?v={{ filemtime(public_path('js/recurring-task-visibility.js')) }}"></script>
 <script src="{{ asset('js/pwa.js') }}?v={{ file_exists($pwaJavaScriptPath) ? filemtime($pwaJavaScriptPath) : 1 }}" defer></script>
 <script src="{{ asset('js/pwa-install.js') }}"></script>
 <script>

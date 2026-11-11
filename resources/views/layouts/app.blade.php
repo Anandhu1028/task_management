@@ -13,6 +13,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" >
     <meta name="csrf-token"content="{{ csrf_token() }}" >
     <meta name="theme-color" content="{{ config('pwa.theme_color') }}">
+    @if (isset($recurringVisibilityRefreshAt) && $recurringVisibilityRefreshAt)
+        <meta
+            name="recurring-task-next-transition"
+            content="{{ $recurringVisibilityRefreshAt->timestamp }}"
+            data-delay-ms="{{ max(0, now('UTC')->diffInMilliseconds($recurringVisibilityRefreshAt)) }}"
+        >
+    @endif
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <link rel="icon" href="{{ asset('icons/task-manager-192.png') }}" type="image/png">
     <link rel="apple-touch-icon" href="{{ asset('icons/task-manager-192.png') }}">
@@ -114,6 +121,7 @@
     </script>
     {{-- Dashboard JS --}}
     <script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
+    <script src="{{ asset('js/recurring-task-visibility.js') }}?v={{ filemtime(public_path('js/recurring-task-visibility.js')) }}"></script>
     @stack('scripts')
     <script src="{{ asset('js/pwa-install.js') }}"></script>
 

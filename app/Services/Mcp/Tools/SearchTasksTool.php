@@ -65,6 +65,7 @@ class SearchTasksTool implements McpToolInterface
 
         $query = Task::query()
             ->visibleTo($user)
+            ->availableInRecurringWindow()
             ->with(['company:id,name', 'department:id,name', 'assignee:id,name', 'activeAssignees:id,name'])
             ->where(function (Builder $builder) use ($search): void {
                 $builder->where('tasks.title', 'like', "%{$search}%")

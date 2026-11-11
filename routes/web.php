@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeadlineExtensionRequestController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DwrDashboardController;
+use App\Http\Controllers\LegalController;
 use App\Http\Controllers\MilestoneController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PwaTaskController;
@@ -104,5 +105,17 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::post('/users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::resource('users', UserController::class);
 });
+
+// Public Legal & Support Pages (Required for ChatGPT App Submission)
+Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy'])->name('legal.privacy');
+Route::get('/terms', [LegalController::class, 'terms'])->name('legal.terms');
+Route::get('/support', [LegalController::class, 'support'])->name('legal.support');
+Route::get('/data-deletion', [LegalController::class, 'dataDeletion'])->name('legal.data-deletion');
+
+// Public Legal & Support Pages (Required for ChatGPT App Submission)
+Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy'])->name('legal.privacy');
+Route::get('/terms', [LegalController::class, 'terms'])->name('legal.terms');
+Route::get('/support', [LegalController::class, 'support'])->name('legal.support');
+Route::get('/data-deletion', [LegalController::class, 'dataDeletion'])->name('legal.data-deletion');
 
 require __DIR__.'/mcp.php';

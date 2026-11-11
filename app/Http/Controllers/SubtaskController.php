@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
+use App\Services\VolumeTaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,11 +21,13 @@ class SubtaskController extends Controller
     public function __construct(
         private readonly SubtaskActivityService $activity,
         private readonly SubtaskProgressService $progress,
+        private readonly VolumeTaskService $volumes,
     ) {}
 
     public function store(Request $request, Task $task): RedirectResponse|JsonResponse
     {
         $this->authorize('createSubtask', $task);
+        $isVolumeTask = $task->task_type === 'volume';
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:500'],
@@ -36,6 +39,9 @@ class SubtaskController extends Controller
             'due_date' => ['nullable', 'date_format:Y-m-d'],
             'estimated_hours' => ['nullable', 'numeric', 'min:0.01', 'max:9999.99'],
             'progress_percentage' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'work_date' => $isVolumeTask
+                ? ['nullable', 'date_format:Y-m-d', 'before_or_equal:today']
+                : ['prohibited'],
         ]);
         $data = $this->prepareNewSubtaskData($task, $validated);
         if (! $request->user()->can('updateSubtask', $task)) {
@@ -55,12 +61,14 @@ class SubtaskController extends Controller
         $subtask = DB::transaction(function () use ($task, $request, $data): Subtask {
             $sortOrder = (int) ($task->subtasks()->max('sort_order') ?? -1) + 1;
             $subtask = $this->createSubtask($task, $data, $request->user(), $sortOrder);
-            $this->progress->sync($task);
+            if ($task->task_type !== 'volume') {
+                $this->progress->sync($task);
+            }
 
             return $subtask;
         });
 
-        $subtask->load(['creator', 'assignee', 'completedBy']);
+        $subtask->load(['creator', 'assignee', 'completedBy', ...($isVolumeTask ? ['volumeUpdates'] : [])]);
 
         if ($request->wantsJson()) {
             return response()->json([
@@ -75,6 +83,7 @@ class SubtaskController extends Controller
     public function bulkStore(Request $request, Task $task): JsonResponse
     {
         $this->authorize('createSubtask', $task);
+        $isVolumeTask = $task->task_type === 'volume';
 
         $validated = $request->validate([
             'subtasks' => ['required', 'array', 'min:1', 'max:50'],
@@ -87,6 +96,9 @@ class SubtaskController extends Controller
             'subtasks.*.due_date' => ['nullable', 'date_format:Y-m-d'],
             'subtasks.*.estimated_hours' => ['nullable', 'numeric', 'min:0.01', 'max:9999.99'],
             'subtasks.*.progress_percentage' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'subtasks.*.work_date' => $isVolumeTask
+                ? ['nullable', 'date_format:Y-m-d', 'before_or_equal:today']
+                : ['prohibited'],
         ]);
 
         $rows = [];
@@ -115,13 +127,15 @@ class SubtaskController extends Controller
                 $subtasks[] = $this->createSubtask($task, $row, $request->user(), $sortOrder++);
             }
 
-            $this->progress->sync($task);
+            if ($task->task_type !== 'volume') {
+                $this->progress->sync($task);
+            }
 
             return $subtasks;
         });
 
         foreach ($subtasks as $subtask) {
-            $subtask->load(['creator', 'assignee', 'completedBy']);
+            $subtask->load(['creator', 'assignee', 'completedBy', ...($isVolumeTask ? ['volumeUpdates'] : [])]);
         }
 
         return response()->json([
@@ -135,7 +149,7 @@ class SubtaskController extends Controller
         $this->authorize('view', $task);
         abort_if($subtask->task_id !== $task->id, 404);
 
-        $subtask->load(['creator', 'assignee', 'completedBy']);
+        $subtask->load(['creator', 'assignee', 'completedBy', ...($task->task_type === 'volume' ? ['volumeUpdates'] : [])]);
 
         return response()->json([
             'ok' => true,
@@ -186,10 +200,12 @@ class SubtaskController extends Controller
                 "{$actor->name} ".($wasCompleted ? 'reopened' : 'completed')
                     ." subtask {$subtask->title} on {$task->task_code}.",
             );
-            $this->progress->sync($task);
+            if ($task->task_type !== 'volume') {
+                $this->progress->sync($task);
+            }
         });
 
-        $subtask->load(['creator', 'assignee', 'completedBy']);
+        $subtask->load(['creator', 'assignee', 'completedBy', ...($task->task_type === 'volume' ? ['volumeUpdates'] : [])]);
 
         return response()->json([
             'ok' => true,
@@ -213,6 +229,9 @@ class SubtaskController extends Controller
             'estimated_hours' => ['sometimes', 'nullable', 'numeric', 'min:0.01', 'max:9999.99'],
             'actual_hours' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:9999.99'],
             'progress_percentage' => ['sometimes', 'required', 'integer', 'min:0', 'max:100'],
+            'work_date' => $task->task_type === 'volume'
+                ? ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today']
+                : ['prohibited'],
         ]);
 
         $actor = $request->user();
@@ -222,10 +241,12 @@ class SubtaskController extends Controller
             && $validated['status'] !== ($subtask->is_completed ? 'completed' : $subtask->status);
         $progressChanged = isset($validated['progress_percentage'])
             && (int) $validated['progress_percentage'] !== (int) $subtask->progress_percentage;
+        $volumeEntryChanged = $task->task_type === 'volume'
+            && array_key_exists('work_date', $validated);
 
         if ($managerChanges) {
             $this->authorize('updateSubtask', [$task, $subtask]);
-        } elseif ($statusChanged || $progressChanged) {
+        } elseif ($statusChanged || $progressChanged || $volumeEntryChanged) {
             $this->authorize('updateSubtask', [$task, $subtask]);
         } else {
             $this->authorize('view', $task);
@@ -324,6 +345,17 @@ class SubtaskController extends Controller
                 $subtask->refresh();
             }
 
+            if ($task->task_type === 'volume') {
+                $existingVolumeUpdate = $subtask->volumeUpdates()
+                    ->where('task_id', $task->id)
+                    ->orderBy('id')
+                    ->first();
+                $workDate = array_key_exists('work_date', $validated)
+                    ? $validated['work_date']
+                    : ($existingVolumeUpdate?->update_date?->toDateString() ?? today(config('app.timezone'))->toDateString());
+                $this->volumes->syncFromSubtask($task, $subtask, $actor, $workDate, $subtask->description);
+            }
+
             if (array_key_exists('assigned_to', $validated)
                 && (int) ($validated['assigned_to'] ?? 0) !== (int) ($oldAssigneeId ?? 0)) {
                 $oldAssignee = $oldAssigneeId ? User::query()->find($oldAssigneeId) : null;
@@ -408,10 +440,12 @@ class SubtaskController extends Controller
                 );
             }
 
-            $this->progress->sync($task);
+            if ($task->task_type !== 'volume') {
+                $this->progress->sync($task);
+            }
         });
 
-        $subtask->load(['creator', 'assignee', 'completedBy']);
+        $subtask->load(['creator', 'assignee', 'completedBy', ...($task->task_type === 'volume' ? ['volumeUpdates'] : [])]);
 
         return response()->json([
             'ok' => true,
@@ -451,8 +485,16 @@ class SubtaskController extends Controller
                 'Subtask deleted',
                 "{$actor->name} deleted {$subtask->title} from {$task->task_code}.",
             );
+            if ($task->task_type === 'volume') {
+                $subtask->volumeUpdates()->where('task_id', $task->id)->delete();
+                $task->load('volume');
+                $summary = $this->volumes->summary($task);
+                $task->update(['progress_percentage' => $summary['percentage']]);
+            }
             $subtask->delete();
-            $this->progress->sync($task);
+            if ($task->task_type !== 'volume') {
+                $this->progress->sync($task);
+            }
         });
 
         return response()->json(['ok' => true]);
@@ -488,12 +530,25 @@ class SubtaskController extends Controller
      */
     private function createSubtask(Task $task, array $data, User $actor, int $sortOrder): Subtask
     {
+        $workDate = $task->task_type === 'volume' ? ($data['work_date'] ?? null) : null;
+        unset($data['work_date']);
+
         $subtask = $task->subtasks()->create([
             ...$data,
             'created_by' => $actor->id,
             'is_completed' => false,
             'sort_order' => $sortOrder,
         ]);
+
+        if ($task->task_type === 'volume') {
+            $this->volumes->syncFromSubtask(
+                $task,
+                $subtask,
+                $actor,
+                $workDate ?? today(config('app.timezone'))->toDateString(),
+                $subtask->description,
+            );
+        }
 
         $this->activity->record(
             $task,
@@ -645,6 +700,9 @@ class SubtaskController extends Controller
     {
         $isCompleted = $subtask->is_completed || $subtask->status === 'completed';
         $status = $isCompleted ? 'completed' : ($subtask->status ?? 'todo');
+        $volumeUpdate = $subtask->relationLoaded('volumeUpdates')
+            ? $subtask->volumeUpdates->sortByDesc('update_date')->first()
+            : null;
 
         return [
             'id' => $subtask->id,
@@ -662,6 +720,9 @@ class SubtaskController extends Controller
             'sort_order' => $subtask->sort_order,
             'created_at_formatted' => $subtask->created_at?->format('d M Y, h:i A'),
             'completed_at_formatted' => $subtask->completed_at?->format('d M Y, h:i A'),
+            'volume_update' => $volumeUpdate === null ? null : [
+                'work_date' => $volumeUpdate->update_date?->toDateString(),
+            ],
             'created_by' => [
                 'id' => $subtask->creator?->id,
                 'name' => $subtask->creator?->name ?? 'Unknown user',

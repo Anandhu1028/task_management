@@ -26,6 +26,7 @@ class MilestoneController extends Controller
             $milestone = $task->milestones()->create([
                 ...$validated,
                 'created_by' => $request->user()->id,
+                'sort_order' => ((int) $task->milestones()->max('sort_order')) + 1,
             ]);
             $milestone->assignees()->sync($assigneeIds);
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -231,6 +232,16 @@ class Task extends Model
         return $this->hasMany(Milestone::class)->orderBy('target_date')->orderBy('id');
     }
 
+    public function volume(): HasOne
+    {
+        return $this->hasOne(TaskVolume::class);
+    }
+
+    public function volumeUpdates(): HasMany
+    {
+        return $this->hasMany(TaskVolumeUpdate::class);
+    }
+
     public function getDisplayStatusAttribute(): string
     {
         return $this->status;
@@ -325,17 +336,111 @@ class Task extends Model
 
     public function scopeAvailableInRecurringWindow(Builder $query): Builder
     {
-        $now = now();
+        $now = CarbonImmutable::now('UTC');
+        $eligibleOccurrenceDates = [];
 
-        return $query->where(function (Builder $windowQuery) use ($now): void {
+        // Maps schedule_id => task_id for the master recurring template tasks
+        // that are currently within their active window.
+        $eligibleMasterTaskIds = [];
+
+        foreach (RecurringTask::query()
+            ->where('status', 'active')
+            ->whereIn('repeat_frequency', RecurringTask::FREQUENCIES)
+            ->whereNotNull('start_date')
+            ->whereNotNull('end_date')
+            ->whereNotNull('start_time')
+            ->whereNotNull('end_time')
+            ->whereNotNull('timezone')
+            ->get(['id', 'task_id', 'repeat_frequency', 'start_date', 'end_date', 'start_time', 'end_time', 'timezone']) as $schedule) {
+            if (! $schedule->hasValidTimezone()) {
+                continue;
+            }
+
+            $localNow = $now->setTimezone($schedule->timezone);
+            if (! $schedule->isScheduledOn($localNow)) {
+                continue;
+            }
+
+            $startsAt = CarbonImmutable::parse($localNow->toDateString().' '.$schedule->start_time, $schedule->timezone);
+            $endsAt = CarbonImmutable::parse($localNow->toDateString().' '.$schedule->end_time, $schedule->timezone);
+            if ($endsAt->lessThanOrEqualTo($startsAt)
+                || $localNow->lessThan($startsAt)
+                || $localNow->greaterThan($endsAt)) {
+                continue;
+            }
+
+            $eligibleOccurrenceDates[$schedule->getKey()] = $localNow->toDateString();
+            $eligibleMasterTaskIds[$schedule->getKey()] = (int) $schedule->task_id;
+        }
+
+        // For each eligible schedule, check whether a generated occurrence
+        // already exists for today (any occurrence, regardless of its window
+        // fields). If one exists, the master template task should NOT also
+        // appear — the occurrence is the canonical representation. Only show
+        // the master task when no occurrence has been generated yet.
+        $masterTaskIdsWithoutOccurrence = [];
+        if ($eligibleOccurrenceDates !== []) {
+            $schedulesWithOccurrence = static::withTrashed()
+                ->whereNotNull('recurring_task_id')
+                ->where(function (Builder $datesQuery) use ($eligibleOccurrenceDates): void {
+                    foreach ($eligibleOccurrenceDates as $scheduleId => $date) {
+                        $datesQuery->orWhere(function (Builder $q) use ($scheduleId, $date): void {
+                            $q->where('recurring_task_id', $scheduleId)
+                                ->whereDate('occurrence_date', $date);
+                        });
+                    }
+                })
+                ->pluck('recurring_task_id')
+                ->unique()
+                ->flip()
+                ->all();
+
+            foreach ($eligibleMasterTaskIds as $scheduleId => $masterTaskId) {
+                if (! isset($schedulesWithOccurrence[$scheduleId])) {
+                    $masterTaskIdsWithoutOccurrence[] = $masterTaskId;
+                }
+            }
+        }
+
+        return $query->where(function (Builder $windowQuery) use ($now, $eligibleOccurrenceDates, $masterTaskIdsWithoutOccurrence): void {
+            // Branch 1: regular (non-recurring) tasks are always visible.
             $windowQuery->where(function (Builder $regularTaskQuery): void {
                 $regularTaskQuery->whereNull('tasks.recurring_task_id')
                     ->where('tasks.task_type', '!=', 'recurring');
-            })->orWhere(function (Builder $occurrenceQuery) use ($now): void {
+            });
+
+            // Branch 2: master recurring template tasks that are within their
+            // active window but do not yet have a generated occurrence for
+            // today. This ensures the task is visible from the first moment
+            // the window opens, even when the scheduler has not run yet.
+            if ($masterTaskIdsWithoutOccurrence !== []) {
+                $windowQuery->orWhere(function (Builder $masterQuery) use ($masterTaskIdsWithoutOccurrence): void {
+                    $masterQuery->whereNull('tasks.recurring_task_id')
+                        ->where('tasks.task_type', 'recurring')
+                        ->whereIn('tasks.id', $masterTaskIdsWithoutOccurrence);
+                });
+            }
+
+            if ($eligibleOccurrenceDates === []) {
+                return;
+            }
+
+            // Branch 3: generated occurrence tasks that are within their
+            // specific available_from / expires_at time window.
+            $windowQuery->orWhere(function (Builder $occurrenceQuery) use ($now, $eligibleOccurrenceDates): void {
                 $occurrenceQuery->whereNotNull('tasks.recurring_task_id')
                     ->where('tasks.available_from', '<=', $now)
-                    ->where('tasks.expires_at', '>', $now)
-                    ->whereNotIn('tasks.status', ['completed', 'missed', 'cancelled']);
+                    ->where('tasks.expires_at', '>=', $now)
+                    ->whereNotIn('tasks.status', ['completed', 'missed', 'cancelled'])
+                    ->where(function (Builder $datesQuery) use ($eligibleOccurrenceDates): void {
+                        foreach ($eligibleOccurrenceDates as $scheduleId => $date) {
+                            $datesQuery->orWhere(function (Builder $occurrenceDateQuery) use ($scheduleId, $date): void {
+                                $occurrenceDateQuery
+                                    ->where('tasks.recurring_task_id', $scheduleId)
+                                    ->whereDate('tasks.occurrence_date', $date);
+                            });
+                        }
+                    });
             });
         });
     }
@@ -343,17 +448,26 @@ class Task extends Model
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
-            return $query;
+            // Multi-tenant company isolation: Scoped to user's assigned company unless global cross-company superadmin (company_id is null)
+            return $user->company_id
+                ? $query->where('tasks.company_id', $user->company_id)
+                : $query;
         }
 
         if ($user->hasAssignedRole('Employee')) {
+            if (! $user->company_id) {
+                return $query->whereRaw('1 = 0');
+            }
+
             return $query->where(function (Builder $query) use ($user): void {
                 $query->assignedTo($user->id)
                     ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                         ->whereKey($user->id)
                         ->where('users.company_id', $user->company_id)
-                        ->where('users.department_id', $user->department_id));
-            });
+                        ->where('users.department_id', $user->department_id))
+                    ->orWhereHas('subtasks', fn (Builder $subtaskQuery) => $subtaskQuery
+                        ->where('assigned_to', $user->id));
+            })->where('tasks.company_id', $user->company_id);
         }
 
         if ($user->hasAssignedRole('Manager')) {
@@ -369,13 +483,19 @@ class Task extends Model
                 : $query->whereRaw('1 = 0');
         }
 
+        if (! $user->company_id) {
+            return $query->whereRaw('1 = 0');
+        }
+
         return $query->where(function (Builder $query) use ($user): void {
             $query->assignedTo($user->id)
                 ->orWhereHas('pocs', fn (Builder $pocQuery) => $pocQuery
                     ->whereKey($user->id)
                     ->where('users.company_id', $user->company_id)
-                    ->where('users.department_id', $user->department_id));
-        });
+                    ->where('users.department_id', $user->department_id))
+                ->orWhereHas('subtasks', fn (Builder $subtaskQuery) => $subtaskQuery
+                    ->where('assigned_to', $user->id));
+        })->where('tasks.company_id', $user->company_id);
     }
 
     public static function generateCode(): string

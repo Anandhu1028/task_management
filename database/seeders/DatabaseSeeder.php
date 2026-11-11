@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
             DepartmentSeeder::class,
             UserSeeder::class,
             DemoOrganizationSeeder::class,
+            SampleTaskDataSeeder::class,
         ]);
     }
 }

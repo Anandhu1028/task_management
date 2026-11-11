@@ -80,6 +80,7 @@ class TaskWorkflowService
 
     public function notifyTaskCreated(Task $task, User $actor): void
     {
+        $task->loadMissing('volume');
         $pocNames = $task->pocs()->orderBy('users.name')->pluck('users.name')->implode(', ');
         $assigneeNames = $task->activeAssignees()->orderBy('users.name')->pluck('users.name')->implode(', ');
         $routingDetails = $pocNames !== ''
@@ -97,12 +98,16 @@ class TaskWorkflowService
             $task->activeAssignees()->pluck('users.id')->all(),
         );
 
+        $volumeDetails = $task->task_type === 'volume' && $task->volume !== null
+            ? ' Volume: '.$task->volume->total_volume.'; start '.$task->volume->start_date->format('Y-m-d').'; deadline '.$task->volume->deadline_date->format('Y-m-d').'.'
+            : '';
+
         $this->notifyUsers(
             $task,
             $recipientIds,
             $actor,
             'New task created',
-            "{$actor->name} created {$task->task_code}, {$routingDetails}.",
+            "{$actor->name} created {$task->task_code}, {$routingDetails}.{$volumeDetails}",
             true,
         );
     }

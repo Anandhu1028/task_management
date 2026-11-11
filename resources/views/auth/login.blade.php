@@ -96,16 +96,29 @@
             </form>
 
             @if ($demoAccounts !== [])
-                <section class="tf-login-quick" aria-label="Local testing quick login">
+                <section class="tf-login-quick" aria-label="Demo account quick fill">
                     <div class="tf-login-quick__heading">
-                        <strong>Demo accounts</strong>
-                        <span>Development only</span>
+                        <strong>Quick login</strong>
                     </div>
                     <div class="tf-login-quick__buttons">
                         @foreach ($demoAccounts as $account)
-                            <button type="button" data-quick-login data-email="{{ $account['email'] }}" data-password="{{ $account['password'] }}">{{ $account['label'] }}</button>
+                            <button
+                                type="button"
+                                data-demo-login
+                                @disabled(empty($account['available']))
+                                @if (! empty($account['available']))
+                                    data-email="{{ $account['email'] }}"
+                                    data-password="{{ $account['password'] }}"
+                                @endif
+                            >
+                                <i class="bi {{ $account['icon'] ?? 'bi-person-fill' }}" aria-hidden="true"></i>
+                                {{ $account['label'] }}
+                            </button>
                         @endforeach
                     </div>
+                    @if (collect($demoAccounts)->every(fn (array $account): bool => empty($account['available'])))
+                        <span class="tf-login-quick__notice">Configure demo login credentials to enable these buttons.</span>
+                    @endif
                 </section>
             @endif
 
@@ -120,12 +133,14 @@
     </main>
 
     <script>
-        document.querySelectorAll('[data-quick-login]').forEach(function (button) {
-            button.addEventListener('click', function () {
-                document.getElementById('email').value = this.dataset.email;
-                document.getElementById('password').value = this.dataset.password;
+        @if ($demoAccounts !== [])
+            document.querySelectorAll('[data-demo-login]:not(:disabled)').forEach(function (button) {
+                button.addEventListener('click', function () {
+                    document.getElementById('email').value = this.dataset.email;
+                    document.getElementById('password').value = this.dataset.password;
+                });
             });
-        });
+        @endif
 
         document.querySelector('[data-password-toggle]')?.addEventListener('click', function () {
             const passwordInput = document.getElementById(this.getAttribute('aria-controls'));

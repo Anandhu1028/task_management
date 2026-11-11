@@ -98,6 +98,11 @@ class Subtask extends Model
         return $this->hasOne(SubtaskDailyUpdate::class)->latestOfMany();
     }
 
+    public function volumeUpdates(): HasMany
+    {
+        return $this->hasMany(TaskVolumeUpdate::class);
+    }
+
     public function getIsOverdueAttribute(): bool
     {
         return ! $this->is_completed

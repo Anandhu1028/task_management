@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\DashboardService;
+use App\Services\TaskQueryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -19,7 +20,7 @@ class DashboardController extends Controller
     /**
      * Render role-based dashboard or return filtered JSON statistics.
      */
-    public function index(Request $request): View|JsonResponse
+    public function index(Request $request, TaskQueryService $taskQueries): View|JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
@@ -40,6 +41,8 @@ class DashboardController extends Controller
                 'data' => $data,
             ]);
         }
+
+        $data['recurringVisibilityRefreshAt'] = $taskQueries->nextRecurringVisibilityTransition($user);
 
         return match ($role) {
             'Admin' => view('dashboard.admin', $data),

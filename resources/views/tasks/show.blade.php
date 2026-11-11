@@ -6,6 +6,8 @@
     @php
         $status = $task->display_status;
         $statusLabels = \App\Models\Task::STATUS_LABELS;
+        $workStarted = in_array($status, ['in_progress', 'submitted_for_review', 'rework', 'completed'], true)
+            || $task->statusHistory->contains(fn ($history) => $history->event_type === 'start');
         $deadlineCondition = $task->deadline_condition;
         $deadline = $task->due_date ?? $task->original_deadline;
         $daysUntilDeadline = $deadline
@@ -138,7 +140,9 @@
             'low' => 'low',
         ][$task->priority] ?? 'default';
 
-        $hasReworkStage = $status === 'rework' || $mainTaskHistory->contains('new_status', 'rework');
+        $hasReworkStage = $status === 'rework' || $mainTaskHistory->contains(
+            fn ($history) => $history->event_type === 'review' && $history->new_status === 'rework',
+        );
         $workflowStages = [
             ['status' => 'notified', 'label' => 'Notified'],
             ['status' => 'unassigned', 'label' => 'Unassigned'],
@@ -160,17 +164,20 @@
             ? trim(
                 ($firstWorkflowAssignment->assignedBy?->name ?? 'System')
                 .' → '.($firstWorkflowAssignment->user?->name ?? 'Unassigned')
-                .' · '.($firstWorkflowAssignment->assigned_at?->format('M j') ?? ''),
+                .($firstWorkflowAssignment->assigned_at ? ' · '.$firstWorkflowAssignment->assigned_at->format('M j') : ''),
             )
-            : 'Awaiting assignment';
+            : null;
         $stageDetailMap = [
-            'notified' => trim(($task->creator?->name ?? 'System').' · '.($task->created_at?->format('M j') ?? '')),
-            'unassigned' => 'In '.($task->department?->name ?? 'assignment').' queue',
+            'notified' => trim(
+                ($task->creator?->name ?? 'System').' created'
+                .($task->created_at ? ' · '.$task->created_at->format('M j') : ''),
+            ),
+            'unassigned' => null,
             'assigned' => $assignedStageDetail,
-            'in_progress' => 'Awaiting start',
-            'submitted_for_review' => 'Awaiting submission',
-            'rework' => 'Awaiting re-work',
-            'completed' => 'Awaiting approval',
+            'in_progress' => null,
+            'submitted_for_review' => null,
+            'rework' => null,
+            'completed' => null,
         ];
         foreach ($mainTaskHistory->sortBy('created_at') as $h) {
             $ns = $h->new_status;
@@ -179,24 +186,30 @@
             }
 
             $stageAction = match (true) {
-                $h->event_type === 'start' || ($ns === 'in_progress' && $h->event_type !== 'hold') => 'started',
-                $h->event_type === 'submission' || $ns === 'submitted_for_review' => 'submitted',
-                ($h->event_type === 'review' || $ns === 'rework') && $h->new_status === 'rework' => 'returned for re-work',
+                $h->event_type === 'accepted' => 'accepted',
+                $h->event_type === 'start'
+                    || ($ns === 'in_progress' && $h->old_status !== $h->new_status && $h->event_type !== 'hold') => 'started',
+                $h->event_type === 'submission'
+                    || ($ns === 'submitted_for_review' && $h->old_status !== $h->new_status) => 'submitted',
+                $h->event_type === 'review' && $h->new_status === 'rework' => 'returned for re-work',
                 $h->event_type === 'review' && $h->new_status === 'completed' => 'approved',
-                $h->new_status === 'completed' => 'completed',
+                $h->new_status === 'completed' && $h->old_status !== $h->new_status => 'completed',
                 default => null,
             };
             $detailStatus = match ($stageAction) {
+                'accepted' => 'unassigned',
                 'started' => 'in_progress',
                 'submitted' => 'submitted_for_review',
                 'returned for re-work' => 'rework',
                 'approved', 'completed' => 'completed',
                 default => null,
             };
-            if ($detailStatus !== null && str_starts_with($stageDetailMap[$detailStatus], 'Awaiting')) {
+            if ($detailStatus !== null) {
                 $actorName = $h->changedBy?->name ?? 'System';
                 $actionDate = $h->created_at?->format('M j');
-                $stageDetailMap[$detailStatus] = trim($actorName.' '.$stageAction.' · '.($actionDate ?? ''));
+                $stageDetailMap[$detailStatus] = trim(
+                    $actorName.' '.$stageAction.($actionDate ? ' · '.$actionDate : ''),
+                );
             }
         }
     @endphp
@@ -241,13 +254,17 @@
             }
 
             .tf-task-detail__page-title p {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 6px;
                 margin: 0;
                 color: #64748b;
                 font-size: 12px;
             }
 
-            .tf-task-detail__card-body > #task-description-title {
-                margin-top: 5px;
+            .tf-task-detail__card-body #task-description-section-title {
+                margin-top: 10px;
             }
 
             .task-description-editor {
@@ -377,51 +394,6 @@
                 box-shadow: none;
             }
 
-            .tf-task-detail__summary-badges {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 10px;
-                margin: 0;
-            }
-
-            .tf-task-detail__summary-badge {
-                min-width: 0;
-                min-height: 64px;
-                padding: 10px 12px;
-                border: 1px solid #e2e8f0;
-                border-radius: 12px;
-                background: #fff;
-                box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
-            }
-
-            .tf-task-detail__summary-badge-label {
-                color: #64748b;
-                font-size: 9px;
-                letter-spacing: .04em;
-                text-transform: uppercase;
-            }
-
-            .tf-task-detail__summary-badge-label i {
-                display: none;
-            }
-
-            .tf-task-detail__summary-badge > strong {
-                color: #17243b;
-                font-size: 12px;
-            }
-
-            .tf-task-detail__summary-badge--deadline > strong {
-                display: block;
-            }
-
-            .tf-task-detail__summary-badge > .tf-task-status {
-                min-height: auto;
-                padding: 0;
-                background: transparent !important;
-                font-size: 12px;
-                font-weight: 700;
-            }
-
             .tf-task-detail__workflow-progress {
                 padding: 10px 0;
                 border-radius: 12px;
@@ -442,7 +414,7 @@
                 grid-template-columns: minmax(0, 1fr) minmax(250px, .39fr);
                 grid-template-areas:
                     "actions actions"
-                    "tabs details"
+                    "tabs ."
                     "content details";
                 align-items: start;
                 gap: 5px 12px;
@@ -503,6 +475,26 @@
             .tf-task-detail__sidebar .tf-activity-tab-panel:not([hidden]) {
                 grid-area: content;
                 min-width: 0;
+            }
+
+            @media (min-width: 901px) and (max-width: 1100px) {
+                .tf-task-detail__grid[data-activity-view="overview"],
+                .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) {
+                    grid-template-columns: minmax(0, 1fr) minmax(210px, .39fr);
+                }
+            }
+
+            @media (max-width: 900px) {
+                .tf-task-detail__grid[data-activity-view="overview"],
+                .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]),
+                .tf-task-detail__grid[data-activity-view].is-timeline-expanded {
+                    grid-template-columns: minmax(0, 1fr);
+                    grid-template-areas:
+                        "actions"
+                        "tabs"
+                        "content"
+                        "details";
+                }
             }
 
             .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) > .tf-task-detail__main[hidden],
@@ -980,31 +972,34 @@
             }
 
             .task-deadline-alert {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                padding: 8px 12px;
-                border: 1px solid #fcd34d;
-                border-radius: 10px;
-                background: #fffbeb;
-                color: #92400e;
-                font-size: 11px;
-            }
+                    display: flex;
+                    align-items: center;
+                    justify-content: flex-start;
+                    width: fit-content;
+                    max-width: 100%;
+                    gap: 6px;
+                    margin: 4px auto 2px 37px;
+                    padding: 5px 10px;
+                    border: 0;
+                    border-radius: 6px;
+                    background: #fbd6d6;
+                    color: #991b1b;
+                    font-size: 10px;
+                    font-weight: 600;
+                }
 
             .task-deadline-alert a {
                 flex: 0 0 auto;
                 padding: 4px 8px;
-                border: 1px solid #fde68a;
+                border: 1px solid #fecaca;
                 border-radius: 999px;
                 background: #fff;
-                color: #92400e;
+                color: #991b1b;
                 font-size: 10px;
                 text-decoration: none;
             }
 
             .task-deadline-alert--overdue {
-                border-color: #fca5a5;
                 background: #fef2f2;
                 color: #991b1b;
             }
@@ -1025,20 +1020,6 @@
             }
 
             @media (max-width: 760px) {
-                .tf-task-detail__grid[data-activity-view="overview"],
-                .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) {
-                    grid-template-columns: minmax(0, 1fr);
-                    grid-template-areas:
-                        "actions"
-                        "tabs"
-                        "content"
-                        "details";
-                }
-
-                .tf-task-detail__summary-badges {
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                }
-
                 .tf-task-detail > .tf-task-detail__header {
                     align-items: flex-start !important;
                     flex-direction: column;
@@ -1055,9 +1036,6 @@
             }
 
             @media (max-width: 420px) {
-                .tf-task-detail__summary-badge {
-                    padding: 8px;
-                }
             }
         </style>
 
@@ -1065,7 +1043,18 @@
             <div class="tf-task-detail__heading tf-task-detail__page-title">
                 <h1>{{ $task->title }}</h1>
                 <p>{{ $task->company?->name ?? 'No company' }} <span aria-hidden="true">·</span>
-                    {{ $task->department?->name ?? 'No department' }}</p>
+                    {{ $task->department?->name ?? 'No department' }}
+                    <span class="tf-task-detail__header-status tf-task-detail__header-status--{{ $status }}">
+                        <span class="tf-task-detail__header-status-dot" aria-hidden="true"></span>
+                        {{ $statusLabels[$status] ?? \Illuminate\Support\Str::headline($status) }}
+                    </span>
+                    @if ($workStarted)
+                        <span class="tf-task-detail__started-badge">
+                            <i class="bi bi-play-circle-fill" aria-hidden="true"></i>
+                            {{ $status === 'completed' ? 'Task Completed' : 'Task Started' }}
+                        </span>
+                    @endif
+                </p>
             </div>
             @if ($hasActions || $canReviewSubmission || auth()->user()?->can('tasks.update'))
                 <div class="tf-task-detail__actions">
@@ -1160,41 +1149,6 @@
         </header>
 
         <section class="tf-task-detail__summary" aria-label="Task summary">
-            <div class="tf-task-detail__summary-badges" aria-label="Task status details">
-                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--workflow">
-                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-arrow-repeat"
-                                aria-hidden="true"></i> Workflow</span>
-                        <strong>{{ $statusLabels[$status] ?? $status }}</strong>
-                    </div>
-                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--start">
-                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-calendar2-check"
-                                aria-hidden="true"></i> Planned start</span>
-                        <strong>{{ $task->start_date?->format('M d, Y') ?? 'Not started' }}</strong>
-                    </div>
-                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--deadline" id="task-deadline-summary">
-                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-alarm" aria-hidden="true"></i>
-                            Deadline health</span>
-                        <strong
-                            class="tf-task-status tf-task-status--{{ $deadlineCondition }}">{{ \App\Models\Task::DEADLINE_CONDITION_LABELS[$deadlineCondition] }}</strong>
-                        <small>
-                            @if ($daysUntilDeadline === null)
-                                No deadline set
-                            @elseif ($daysUntilDeadline < 0 && !in_array($status, ['completed', 'cancelled'], true))
-                                {{ abs($daysUntilDeadline) }}
-                                {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} overdue
-                            @elseif ($daysUntilDeadline === 0)
-                                Due today
-                            @else
-                                {{ $daysUntilDeadline }} {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left
-                            @endif
-                        </small>
-                    </div>
-                    <div class="tf-task-detail__summary-badge tf-task-detail__summary-badge--effort">
-                        <span class="tf-task-detail__summary-badge-label"><i class="bi bi-hourglass-split"
-                                aria-hidden="true"></i> Estimated effort</span>
-                        <strong>{{ $task->estimated_hours ? number_format((float) $task->estimated_hours, 2) . ' hours' : 'Not set' }}</strong>
-                </div>
-            </div>
             <section class="tf-task-detail__workflow-progress" aria-labelledby="task-workflow-title-top">
                 <header class="tf-task-detail__workflow-progress-header">
                     <h2 id="task-workflow-title-top"><i class="bi bi-diagram-3" aria-hidden="true"></i> Task Workflow</h2>
@@ -1224,35 +1178,35 @@
                                     @endif
                                 </span>
                                 <span class="tf-task-workflow__step-label">{{ $stageLabel }}</span>
-                                <span class="tf-task-workflow__step-meta" title="{{ $stageDetail }}">{{ $stageDetail }}</span>
+                                @if (filled($stageDetail))
+                                    <span class="tf-task-workflow__step-meta" title="{{ $stageDetail }}">{{ $stageDetail }}</span>
+                                @endif
                             </li>
                         @endforeach
                     </ol>
                 @endif
+                @if ($deadline !== null && !in_array($status, ['completed', 'cancelled'], true)
+                    && ($deadlineCondition !== 'normal' || $daysUntilDeadline <= 2))
+                    <div @class([
+                        'task-deadline-alert',
+                        'task-deadline-alert--overdue' => $daysUntilDeadline !== null && $daysUntilDeadline < 0,
+                    ]) role="status">
+                        <span>
+                            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                            @if ($daysUntilDeadline !== null && $daysUntilDeadline < 0)
+                                At risk: {{ abs($daysUntilDeadline) }}
+                                {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} past the deadline.
+                            @elseif ($daysUntilDeadline === 0)
+                                At risk: the task is due today.
+                            @else
+                                At risk: {{ $daysUntilDeadline }}
+                                {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left until the deadline.
+                            @endif
+                        </span>
+                    </div>
+                @endif
             </section>
         </section>
-
-        @if ($deadline !== null && !in_array($status, ['completed', 'cancelled'], true)
-            && ($deadlineCondition !== 'normal' || $daysUntilDeadline <= 2))
-            <div @class([
-                'task-deadline-alert',
-                'task-deadline-alert--overdue' => $daysUntilDeadline !== null && $daysUntilDeadline < 0,
-            ]) role="status">
-                <span>
-                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                    @if ($daysUntilDeadline !== null && $daysUntilDeadline < 0)
-                        At risk: {{ abs($daysUntilDeadline) }}
-                        {{ \Illuminate\Support\Str::plural('day', abs($daysUntilDeadline)) }} past the deadline.
-                    @elseif ($daysUntilDeadline === 0)
-                        At risk: the task is due today.
-                    @else
-                        At risk: {{ $daysUntilDeadline }}
-                        {{ \Illuminate\Support\Str::plural('day', $daysUntilDeadline) }} left until the deadline.
-                    @endif
-                </span>
-                <a href="#task-deadline-summary">View deadline</a>
-            </div>
-        @endif
 
         <div class="tf-task-detail__grid" data-activity-view="overview">
             @if ($hasActions || ($canReviewSubmission && isset($statusOptions['on_hold'])))
@@ -1449,103 +1403,123 @@
                     {{-- In-tab workflow: hidden at desktop widths via CSS (only top-level visible) --}}
 
                     <section class="tf-task-detail__card" aria-labelledby="task-description-title">
+                        <header class="tf-task-detail__card-header">
+                            <h2 id="task-description-title">Task Details</h2>
+                            <button
+                                class="tf-card-content-toggle"
+                                type="button"
+                                data-card-content-toggle
+                                data-card-name="task details"
+                                aria-controls="task-description-card-content"
+                                aria-expanded="true"
+                                aria-label="Collapse task details"
+                            >
+                                <i class="bi bi-chevron-up" data-card-content-toggle-icon aria-hidden="true"></i>
+                                <span data-card-content-toggle-label>Collapse</span>
+                            </button>
+                        </header>
                         <div class="tf-task-detail__card-body">
-                            <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
-                                <h3 class="tf-task-detail__section-label" id="task-output-title">
-                                    Expected Output / Deliverable Criteria
-                                </h3>
-                                @if ($task->expected_output)
-                                    <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
-                                @else
-                                    <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
-                                @endif
-                            </section>
-                            <h3 class="tf-task-detail__section-label" id="task-description-title">Description</h3>
-                            @if ($task->description)
-                                <div class="tf-task-detail__description">{{ $task->description }}</div>
-                            @elseif (auth()->user()?->can('tasks.update'))
-                                <details class="task-description-editor" @if ($errors->has('description')) open @endif>
-                                    <summary class="tf-task-detail__empty-copy task-description-editor__toggle">
-                                        <span class="task-description-editor__empty-text">No description yet.</span>
-                                        <span>Add description</span>
-                                    </summary>
-                                    <form method="POST" action="{{ route('tasks.description.update', $task) }}"
-                                        class="task-description-editor__form">
-                                        @csrf
-                                        @method('PUT')
-                                        <label class="visually-hidden" for="taskDescriptionInput">Task description</label>
-                                        <textarea class="task-description-editor__input" id="taskDescriptionInput" name="description"
-                                            maxlength="10000" required placeholder="Add a description for this task...">{{ old('description') }}</textarea>
-                                        @error('description')
-                                            <p class="task-description-editor__error">{{ $message }}</p>
-                                        @enderror
-                                        <div class="task-description-editor__actions">
-                                            <button class="task-description-editor__save" type="submit"
-                                                aria-label="Save description" title="Save description">
-                                                <i class="bi bi-check-lg" aria-hidden="true"></i>
-                                            </button>
-                                            <button class="task-description-editor__cancel" type="button"
-                                                aria-label="Close description editor" title="Close editor"
-                                                data-task-description-cancel>
-                                                <i class="bi bi-x-lg" aria-hidden="true"></i>
-                                            </button>
-                                        </div>
-                                    </form>
-                                </details>
-                                <script>
-                                    document.querySelectorAll('[data-task-description-cancel]').forEach(button => {
-                                        button.addEventListener('click', () => {
-                                            const editor = button.closest('.task-description-editor');
-                                            editor.open = false;
-                                            editor.querySelector('form').reset();
-                                        });
-                                    });
-                                </script>
-                            @else
-                                <p class="tf-task-detail__empty-copy">No additional description provided.</p>
-                            @endif
-                            @if ($recurringSchedule)
-                                @php
-                                    $recurringTemplate = $recurringSchedule;
-                                    $nextOccurrence = $nextRecurringOccurrence;
-                                @endphp
-                                <section class="tf-task-detail__output-section" aria-labelledby="task-recurrence-title">
-                                    <h3 class="tf-task-detail__section-label" id="task-recurrence-title">Recurring Schedule</h3>
-                                    <dl class="tf-task-detail__metadata">
-                                        <div>
-                                            <dt>Record type</dt>
-                                            <dd>{{ $task->recurringSchedule ? 'Recurring master task' : 'Generated occurrence' }}
-                                            </dd>
-                                        </div>
-                                        <div>
-                                            <dt>Schedule</dt>
-                                            <dd>{{ ucfirst($recurringTemplate->repeat_frequency) }} ·
-                                                {{ \Illuminate\Support\Carbon::parse($recurringTemplate->start_time)->format('g:i A') }}–{{ \Illuminate\Support\Carbon::parse($recurringTemplate->end_time)->format('g:i A') }}
-                                                ({{ $recurringTemplate->timezone }})</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Schedule dates</dt>
-                                            <dd>{{ $recurringTemplate->start_date->format('M d, Y') }} –
-                                                {{ $recurringTemplate->end_date->format('M d, Y') }}</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Occurrence date</dt>
-                                            <dd>{{ $task->occurrence_date?->format('M d, Y') ?? '—' }}</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Next occurrence</dt>
-                                            <dd>{{ $nextOccurrence?->format('M d, Y') ?? 'No upcoming occurrence' }}</dd>
-                                        </div>
-                                        <div>
-                                            <dt>Recurrence status</dt>
-                                            <dd>{{ ucfirst($recurringTemplate->status) }}</dd>
-                                        </div>
-                                    </dl>
+                            <div id="task-description-card-content">
+                                <section class="tf-task-detail__output-section" aria-labelledby="task-output-title">
+                                    <h3 class="tf-task-detail__section-label" id="task-output-title">
+                                        Expected Output / Deliverable Criteria
+                                    </h3>
+                                    @if ($task->expected_output)
+                                        <div class="tf-task-detail__output">{{ $task->expected_output }}</div>
+                                    @else
+                                        <p class="tf-task-detail__empty-copy">No specific expected output defined for this task.</p>
+                                    @endif
                                 </section>
-                            @endif
+                                <h3 class="tf-task-detail__section-label" id="task-description-section-title">Description</h3>
+                                @if ($task->description)
+                                    <div class="tf-task-detail__description">{{ $task->description }}</div>
+                                @elseif (auth()->user()?->can('tasks.update'))
+                                    <details class="task-description-editor" @if ($errors->has('description')) open @endif>
+                                        <summary class="tf-task-detail__empty-copy task-description-editor__toggle">
+                                            <span class="task-description-editor__empty-text">No description yet.</span>
+                                            <span>Add description</span>
+                                        </summary>
+                                        <form method="POST" action="{{ route('tasks.description.update', $task) }}"
+                                            class="task-description-editor__form">
+                                            @csrf
+                                            @method('PUT')
+                                            <label class="visually-hidden" for="taskDescriptionInput">Task description</label>
+                                            <textarea class="task-description-editor__input" id="taskDescriptionInput" name="description"
+                                                maxlength="10000" required placeholder="Add a description for this task...">{{ old('description') }}</textarea>
+                                            @error('description')
+                                                <p class="task-description-editor__error">{{ $message }}</p>
+                                            @enderror
+                                            <div class="task-description-editor__actions">
+                                                <button class="task-description-editor__save" type="submit"
+                                                    aria-label="Save description" title="Save description">
+                                                    <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                                </button>
+                                                <button class="task-description-editor__cancel" type="button"
+                                                    aria-label="Close description editor" title="Close editor"
+                                                    data-task-description-cancel>
+                                                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </details>
+                                    <script>
+                                        document.querySelectorAll('[data-task-description-cancel]').forEach(button => {
+                                            button.addEventListener('click', () => {
+                                                const editor = button.closest('.task-description-editor');
+                                                editor.open = false;
+                                                editor.querySelector('form').reset();
+                                            });
+                                        });
+                                    </script>
+                                @else
+                                    <p class="tf-task-detail__empty-copy">No additional description provided.</p>
+                                @endif
+                                @if ($recurringSchedule)
+                                    @php
+                                        $recurringTemplate = $recurringSchedule;
+                                        $nextOccurrence = $nextRecurringOccurrence;
+                                    @endphp
+                                    <section class="tf-task-detail__output-section" aria-labelledby="task-recurrence-title">
+                                        <h3 class="tf-task-detail__section-label" id="task-recurrence-title">Recurring Schedule</h3>
+                                        <dl class="tf-task-detail__metadata">
+                                            <div>
+                                                <dt>Record type</dt>
+                                                <dd>{{ $task->recurringSchedule ? 'Recurring master task' : 'Generated occurrence' }}
+                                                </dd>
+                                            </div>
+                                            <div>
+                                                <dt>Schedule</dt>
+                                                <dd>{{ ucfirst($recurringTemplate->repeat_frequency) }} ·
+                                                    {{ \Illuminate\Support\Carbon::parse($recurringTemplate->start_time)->format('g:i A') }}–{{ \Illuminate\Support\Carbon::parse($recurringTemplate->end_time)->format('g:i A') }}
+                                                    ({{ $recurringTemplate->timezone }})</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Schedule dates</dt>
+                                                <dd>{{ $recurringTemplate->start_date->format('M d, Y') }} –
+                                                    {{ $recurringTemplate->end_date->format('M d, Y') }}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Occurrence date</dt>
+                                                <dd>{{ $task->occurrence_date?->format('M d, Y') ?? '—' }}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Next occurrence</dt>
+                                                <dd>{{ $nextOccurrence?->format('M d, Y') ?? 'No upcoming occurrence' }}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Recurrence status</dt>
+                                                <dd>{{ ucfirst($recurringTemplate->status) }}</dd>
+                                            </div>
+                                        </dl>
+                                    </section>
+                                @endif
+                            </div>
                         </div>
                     </section>
 
+                    @if ($volumeSummary !== null)
+                        @include('tasks.partials.volume-overview', ['prefix' => 'overview'])
+                    @else
                     <section class="task-activity-feed task-activity-feed--overview"
                         data-task-activity-feed data-user-id="{{ auth()->id() }}" data-task-id="{{ $task->id }}"
                         aria-labelledby="task-latest-activity-title">
@@ -1581,64 +1555,83 @@
                                     <li class="task-activity-feed__item" id="{{ $previewActivityElementId }}"
                                         data-activity-feed-item>
                                         <span class="task-activity-feed__avatar" aria-hidden="true">{{ $activityInitials }}</span>
+                                        <header class="task-activity-feed__author-header">
+                                            <div class="task-activity-feed__author-details">
+                                                <p class="task-activity-feed__author">{{ $feedActivity['actor'] }}</p>
+                                                @if ($feedActivity['designation'])
+                                                    <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
+                                                @endif
+                                            </div>
+                                        </header>
                                         <article @class([
                                             'task-activity-feed__card',
                                             'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
                                         ]) data-tone="{{ $feedActivity['tone'] }}">
-                                            <header class="task-activity-feed__card-header">
-                                                <div class="task-activity-feed__author-details">
-                                                    <p class="task-activity-feed__author">
-                                                        {{ $feedActivity['actor'] }}
-                                                    </p>
-                                                    @if ($feedActivity['designation'])
-                                                        <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
-                                                    @endif
-                                                </div>
+                                            <p class="task-activity-feed__task-title">{{ $feedActivity['text'] }}</p>
+                                            <div class="task-activity-feed__detail-row">
+                                                @if ($feedActivity['detail'])
+                                                    <p class="task-activity-feed__detail"><strong>{{ $feedActivity['tone'] === 'poc_notification' ? 'Description' : 'Reason' }}:</strong> {{ $feedActivity['detail'] }}</p>
+                                                @endif
                                                 <span class="task-activity-feed__badge">
                                                     @if ($feedActivity['tone'] === 'completed')
                                                         <i class="bi bi-check-circle" aria-hidden="true"></i>
                                                     @endif
                                                     {{ $feedActivity['badge'] }}
                                                 </span>
-                                            </header>
-                                            <div class="task-activity-feed__message-row">
-                                                <p class="task-activity-feed__message">{{ $feedActivity['text'] }}</p>
-                                                <time class="task-activity-feed__date"
-                                                    datetime="{{ $feedActivity['at']->toIso8601String() }}">
-                                                    <span>{{ $feedActivity['at']->format('M j, Y') }}</span>
-                                                    <span>{{ $feedActivity['at']->diffForHumans() }}</span>
-                                                </time>
                                             </div>
-                                            @if ($feedActivity['detail'])
-                                                <p class="task-activity-feed__detail">{{ $feedActivity['detail'] }}</p>
+                                            @if (in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
+                                                <div class="task-activity-feed__assignment-row">
+                                                    <p class="task-activity-feed__assignment-target">
+                                                        <strong>@if ($feedActivity['tone'] === 'poc_notification') Assign POC &rarr; @else Assign to: @endif</strong> {{ $feedActivity['assigned_to'] }}
+                                                    </p>
+                                                    <time class="task-activity-feed__card-time"
+                                                        datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                        {{ $feedActivity['at']->diffForHumans() }},
+                                                        {{ $feedActivity['at']->format('M j, Y') }}
+                                                    </time>
+                                                </div>
                                             @endif
-                                            @if ($feedActivity['attachments']->isNotEmpty())
-                                                <footer class="task-activity-feed__card-footer">
-                                                    <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
-                                                        @foreach ($feedActivity['attachments'] as $attachment)
-                                                            <li>
-                                                                <a class="task-activity-feed__attachment"
-                                                                    href="{{ route(
-                                                                        in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
-                                                                            ? 'tasks.attachments.preview'
-                                                                            : 'tasks.attachments.download',
-                                                                        [$task, $attachment],
-                                                                    ) }}"
-                                                                    target="_blank" rel="noopener noreferrer">
-                                                                    <i class="bi bi-paperclip" aria-hidden="true"></i>
-                                                                    {{ $attachment->original_name }}
-                                                                </a>
-                                                            </li>
-                                                        @endforeach
-                                                    </ul>
-                                                </footer>
-                                            @endif
+                                            <footer class="task-activity-feed__card-footer">
+                                                @if ($feedActivity['attachments']->isNotEmpty())
+                                                    <div class="task-activity-feed__card-attachments">
+                                                        <span class="task-activity-feed__attachments-heading">
+                                                            <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                            Attachments ({{ $feedActivity['attachments']->count() }})
+                                                        </span>
+                                                        <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
+                                                            @foreach ($feedActivity['attachments'] as $attachment)
+                                                                <li>
+                                                                    <a class="task-activity-feed__attachment"
+                                                                        href="{{ route(
+                                                                            in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
+                                                                                ? 'tasks.attachments.preview'
+                                                                                : 'tasks.attachments.download',
+                                                                            [$task, $attachment],
+                                                                        ) }}"
+                                                                        target="_blank" rel="noopener noreferrer">
+                                                                        <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                                        {{ $attachment->original_name }}
+                                                                    </a>
+                                                                </li>
+                                                            @endforeach
+                                                        </ul>
+                                                    </div>
+                                                @endif
+                                                @if (! in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
+                                                    <time class="task-activity-feed__card-time"
+                                                        datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                        {{ $feedActivity['at']->diffForHumans() }},
+                                                        {{ $feedActivity['at']->format('M j, Y') }}
+                                                    </time>
+                                                @endif
+                                            </footer>
                                         </article>
                                     </li>
                                 @endforeach
                             </ol>
                         @endif
                     </section>
+                    @endif
 
                 </div>
 
@@ -2046,11 +2039,20 @@
                             <i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i> Subtasks
                             <span class="tf-activity-tab-badge">{{ $task->subtasks->count() }}</span>
                         </button>
-                        <!-- <button type="button" class="tf-activity-tab-btn" id="tab-milestones-btn" data-activity-tab="milestones"
-                            role="tab" aria-selected="false" aria-controls="panel-milestones">
-                            <i class="bi bi-flag" aria-hidden="true"></i> Milestones
-                            <span class="tf-activity-tab-badge">{{ $milestones->count() }}</span>
-                        </button> -->
+                        @if ($task->task_type === 'project')
+                            <button type="button" class="tf-activity-tab-btn" id="tab-milestones-btn" data-activity-tab="milestones"
+                                role="tab" aria-selected="false" aria-controls="panel-milestones">
+                                <i class="bi bi-flag" aria-hidden="true"></i> Milestone
+                                <span class="tf-activity-tab-badge">{{ $milestones->count() }}</span>
+                            </button>
+                        @endif
+                        @if ($task->task_type === 'volume' && $volumeSummary !== null)
+                            <button type="button" class="tf-activity-tab-btn" id="tab-volume-btn" data-activity-tab="volume"
+                                role="tab" aria-selected="false" aria-controls="panel-volume">
+                                <i class="bi bi-bar-chart-steps" aria-hidden="true"></i> Volume
+                                <span class="tf-activity-tab-badge">{{ $volumeSummary['completed'] }}/{{ $volumeSummary['total'] }}</span>
+                            </button>
+                        @endif
                         <button type="button" class="tf-activity-tab-btn" id="tab-requests-btn" data-activity-tab="requests"
                             role="tab" aria-selected="false" aria-controls="panel-requests">
                             <i class="bi bi-calendar2-plus" aria-hidden="true"></i> Requests
@@ -2128,6 +2130,16 @@
                                                             @endforeach
                                                         </select>
                                                     </label>
+                                                    @if ($task->task_type === 'volume')
+                                                        <label class="tf-quick-add-field">
+                                                            <span>Work date</span>
+                                                            <input type="date" name="work_date"
+                                                                class="form-control form-control-sm"
+                                                                value="{{ today(config('app.timezone'))->toDateString() }}"
+                                                                min="{{ $task->volume?->start_date?->toDateString() }}"
+                                                                max="{{ min(today(config('app.timezone'))->toDateString(), $task->volume?->deadline_date?->toDateString() ?? today(config('app.timezone'))->toDateString()) }}">
+                                                        </label>
+                                                    @endif
                                                 </div>
                                                 <div class="tf-quick-add-actions">
                                                     <button type="button" class="btn btn-sm btn-light"
@@ -3955,7 +3967,7 @@
                             .task-activity-feed__avatar {
                                 position: absolute;
                                 z-index: 1;
-                                top: 9px;
+                                top: 1px;
                                 left: 0;
                                 display: grid;
                                 width: 27px;
@@ -3970,24 +3982,40 @@
                                 box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
                             }
 
+                            .task-activity-feed__author-header {
+                                display: flex;
+                                min-height: 24px;
+                                align-items: center;
+                                margin-bottom: 4px;
+                                padding: 7px 3px;
+                            }
+
                             .task-activity-feed__card {
                                 min-width: 0;
-                                padding: 8px 10px;
-                                border: 1px solid #e2e8f0;
-                                border-radius: 8px;
-                                background: #fff;
+                                padding: 4px 11px 8px;
+                                border: 1px solid transparent;
+                                border-radius: 12px;
+                                background: #f5f5f5;
+                            }
+
+                            .task-activity-feed__card[data-tone="assigned"],
+                            .task-activity-feed__card[data-tone="reassigned"],
+                            .task-activity-feed__card[data-tone="poc"],
+                            .task-activity-feed__card[data-tone="poc_notification"],
+                            .task-activity-feed__card[data-tone="submission"],
+                            .task-activity-feed__card[data-tone="review"] {
+                                border-color: #bfdbfe;
+                                background: #f8fbff;
                             }
 
                             .task-activity-feed__card[data-tone="created"],
-                            .task-activity-feed__card[data-tone="assigned"],
-                            .task-activity-feed__card[data-tone="reassigned"],
                             .task-activity-feed__card[data-tone="accepted"],
-                            .task-activity-feed__card[data-tone="poc"],
                             .task-activity-feed__card[data-tone="start"],
                             .task-activity-feed__card[data-tone="resume"],
-                            .task-activity-feed__card[data-tone="work_update"] {
-                                border-color: #bfdbfe;
-                                background: #f8fbff;
+                            .task-activity-feed__card[data-tone="work_update"],
+                            .task-activity-feed__card[data-tone="hold"] {
+                                border-color: transparent;
+                                background: #f5f5f5;
                             }
 
                             .task-activity-feed__card[data-tone="risk"],
@@ -3996,17 +4024,6 @@
                             .task-activity-feed__card[data-tone="deadline_extension_rejected"] {
                                 border-color: #fecaca;
                                 background: #fffafa;
-                            }
-
-                            .task-activity-feed__card[data-tone="hold"] {
-                                border-color: #fde68a;
-                                background: #fffdf5;
-                            }
-
-                            .task-activity-feed__card[data-tone="submission"],
-                            .task-activity-feed__card[data-tone="review"] {
-                                border-color: #bae6fd;
-                                background: #f8fcff;
                             }
 
                             .task-activity-feed__card[data-tone="deadline_extension_approved"] {
@@ -4020,19 +4037,12 @@
                                 color: #166534;
                             }
 
-                            .task-activity-feed__card-header {
-                                display: flex;
-                                align-items: center;
-                                justify-content: space-between;
-                                gap: 10px;
-                            }
-
                             .task-activity-feed__author-details {
                                 display: flex;
                                 min-width: 0;
-                                align-items: baseline;
+                                align-items: center;
                                 flex-wrap: wrap;
-                                gap: 0 4px;
+                                gap: 0 5px;
                             }
 
                             .task-activity-feed__author {
@@ -4043,6 +4053,19 @@
                                 font-weight: 650;
                             }
 
+                            .task-activity-feed__task-title {
+                                min-width: 0;
+                                margin: 0;
+                                color: #334155;
+                                font-size: 10px;
+                                font-weight: 650;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .task-activity-feed__description {
+                                margin-top: 6px;
+                            }
+
                             .task-activity-feed__designation {
                                 color: var(--feed-muted);
                                 font-size: 9px;
@@ -4050,44 +4073,69 @@
                             }
 
                             .task-activity-feed__designation::before {
-                                margin-right: 4px;
+                                margin-right: 5px;
                                 color: #94a3b8;
-                                content: "•";
-                            }
-
-                            .task-activity-feed__message {
-                                flex: 1 1 auto;
-                                min-width: 0;
-                                margin: 0;
-                                color: #1f2937;
-                                font-size: 11px;
-                                font-weight: 500;
-                                line-height: 1.45;
-                                overflow-wrap: anywhere;
-                                white-space: pre-line;
+                                content: "·";
                             }
 
                             .task-activity-feed__message-row {
-                                display: grid;
-                                grid-template-columns: minmax(0, 1fr) 108px;
-                                align-items: start;
-                                gap: 12px;
-                                margin-top: 5px;
+                                display: flex;
+                                align-items: center;
                             }
 
-                            .task-activity-feed__card--completed .task-activity-feed__message,
                             .task-activity-feed__card--completed .task-activity-feed__detail {
                                 color: #166534;
                             }
 
                             .task-activity-feed__detail {
-                                margin: 3px 0 0;
+                                flex: 1 1 auto;
+                                min-width: 0;
+                                margin: 0;
                                 color: #475569;
                                 font-size: 10px;
                                 font-style: normal;
                                 font-weight: 500;
                                 overflow-wrap: anywhere;
                                 white-space: pre-line;
+                            }
+
+                            .task-activity-feed__detail-row {
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                gap: 10px;
+                                margin-top: 0;
+                            }
+
+                            .task-activity-feed__assignment-row {
+                                display: grid;
+                                grid-template-columns: minmax(0, 1fr) max-content;
+                                align-items: center;
+                                gap: 10px;
+                                margin-top: 5px;
+                            }
+
+                            .task-activity-feed__assignment-target {
+                                min-width: 0;
+                                margin: 0;
+                                color: #475569;
+                                font-size: 10px;
+                                overflow-wrap: anywhere;
+                            }
+
+                            .task-activity-feed__assignment-target strong {
+                                color: #334155;
+                                font-weight: 650;
+                            }
+
+                            .task-activity-feed__detail strong {
+                                color: #64748b;
+                                font-style: normal;
+                                font-weight: 600;
+                            }
+
+                            .task-activity-feed__detail-row > .task-activity-feed__badge {
+                                margin-left: auto;
                             }
 
                             .task-activity-feed__badge {
@@ -4104,14 +4152,14 @@
                                 font-weight: 600;
                             }
 
-                            .task-activity-feed__card[data-tone="created"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="reassigned"] .task-activity-feed__detail-row .task-activity-feed__badge {
+                                margin-top: 3px;
+                            }
+
                             .task-activity-feed__card[data-tone="assigned"] .task-activity-feed__badge,
                             .task-activity-feed__card[data-tone="reassigned"] .task-activity-feed__badge,
-                            .task-activity-feed__card[data-tone="accepted"] .task-activity-feed__badge,
                             .task-activity-feed__card[data-tone="poc"] .task-activity-feed__badge,
-                            .task-activity-feed__card[data-tone="start"] .task-activity-feed__badge,
-                            .task-activity-feed__card[data-tone="resume"] .task-activity-feed__badge,
-                            .task-activity-feed__card[data-tone="work_update"] .task-activity-feed__badge,
+                            .task-activity-feed__card[data-tone="poc_notification"] .task-activity-feed__badge,
                             .task-activity-feed__card[data-tone="submission"] .task-activity-feed__badge,
                             .task-activity-feed__card[data-tone="review"] .task-activity-feed__badge,
                             .task-activity-feed__card[data-tone="deadline_extension_requested"] .task-activity-feed__badge {
@@ -4141,24 +4189,34 @@
                                 display: flex;
                                 align-items: flex-end;
                                 justify-content: space-between;
-                                gap: 8px;
+                                gap: 12px;
                                 margin-top: 7px;
                             }
 
-                            .task-activity-feed__date {
-                                display: flex;
-                                width: 108px;
-                                flex-direction: column;
+                            .task-activity-feed__card-attachments {
+                                display: grid;
+                                justify-items: start;
+                                gap: 5px;
+                                min-width: 0;
+                            }
+
+                            .task-activity-feed__card-time {
+                                flex: 0 0 auto;
                                 margin-left: auto;
-                                color: var(--feed-muted);
+                                color: #8a8a8a;
                                 font-size: 9px;
-                                line-height: 1.3;
+                                line-height: 1.4;
                                 text-align: right;
                                 white-space: nowrap;
                             }
 
-                            .task-activity-feed__card--completed .task-activity-feed__date {
-                                color: #15803d;
+                            .task-activity-feed__attachments-heading {
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                color: #334155;
+                                font-size: 10px;
+                                font-weight: 650;
                             }
 
                             .task-activity-feed__attachments {
@@ -4185,6 +4243,14 @@
                                 font-weight: 600;
                                 text-decoration: none;
                                 overflow-wrap: anywhere;
+                            }
+
+                            .task-activity-feed__attachment {
+                                padding: 5px 10px;
+                                border-color: #e2e8f0;
+                                background: #f1f5f9;
+                                color: #334155;
+                                font-weight: 500;
                             }
 
                             .task-activity-feed__attachment:hover {
@@ -4233,12 +4299,7 @@
                                 }
 
                                 .task-activity-feed__card {
-                                    padding: 9px 10px;
-                                }
-
-                                .task-activity-feed__card-header {
-                                    align-items: flex-start;
-                                    gap: 6px;
+                                    padding: 3px 9px 7px;
                                 }
 
                                 .task-activity-feed__badge {
@@ -4247,14 +4308,25 @@
                                     text-align: center;
                                 }
 
-                                .task-activity-feed__message-row {
-                                    grid-template-columns: minmax(0, 1fr) 88px;
+                                .task-activity-feed__detail-row {
                                     gap: 8px;
                                 }
 
-                                .task-activity-feed__date {
-                                    width: 88px;
-                                    font-size: 8px;
+                                .task-activity-feed__detail-row .task-activity-feed__badge {
+                                    max-width: 42%;
+                                }
+
+                                .task-activity-feed__assignment-row {
+                                    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+                                    gap: 6px;
+                                }
+
+                                .task-activity-feed__assignment-row .task-activity-feed__card-time {
+                                    white-space: normal;
+                                }
+
+                                .task-activity-feed__card-footer {
+                                    gap: 8px;
                                 }
                             }
                         </style>
@@ -4285,58 +4357,76 @@
                                     <li class="task-activity-feed__item" id="{{ $activityElementId }}"
                                         data-activity-feed-item>
                                         <span class="task-activity-feed__avatar" aria-hidden="true">{{ $activityInitials }}</span>
+                                        <header class="task-activity-feed__author-header">
+                                            <div class="task-activity-feed__author-details">
+                                                <p class="task-activity-feed__author">{{ $feedActivity['actor'] }}</p>
+                                                @if ($feedActivity['designation'])
+                                                    <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
+                                                @endif
+                                            </div>
+                                        </header>
                                         <article @class([
                                             'task-activity-feed__card',
                                             'task-activity-feed__card--completed' => $feedActivity['tone'] === 'completed',
                                         ]) data-tone="{{ $feedActivity['tone'] }}">
-                                            <header class="task-activity-feed__card-header">
-                                                <div class="task-activity-feed__author-details">
-                                                    <p class="task-activity-feed__author">
-                                                        {{ $feedActivity['actor'] }}
-                                                    </p>
-                                                    @if ($feedActivity['designation'])
-                                                        <span class="task-activity-feed__designation">{{ $feedActivity['designation'] }}</span>
-                                                    @endif
-                                                </div>
+                                            <p class="task-activity-feed__task-title">{{ $feedActivity['text'] }}</p>
+                                            <div class="task-activity-feed__detail-row">
+                                                @if ($feedActivity['detail'])
+                                                    <p class="task-activity-feed__detail"><strong>{{ $feedActivity['tone'] === 'poc_notification' ? 'Description' : 'Reason' }}:</strong> {{ $feedActivity['detail'] }}</p>
+                                                @endif
                                                 <span class="task-activity-feed__badge">
                                                     @if ($feedActivity['tone'] === 'completed')
                                                         <i class="bi bi-check-circle" aria-hidden="true"></i>
                                                     @endif
                                                     {{ $feedActivity['badge'] }}
                                                 </span>
-                                            </header>
-                                            <div class="task-activity-feed__message-row">
-                                                <p class="task-activity-feed__message">{{ $feedActivity['text'] }}</p>
-                                                <time class="task-activity-feed__date"
-                                                    datetime="{{ $feedActivity['at']->toIso8601String() }}">
-                                                    <span>{{ $feedActivity['at']->format('M j, Y') }}</span>
-                                                    <span>{{ $feedActivity['at']->diffForHumans() }}</span>
-                                                </time>
                                             </div>
-                                            @if ($feedActivity['detail'])
-                                                <p class="task-activity-feed__detail">{{ $feedActivity['detail'] }}</p>
+                                            @if (in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
+                                                <div class="task-activity-feed__assignment-row">
+                                                    <p class="task-activity-feed__assignment-target">
+                                                        <strong>@if ($feedActivity['tone'] === 'poc_notification') Assign POC &rarr; @else Assign to: @endif</strong> {{ $feedActivity['assigned_to'] }}
+                                                    </p>
+                                                    <time class="task-activity-feed__card-time"
+                                                        datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                        {{ $feedActivity['at']->diffForHumans() }},
+                                                        {{ $feedActivity['at']->format('M j, Y') }}
+                                                    </time>
+                                                </div>
                                             @endif
-                                            @if ($feedActivity['attachments']->isNotEmpty())
-                                                <footer class="task-activity-feed__card-footer">
-                                                    <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
-                                                        @foreach ($feedActivity['attachments'] as $attachment)
-                                                            <li>
-                                                                <a class="task-activity-feed__attachment"
-                                                                    href="{{ route(
-                                                                        in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
-                                                                            ? 'tasks.attachments.preview'
-                                                                            : 'tasks.attachments.download',
-                                                                        [$task, $attachment],
-                                                                    ) }}"
-                                                                    target="_blank" rel="noopener noreferrer">
-                                                                    <i class="bi bi-paperclip" aria-hidden="true"></i>
-                                                                    {{ $attachment->original_name }}
-                                                                </a>
-                                                            </li>
-                                                        @endforeach
-                                                    </ul>
-                                                </footer>
-                                            @endif
+                                            <footer class="task-activity-feed__card-footer">
+                                                @if ($feedActivity['attachments']->isNotEmpty())
+                                                    <div class="task-activity-feed__card-attachments">
+                                                        <span class="task-activity-feed__attachments-heading">
+                                                            <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                            Attachments ({{ $feedActivity['attachments']->count() }})
+                                                        </span>
+                                                        <ul class="task-activity-feed__attachments" aria-label="Activity attachments">
+                                                            @foreach ($feedActivity['attachments'] as $attachment)
+                                                                <li>
+                                                                    <a class="task-activity-feed__attachment"
+                                                                        href="{{ route(
+                                                                            in_array($attachment->mime_type, ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/csv', 'text/plain'], true)
+                                                                                ? 'tasks.attachments.preview'
+                                                                                : 'tasks.attachments.download',
+                                                                            [$task, $attachment],
+                                                                        ) }}"
+                                                                        target="_blank" rel="noopener noreferrer">
+                                                                        <i class="bi bi-paperclip" aria-hidden="true"></i>
+                                                                        {{ $attachment->original_name }}
+                                                                    </a>
+                                                                </li>
+                                                            @endforeach
+                                                        </ul>
+                                                    </div>
+                                                @endif
+                                                @if (! in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
+                                                    <time class="task-activity-feed__card-time"
+                                                        datetime="{{ $feedActivity['at']->toIso8601String() }}">
+                                                        {{ $feedActivity['at']->diffForHumans() }},
+                                                        {{ $feedActivity['at']->format('M j, Y') }}
+                                                    </time>
+                                                @endif
+                                            </footer>
                                         </article>
                                     </li>
                                 @endforeach
@@ -4354,7 +4444,7 @@
                                     ) {
                                         document.getElementById('tab-timeline-btn')?.click();
                                     }
-                                }
+                                });
                             });
                         })();
                     </script>
@@ -4362,6 +4452,9 @@
 
                 <div class="tf-activity-tab-panel" id="panel-milestones" role="tabpanel" aria-labelledby="tab-milestones-btn"
                     hidden>
+                    @if ($task->task_type === 'project')
+                        @include('tasks.partials.project-phases')
+                    @else
                     <section class="tf-task-detail__card mb-3">
                         <header class="tf-task-detail__card-header">
                             <h2><i class="bi bi-flag" aria-hidden="true"></i> Milestones</h2>
@@ -4486,6 +4579,7 @@
                             @endforelse
                         </div>
                     </section>
+                    @endif
                 </div>
 
                 <div class="tf-activity-tab-panel" id="panel-requests" role="tabpanel" aria-labelledby="tab-requests-btn"
@@ -4588,11 +4682,47 @@
                         @endif
                     </section>
                 </div>
+                @if ($task->task_type === 'volume' && $volumeSummary !== null)
+                    <div class="tf-activity-tab-panel" id="panel-volume" role="tabpanel" aria-labelledby="tab-volume-btn" hidden>
+                        @include('tasks.partials.volume-overview', ['prefix' => 'tab'])
+                    </div>
+                @endif
             </aside>
         </div>
     </div>
 
     <script>
+        document.addEventListener('click', event => {
+            const toggle = event.target instanceof Element
+                ? event.target.closest('[data-card-content-toggle]')
+                : null;
+
+            if (!toggle) {
+                return;
+            }
+
+            const content = document.getElementById(toggle.getAttribute('aria-controls'));
+            if (!content) {
+                console.error('Card content toggle target was not found.');
+                return;
+            }
+
+            const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+            const nextExpanded = !isExpanded;
+            const label = toggle.querySelector('[data-card-content-toggle-label]');
+            const icon = toggle.querySelector('[data-card-content-toggle-icon]');
+
+            content.hidden = isExpanded;
+            toggle.setAttribute('aria-expanded', String(nextExpanded));
+            toggle.setAttribute(
+                'aria-label',
+                `${nextExpanded ? 'Collapse' : 'Expand'} ${toggle.dataset.cardName}`,
+            );
+            label.textContent = nextExpanded ? 'Collapse' : 'Expand';
+            icon.classList.toggle('bi-chevron-up', nextExpanded);
+            icon.classList.toggle('bi-chevron-down', !nextExpanded);
+        });
+
         document.querySelectorAll('[data-task-detail-tab]').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('[data-task-detail-tab]').forEach(item => {
@@ -4759,6 +4889,7 @@
     <script>
         (function () {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+            const isVolumeTask = @json($task->task_type === 'volume');
 
             // ── Overview and Activity Tabs ──────────────────────────────────────
             document.querySelectorAll('[data-activity-tab]').forEach(tab => {
@@ -5046,6 +5177,9 @@
                     activeStatusRow.remove();
                     updateSubtaskBadge();
                     closeStatusMenu();
+                    if (isVolumeTask) {
+                        window.location.reload();
+                    }
                 } catch (error) {
                     statusMenuAlert.textContent = error.message || 'Unable to delete the subtask.';
                     statusMenuAlert.hidden = false;
@@ -5248,6 +5382,7 @@
                         const titleInput = document.getElementById('subtaskModalTitle');
                         const descInput = document.getElementById('subtaskModalDescription');
                         const assigneeSelect = document.getElementById('subtaskModalAssignee');
+                        const workDateInput = document.getElementById('subtaskModalWorkDate');
 
                         if (idInput) { idInput.value = st.id; }
                         if (titleInput) { titleInput.value = st.title; }
@@ -5255,6 +5390,9 @@
 
                         if (assigneeSelect) {
                             assigneeSelect.value = st.assigned_to.id || '';
+                        }
+                        if (isVolumeTask && workDateInput) {
+                            workDateInput.value = st.volume_update?.work_date ?? '{{ today(config('app.timezone'))->toDateString() }}';
                         }
 
                         const bsModal = getModalInstance();
@@ -5284,6 +5422,10 @@
                 const title = document.getElementById('subtaskModalTitle')?.value.trim();
                 const description = document.getElementById('subtaskModalDescription')?.value.trim();
                 const assigned_to = document.getElementById('subtaskModalAssignee')?.value || null;
+                const payload = { title, description, assigned_to };
+                if (isVolumeTask) {
+                    payload.work_date = document.getElementById('subtaskModalWorkDate')?.value || null;
+                }
 
                 modalAlert?.classList.add('d-none');
 
@@ -5294,16 +5436,12 @@
                         'Accept': 'application/json',
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        title,
-                        description,
-                        assigned_to,
-                    }),
+                    body: JSON.stringify(payload),
                 })
                     .then(async r => {
                         const res = await r.json();
                         if (!r.ok) {
-                            throw new Error(res.errors?.title?.[0] || res.errors?.description?.[0] || res.errors?.assigned_to?.[0] || res.message || 'Update failed');
+                            throw new Error(res.errors?.title?.[0] || res.errors?.description?.[0] || res.errors?.assigned_to?.[0] || res.errors?.work_date?.[0] || res.message || 'Update failed');
                         }
                         return res;
                     })
@@ -5361,6 +5499,9 @@
                             document.getElementById(`subtask-${activeSubtaskId}`)?.remove();
                             updateSubtaskBadge();
                             getModalInstance()?.hide();
+                            if (isVolumeTask) {
+                                window.location.reload();
+                            }
                         }
                     })
                     .catch(() => { });
@@ -6094,7 +6235,6 @@
     .tf-task-detail__grid[data-activity-view="overview"] {
         align-items: start;
         align-content: start;
-        grid-auto-rows: min-content;
     }
 
     .tf-task-detail__grid[data-activity-view="overview"]

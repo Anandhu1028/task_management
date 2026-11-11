@@ -1,0 +1,388 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TaskFlow Task Management API",
+    "description": "Real-time task tracking, reporting, overdue management, and team workload analytics. Authenticate with OAuth 2.1 (PKCE S256 required). All endpoints enforce multi-tenant company isolation and role-based access control.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "TaskFlow Support",
+      "email": "support@focuzacademy.in",
+      "url": "https://tracker-manage.focuzacademy.in/support"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://tracker-manage.focuzacademy.in",
+      "description": "Production Server"
+    }
+  ],
+  "security": [
+    { "OAuth2": ["tasks:read"] }
+  ],
+  "paths": {
+    "/api/mcp/my-tasks": {
+      "get": {
+        "operationId": "getMyTasks",
+        "summary": "Get tasks scoped to the authenticated user role",
+        "description": "Returns tasks based on role: Admin/CEO see all company tasks, Team Leader sees department tasks, Employee sees only their own assigned tasks.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] }, "description": "Filter by task status." },
+          { "name": "condition", "in": "query", "required": false, "schema": { "type": "string", "enum": ["normal", "at_risk", "overdue"] }, "description": "Deadline condition filter." },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string", "enum": ["low", "medium", "high", "critical"] }, "description": "Filter by priority level." },
+          { "name": "project", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Filter by project name (partial match)." },
+          { "name": "assignee_id", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Filter by assignee user ID (elevated roles only)." },
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Filter by department ID (Admin/CEO only)." },
+          { "name": "company_id", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Filter by company ID (Admin/CEO only)." },
+          { "name": "from_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" }, "description": "Start date filter (YYYY-MM-DD)." },
+          { "name": "to_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" }, "description": "End date filter (YYYY-MM-DD)." },
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 1 } },
+          { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer", "default": 15, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "List of tasks scoped by role" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Insufficient permissions" }
+        }
+      }
+    },
+    "/api/mcp/search-tasks": {
+      "get": {
+        "operationId": "searchTasks",
+        "summary": "Search tasks by keyword",
+        "description": "Full-text search across task titles, descriptions, projects, and assignees within the authenticated user's authorized scope.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "query", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Search keyword." },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "project", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "Search results" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/task/{id}": {
+      "get": {
+        "operationId": "getTaskDetails",
+        "summary": "Get full task details",
+        "description": "Returns complete task details including subtasks, timeline events, work history, and deadline requests. Access limited to tasks the authenticated user is authorized to view.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Task ID." }
+        ],
+        "responses": {
+          "200": { "description": "Task details" },
+          "403": { "description": "Access denied" },
+          "404": { "description": "Task not found" }
+        }
+      }
+    },
+    "/api/mcp/subtask/{id}": {
+      "get": {
+        "operationId": "getSubtaskDetails",
+        "summary": "Get subtask details",
+        "description": "Returns subtask details. Access is validated against the parent task's authorization scope.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Subtask ID." }
+        ],
+        "responses": {
+          "200": { "description": "Subtask details" },
+          "403": { "description": "Access denied" },
+          "404": { "description": "Subtask not found" }
+        }
+      }
+    },
+    "/api/mcp/task-report": {
+      "get": {
+        "operationId": "getTaskReport",
+        "summary": "Get task status summary report",
+        "description": "Returns task count breakdown by status, priority, and condition scoped to the authenticated user's role and company.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "company_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "from_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Task report" },
+          "403": { "description": "Insufficient permissions" }
+        }
+      }
+    },
+    "/api/mcp/overdue-tasks": {
+      "get": {
+        "operationId": "getOverdueTasks",
+        "summary": "Get overdue tasks",
+        "description": "Returns tasks past their deadline within the user's authorized scope.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "company_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "assignee_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "List of overdue tasks" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/team-report": {
+      "get": {
+        "operationId": "getTeamReport",
+        "summary": "Get team workload analytics",
+        "description": "Retrieve workload and completion stats by employee. Scoped by role: Team Leader sees department; CEO/Admin see company.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "company_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Team workload breakdown" },
+          "403": { "description": "Insufficient permissions" }
+        }
+      }
+    },
+    "/api/mcp/subtask-report": {
+      "get": {
+        "operationId": "getSubtaskReport",
+        "summary": "Get subtask progress report",
+        "description": "Retrieve parent tasks with subtask progress, pending counts, and overdue subtasks.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "task_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "only_pending", "in": "query", "required": false, "schema": { "type": "boolean" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Subtask progress summary" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/deadline-requests": {
+      "get": {
+        "operationId": "getDeadlineRequests",
+        "summary": "Get deadline extension requests",
+        "description": "Retrieve deadline extension requests and review decisions within the user's authorized scope.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["pending", "approved", "rejected"] } },
+          { "name": "task_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Deadline extension requests" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/project-report": {
+      "get": {
+        "operationId": "getProjectReport",
+        "summary": "Get project-level progress report",
+        "description": "Retrieve project task totals, status distribution, and completion rates within the user's authorized scope.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "project", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Project progress reports" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/daily-work-report": {
+      "get": {
+        "operationId": "getDailyWorkReport",
+        "summary": "Get daily work update report",
+        "description": "Returns daily work update summaries. Employees see their own; Team Leaders see department updates; CEO/Admin see company-wide.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "assignee_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Daily work report" },
+          "401": { "description": "Unauthenticated" }
+        }
+      }
+    },
+    "/api/mcp/company-report": {
+      "get": {
+        "operationId": "getCompanyReport",
+        "summary": "Get company-wide task and performance overview",
+        "description": "Returns company-level task statistics and performance summary. Requires CEO or Admin role.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "company_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "from_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Company performance report" },
+          "403": { "description": "CEO or Admin role required" }
+        }
+      }
+    },
+    "/api/mcp/employee-performance": {
+      "get": {
+        "operationId": "getEmployeePerformance",
+        "summary": "Get employee performance metrics",
+        "description": "Returns individual employee performance data. Access scoped by role and company authorization.",
+        "security": [{ "OAuth2": ["reports:read"] }],
+        "parameters": [
+          { "name": "user_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "department_id", "in": "query", "required": false, "schema": { "type": "integer" } },
+          { "name": "from_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to_date", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Employee performance metrics" },
+          "403": { "description": "Insufficient permissions" }
+        }
+      }
+    },
+    "/api/mcp/tasks": {
+      "post": {
+        "operationId": "createTask",
+        "summary": "Create a new task",
+        "description": "Create a task within the authenticated user's authorized company. Enforces role-based assignment validation.",
+        "security": [{ "OAuth2": ["tasks:write"] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "assignee_id", "deadline"],
+                "properties": {
+                  "title": { "type": "string", "maxLength": 255 },
+                  "description": { "type": "string" },
+                  "assignee_id": { "type": "integer" },
+                  "deadline": { "type": "string", "format": "date" },
+                  "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+                  "project": { "type": "string" },
+                  "expected_output": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Task created" },
+          "403": { "description": "Insufficient permissions" },
+          "422": { "description": "Validation error" }
+        }
+      }
+    },
+    "/api/mcp/tasks/{id}/status": {
+      "patch": {
+        "operationId": "updateTaskStatus",
+        "summary": "Update task status",
+        "description": "Update the status of an authorized task. User must be assigned to or have management authority over the task.",
+        "security": [{ "OAuth2": ["tasks:write"] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Status updated" },
+          "403": { "description": "Access denied" },
+          "404": { "description": "Task not found" }
+        }
+      }
+    },
+    "/api/mcp/daily-tasks": {
+      "post": {
+        "operationId": "updateDailyTask",
+        "summary": "Submit or update a daily work update",
+        "description": "Submit a daily work progress update for an authorized task.",
+        "security": [{ "OAuth2": ["tasks:write"] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["task_id", "work_done"],
+                "properties": {
+                  "task_id": { "type": "integer" },
+                  "work_done": { "type": "string" },
+                  "progress_percentage": { "type": "integer", "minimum": 0, "maximum": 100 },
+                  "date": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Daily update saved" },
+          "403": { "description": "Access denied" },
+          "422": { "description": "Validation error" }
+        }
+      }
+    },
+    "/api/mcp/team-tasks": {
+      "get": {
+        "operationId": "getTeamTasks",
+        "summary": "Get tasks for a specific team member",
+        "description": "Returns tasks assigned to a specific employee. Requires Team Leader role or above. Enforces company and department isolation.",
+        "security": [{ "OAuth2": ["tasks:read"] }],
+        "parameters": [
+          { "name": "user_id", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Team member tasks" },
+          "403": { "description": "Team Leader or above required" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "OAuth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 with PKCE S256. Public client — no client_secret required.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://tracker-manage.focuzacademy.in/oauth/authorize",
+            "tokenUrl": "https://tracker-manage.focuzacademy.in/oauth/token",
+            "scopes": {
+              "tasks:read": "Read tasks, subtasks, and task details",
+              "tasks:write": "Create tasks and submit work updates",
+              "reports:read": "Read reports and workload analytics",
+              "offline_access": "Maintain connection with refresh tokens"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

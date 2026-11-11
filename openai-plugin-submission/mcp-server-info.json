@@ -1,0 +1,104 @@
+{
+  "server_name": "TaskFlow Task Management Assistant",
+  "version": "1.0.0",
+  "protocol_version": "2024-11-05",
+  "transport": "streamable_http",
+  "endpoint": "https://tracker-manage.focuzacademy.in/mcp",
+  "openapi_spec_url": "https://tracker-manage.focuzacademy.in/api/mcp/openapi.json",
+  "authentication": "OAuth 2.1 Bearer token (PKCE S256 required)",
+  "tools": [
+    {
+      "name": "get_my_tasks",
+      "scope": "tasks:read",
+      "description": "Get tasks scoped to the authenticated user role. Employees see own tasks; Team Leaders see department tasks; CEO/Admin see company tasks."
+    },
+    {
+      "name": "get_team_tasks",
+      "scope": "tasks:read",
+      "description": "Get tasks for a specific team member (Team Leader and above only). Enforces company isolation."
+    },
+    {
+      "name": "search_tasks",
+      "scope": "tasks:read",
+      "description": "Full-text search across task titles, descriptions, projects, and assignees within the authenticated user's authorized scope."
+    },
+    {
+      "name": "get_task_details",
+      "scope": "tasks:read",
+      "description": "Get complete task details including subtasks, timeline, and work history. Access limited to authorized tasks."
+    },
+    {
+      "name": "get_subtask_details",
+      "scope": "tasks:read",
+      "description": "Get subtask details. Access validated against parent task authorization."
+    },
+    {
+      "name": "get_task_report",
+      "scope": "reports:read",
+      "description": "Get task status summary report scoped to the user's role and company."
+    },
+    {
+      "name": "get_overdue_tasks",
+      "scope": "tasks:read",
+      "description": "Get list of overdue tasks within the user's authorized scope."
+    },
+    {
+      "name": "get_team_report",
+      "scope": "reports:read",
+      "description": "Get workload analytics by employee. Scoped by role (Team Leader: department; CEO/Admin: company)."
+    },
+    {
+      "name": "get_subtask_report",
+      "scope": "reports:read",
+      "description": "Get subtask progress summary across parent tasks."
+    },
+    {
+      "name": "get_deadline_requests",
+      "scope": "tasks:read",
+      "description": "Get deadline extension requests and their review status."
+    },
+    {
+      "name": "get_project_report",
+      "scope": "reports:read",
+      "description": "Get project-level task totals, status distribution, and completion rates."
+    },
+    {
+      "name": "get_daily_work_report",
+      "scope": "reports:read",
+      "description": "Get daily work update summary for the authenticated user or their team."
+    },
+    {
+      "name": "get_company_report",
+      "scope": "reports:read",
+      "description": "Get company-wide task and performance overview. CEO/Admin only."
+    },
+    {
+      "name": "get_employee_performance",
+      "scope": "reports:read",
+      "description": "Get individual employee performance metrics. Access scoped by role."
+    },
+    {
+      "name": "create_task",
+      "scope": "tasks:write",
+      "description": "Create a new task. Enforces company and role-based assignment validation."
+    },
+    {
+      "name": "update_task_status",
+      "scope": "tasks:write",
+      "description": "Update task status. User must be assigned to or authorized for the task."
+    },
+    {
+      "name": "update_daily_task",
+      "scope": "tasks:write",
+      "description": "Submit or update a daily work update entry for an authorized task."
+    }
+  ],
+  "security": {
+    "multi_tenant": true,
+    "role_based_access_control": true,
+    "company_isolation": true,
+    "roles": ["CEO", "Admin", "Team Leader", "Employee", "External Customer"],
+    "audit_logging": true
+  }
+}
+

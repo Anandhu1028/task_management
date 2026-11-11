@@ -73,6 +73,15 @@
                             @endforeach
                         </select>
                     </div>
+                    @if ($task->task_type === 'volume')
+                        <div class="tf-subtask-modal__field mb-3">
+                            <label for="subtaskModalWorkDate" class="form-label">Work date</label>
+                            <input type="date" id="subtaskModalWorkDate" name="work_date" class="form-control"
+                                value="{{ today(config('app.timezone'))->toDateString() }}"
+                                min="{{ $task->volume?->start_date?->toDateString() }}"
+                                max="{{ min(today(config('app.timezone'))->toDateString(), $task->volume?->deadline_date?->toDateString() ?? today(config('app.timezone'))->toDateString()) }}">
+                        </div>
+                    @endif
                 </div>
 
                 <div class="modal-footer tf-subtask-modal__footer">

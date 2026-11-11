@@ -30,10 +30,10 @@ class SubtaskManagementController extends Controller
         [$startDate, $endDate] = $this->dateRange($dateRange, $validated);
         $managerCanMonitor = $this->canMonitorEmployees($user);
 
-        $visibleTaskQuery = Task::query()->visibleTo($user);
+        $visibleTaskQuery = Task::query()->visibleTo($user)->availableInRecurringWindow();
 
         $eligibleSubtasks = Subtask::query()
-            ->whereHas('task', fn (Builder $taskQuery) => $taskQuery->visibleTo($user))
+            ->whereHas('task', fn (Builder $taskQuery) => $taskQuery->visibleTo($user)->availableInRecurringWindow())
             ->when(! $managerCanMonitor, fn (Builder $query) => $query->where('subtasks.assigned_to', $user->id))
             ->when(
                 $managerCanMonitor && ! empty($validated['employee_id']),
@@ -64,6 +64,7 @@ class SubtaskManagementController extends Controller
         $pendingSubtasks = (clone $eligibleSubtasks)->whereIn('subtasks.status', ['todo', 'assigned'])->count();
         $totalMainTasks = (clone $eligibleSubtasks)->distinct()->count('subtasks.task_id');
         $completedMainTasks = Task::query()
+            ->availableInRecurringWindow()
             ->whereIn('id', (clone $eligibleSubtasks)->select('subtasks.task_id'))
             ->where('status', 'completed')
             ->count();
@@ -142,7 +143,18 @@ class SubtaskManagementController extends Controller
             ->get();
 
         $mainTaskSubtasks = (clone $eligibleSubtasks)
-            ->select(['subtasks.id', 'subtasks.task_id', 'subtasks.title', 'subtasks.status'])
+            ->with('assignee:id,name')
+            ->select([
+                'subtasks.id',
+                'subtasks.task_id',
+                'subtasks.title',
+                'subtasks.description',
+                'subtasks.status',
+                'subtasks.assigned_to',
+                'subtasks.due_date',
+                'subtasks.created_at',
+                'subtasks.progress_percentage',
+            ])
             ->orderBy('subtasks.title')
             ->get()
             ->groupBy('task_id');

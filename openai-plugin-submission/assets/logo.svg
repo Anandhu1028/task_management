@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#1a56db"/>
+
+  <!-- TaskFlow layered diamond icon (3 stacked chevron layers) -->
+  <g transform="translate(256, 200)" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="28" fill="none">
+    <path d="M-110 -60 L0 0 L110 -60"/>
+    <path d="M-110 0 L0 60 L110 0"/>
+    <path d="M-110 60 L0 120 L110 60"/>
+  </g>
+
+  <!-- App name text -->
+  <text x="256" y="430" font-family="'Segoe UI', Arial, sans-serif" font-size="58" font-weight="700"
+        fill="white" text-anchor="middle" letter-spacing="1">TaskFlow</text>
+
+  <!-- Tagline -->
+  <text x="256" y="472" font-family="'Segoe UI', Arial, sans-serif" font-size="22"
+        fill="rgba(255,255,255,0.75)" text-anchor="middle" letter-spacing="0.5">Task Management Assistant</text>
+</svg>
+

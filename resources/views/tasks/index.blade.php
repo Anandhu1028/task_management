@@ -373,6 +373,9 @@
                                     <div class="tf-task-progress__label">
                                         <span>{{ (int) $task->progress_percentage }}%</span>
                                     </div>
+                                @if ($task->task_type === 'volume' && $task->volume)
+                                    <small class="text-secondary d-block">{{ number_format($task->volume->total_volume) }} total · deadline {{ $task->volume->deadline_date?->format('M d') }}</small>
+                                @endif
                                     <div class="progress tf-task-progress__track">
                                         <div class="progress-bar tf-task-progress__fill {{ $status === 'completed' ? 'tf-task-progress__fill--completed' : ($deadlineCondition === 'at_risk' ? 'tf-task-progress__fill--at-risk' : ($isOverdue ? 'tf-task-progress__fill--overdue' : 'tf-task-progress__fill--default')) }}"
                                              role="progressbar"

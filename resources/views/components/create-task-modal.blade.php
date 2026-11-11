@@ -1,5 +1,6 @@
 @php
     $isEditingTask = isset($editingTask) && $editingTask instanceof \App\Models\Task;
+    $editingVolume = $isEditingTask ? $editingTask->volume : null;
     $isRecurringOccurrence = $isEditingTask && $editingTask->recurring_task_id !== null;
     $hasAttachmentErrors = collect($errors->keys())->contains(
         fn (string $key): bool => $key === 'attachments' || str_starts_with($key, 'attachments.'),
@@ -12,6 +13,13 @@
     $initialCompanyId = old('company_id', $isEditingTask ? $editingTask->company_id : '');
     $initialDepartmentId = old('department_id', $isEditingTask ? $editingTask->department_id : '');
     $initialTaskType = old('task_type', $isEditingTask ? $editingTask->task_type : '');
+    $initialPhases = old('phases', [['title' => '', 'description' => '', 'target_date' => '']]);
+    $initialPhases = is_array($initialPhases)
+        ? array_values(array_filter($initialPhases, 'is_array'))
+        : [];
+    if ($initialPhases === []) {
+        $initialPhases = [['title' => '', 'description' => '', 'target_date' => '']];
+    }
     $initialAssigneeIds = old('assigned_to', $isEditingTask
         ? ($editingTask->activeAssignees->isNotEmpty()
             ? $editingTask->activeAssignees->modelKeys()
@@ -32,6 +40,9 @@
         'due_date' => $editingTask->due_date?->format('Y-m-d'),
         'estimated_hours' => $editingTask->estimated_hours,
         'expected_output' => $editingTask->expected_output,
+        'volume_total' => $editingTask->volume?->total_volume,
+        'volume_start_date' => $editingTask->volume?->start_date?->format('Y-m-d'),
+        'volume_deadline' => $editingTask->volume?->deadline_date?->format('Y-m-d'),
     ] : null;
 @endphp
 
@@ -225,6 +236,27 @@
                             @error('task_type') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
+                        @unless ($isEditingTask)
+                            <section
+                                class="tf-create-task__field tf-create-task__field--full tf-create-task__project-phases"
+                                id="createTaskProjectPhases"
+                                aria-labelledby="createTaskProjectPhasesTitle"
+                                @if ($initialTaskType !== 'project') hidden @endif
+                            >
+                                <header class="tf-create-task__project-phases-header">
+                                    <div class="tf-create-task__project-phases-heading">
+                                        <h3 id="createTaskProjectPhasesTitle">Project phases</h3>
+                                        <p>Phases are shared with the task's assigned employees.</p>
+                                    </div>
+                                    <button class="tf-create-task__project-phase-add" type="button" id="createTaskAddPhase" aria-label="Add phase">
+                                        <i class="bi bi-plus" aria-hidden="true"></i> Add
+                                    </button>
+                                </header>
+                                <div class="tf-create-task__project-phase-list" id="createTaskProjectPhaseList"></div>
+                                @error('phases') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                            </section>
+                        @endunless
+
                         <section
                             class="tf-create-task__recurring tf-create-task__field--full"
                             id="createTaskRecurringSchedule"
@@ -307,7 +339,37 @@
                             <p class="tf-create-task__recurring-duration">
                                 Daily availability: <strong id="createTaskRecurringDuration">Select a start and end time</strong>
                             </p>
-                            <p class="tf-create-task__hint mb-0">Times use the configured application timezone ({{ config('app.timezone') }}).</p>
+                            <input type="hidden" name="timezone" id="createTaskRecurringTimezone" value="{{ old('timezone', config('app.timezone')) }}">
+                            <p class="tf-create-task__hint mb-0">Times use timezone (<span id="createTaskRecurringTimezoneLabel">{{ old('timezone', config('app.timezone')) }}</span>).</p>
+                        </section>
+
+                        <section class="tf-create-task__recurring tf-create-task__field--full" id="createTaskVolumeConfiguration"
+                            @if ($initialTaskType !== 'volume') hidden @endif>
+                            <h3>Volume Configuration</h3>
+                            <div class="tf-create-task__recurring-grid">
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskVolumeTotal">Total volume (count) <span>*</span></label>
+                                    <input class="form-control @error('volume_total') is-invalid @enderror" id="createTaskVolumeTotal"
+                                        name="volume_total" type="number" min="1" step="1"
+                                        value="{{ old('volume_total', $editingVolume?->total_volume ?? '') }}">
+                                    @error('volume_total') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskVolumeStart">Start date <span>*</span></label>
+                                    <input class="form-control @error('volume_start_date') is-invalid @enderror"
+                                        id="createTaskVolumeStart" name="volume_start_date" type="date"
+                                        value="{{ old('volume_start_date', $editingVolume?->start_date?->format('Y-m-d') ?? today()->toDateString()) }}">
+                                    @error('volume_start_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+                                <div class="tf-create-task__field">
+                                    <label for="createTaskVolumeDeadline">Deadline date <span>*</span></label>
+                                    <input class="form-control @error('volume_deadline') is-invalid @enderror" id="createTaskVolumeDeadline"
+                                        name="volume_deadline" type="date"
+                                        value="{{ old('volume_deadline', $editingVolume?->deadline_date?->format('Y-m-d') ?? '') }}">
+                                    @error('volume_deadline') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                </div>
+                            </div>
+                            <p class="tf-create-task__hint mb-0">Working days: <strong id="createTaskVolumeWorkingDays">—</strong> · Minimum daily count: <strong id="createTaskVolumeMinimum">—</strong></p>
                         </section>
 
                         <div class="tf-create-task__field" id="createTaskDeadlineField" @if ($initialTaskType === 'recurring' && (! $isEditingTask || $isRecurringOccurrence)) hidden @endif>
@@ -440,13 +502,24 @@
     const taskTitle = document.getElementById('createTaskTitle');
     const prioritySelect = document.getElementById('createTaskPriority');
     const taskTypeSelect = document.getElementById('createTaskType');
+    const projectPhasesSection = document.getElementById('createTaskProjectPhases');
+    const projectPhaseList = document.getElementById('createTaskProjectPhaseList');
+    const addProjectPhaseButton = document.getElementById('createTaskAddPhase');
     const recurringSchedule = document.getElementById('createTaskRecurringSchedule');
+    const volumeConfiguration = document.getElementById('createTaskVolumeConfiguration');
+    const volumeTotal = document.getElementById('createTaskVolumeTotal');
+    const volumeDeadline = document.getElementById('createTaskVolumeDeadline');
+    const volumeStart = document.getElementById('createTaskVolumeStart');
+    const volumeWorkingDays = document.getElementById('createTaskVolumeWorkingDays');
+    const volumeMinimum = document.getElementById('createTaskVolumeMinimum');
     const recurringControls = recurringSchedule.querySelectorAll('input, select');
     const recurringStartDate = document.getElementById('createTaskRecurringStartDate');
     const recurringEndDate = document.getElementById('createTaskRecurringEndDate');
     const recurringStartTime = document.getElementById('createTaskRecurringStartTime');
     const recurringEndTime = document.getElementById('createTaskRecurringEndTime');
     const recurringDuration = document.getElementById('createTaskRecurringDuration');
+    const recurringTimezoneInput = document.getElementById('createTaskRecurringTimezone');
+    const recurringTimezoneLabel = document.getElementById('createTaskRecurringTimezoneLabel');
     const deadlineField = document.getElementById('createTaskDeadlineField');
     const deadlineInput = document.getElementById('createTaskDeadline');
     const dueDateField = document.getElementById('createTaskDueDateField');
@@ -470,6 +543,7 @@
     const selectedPocIds = new Set(@json($initialPocIds));
     const selectedAssigneeIds = new Set(@json($initialAssigneeIds));
     const initialDepartmentId = @json((string) $initialDepartmentId);
+    const initialPhases = @json($initialPhases);
     const initialAssigneeIds = @json($initialAssigneeIds);
     const initialTask = @json($initialTask);
     let stateRequestId = 0;
@@ -478,6 +552,20 @@
     let previousTaskType = taskTypeSelect.value;
     let previousDeadline = '';
     let previousEffort = '';
+
+    try {
+        const clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (clientTz) {
+            if (recurringTimezoneInput) {
+                recurringTimezoneInput.value = clientTz;
+            }
+            if (recurringTimezoneLabel) {
+                recurringTimezoneLabel.textContent = clientTz;
+            }
+        }
+    } catch (e) {
+        // Fallback to server configured timezone
+    }
 
     const updateRecurringDuration = () => {
         const [startHour, startMinute] = recurringStartTime.value.split(':').map(Number);
@@ -572,6 +660,101 @@
         previousTaskType = taskTypeSelect.value;
     };
 
+    const updateVolumeFields = () => {
+        const enabled = taskTypeSelect.value === 'volume';
+        volumeConfiguration.hidden = !enabled;
+        volumeTotal.disabled = !enabled;
+        volumeStart.disabled = !enabled;
+        volumeDeadline.disabled = !enabled;
+        volumeTotal.required = enabled;
+        volumeStart.required = enabled;
+        volumeDeadline.required = enabled;
+        volumeDeadline.min = volumeStart.value || '';
+        if (!enabled || !volumeTotal.value || !volumeDeadline.value) {
+            volumeWorkingDays.textContent = '—';
+            volumeMinimum.textContent = '—';
+            return;
+        }
+        const start = new Date(`${volumeStart.value}T00:00:00`);
+        const deadline = new Date(`${volumeDeadline.value}T00:00:00`);
+        let days = 0;
+        for (const date = new Date(start); date <= deadline; date.setDate(date.getDate() + 1)) {
+            if (![0, 6].includes(date.getDay())) days++;
+        }
+        volumeWorkingDays.textContent = String(days);
+        volumeMinimum.textContent = days ? `${Math.ceil(Number(volumeTotal.value) / days)} / day` : 'No eligible working days';
+    };
+
+    const renumberProjectPhases = () => {
+        if (!projectPhaseList) {
+            return;
+        }
+
+        const phaseRows = [...projectPhaseList.querySelectorAll('[data-project-phase-row]')];
+        phaseRows.forEach((row, index) => {
+            row.querySelector('[data-project-phase-title]').setAttribute('aria-label', `Phase ${index + 1} name`);
+            row.querySelector('[data-project-phase-title]').id = `createTaskProjectPhaseTitle${index}`;
+            row.querySelector('[data-project-phase-title]').name = `phases[${index}][title]`;
+            row.querySelector('[data-project-phase-description]').setAttribute('aria-label', `Phase ${index + 1} description (optional)`);
+            row.querySelector('[data-project-phase-description]').id = `createTaskProjectPhaseDescription${index}`;
+            row.querySelector('[data-project-phase-description]').name = `phases[${index}][description]`;
+            row.querySelector('[data-project-phase-deadline]').setAttribute('aria-label', `Phase ${index + 1} deadline`);
+            row.querySelector('[data-project-phase-deadline]').id = `createTaskProjectPhaseDeadline${index}`;
+            row.querySelector('[data-project-phase-deadline]').name = `phases[${index}][target_date]`;
+            row.querySelector('[data-project-phase-remove]').setAttribute('aria-label', `Remove phase ${index + 1}`);
+        });
+    };
+
+    const addProjectPhase = (phase = {}) => {
+        if (!projectPhaseList) {
+            return;
+        }
+
+        const row = document.createElement('fieldset');
+        row.className = 'tf-create-task__project-phase-row';
+        row.dataset.projectPhaseRow = '';
+        row.innerHTML = `
+            <input class="form-control" data-project-phase-title maxlength="500" placeholder="Phase name *" required>
+            <input class="form-control" data-project-phase-description maxlength="5000" placeholder="Description (optional)">
+            <input class="form-control" data-project-phase-deadline type="date" required>
+            <button class="tf-create-task__project-phase-remove" type="button" data-project-phase-remove>
+                <i class="bi bi-trash3" aria-hidden="true"></i>
+            </button>`;
+        row.querySelector('[data-project-phase-title]').value = phase.title ?? '';
+        row.querySelector('[data-project-phase-description]').value = phase.description ?? '';
+        row.querySelector('[data-project-phase-deadline]').value = phase.target_date ?? '';
+        row.querySelector('[data-project-phase-remove]').addEventListener('click', () => {
+            row.remove();
+            if (projectPhaseList.children.length === 0) {
+                addProjectPhase();
+            }
+            renumberProjectPhases();
+        });
+        projectPhaseList.append(row);
+        renumberProjectPhases();
+    };
+
+    const updateProjectPhaseFields = () => {
+        if (!projectPhasesSection || !projectPhaseList) {
+            return;
+        }
+
+        const enabled = taskTypeSelect.value === 'project' && modal.dataset.formMode !== 'edit';
+        projectPhasesSection.hidden = !enabled;
+        projectPhaseList.querySelectorAll('input, textarea').forEach(input => {
+            input.disabled = !enabled;
+            input.required = enabled && input.matches('[data-project-phase-title], [data-project-phase-deadline]');
+        });
+    };
+
+    if (projectPhaseList) {
+        initialPhases.forEach(phase => addProjectPhase(phase));
+        if (projectPhaseList.children.length === 0) {
+            addProjectPhase();
+        }
+        addProjectPhaseButton.addEventListener('click', () => addProjectPhase());
+    }
+
     recurringStartDate.addEventListener('change', () => {
         if (recurringEndDate.value && recurringEndDate.value < recurringStartDate.value) {
             recurringEndDate.value = '';
@@ -584,8 +767,17 @@
     });
     recurringEndTime.addEventListener('input', updateRecurringDuration);
     recurringDuration.setAttribute('aria-live', 'polite');
-    taskTypeSelect.addEventListener('change', () => updateRecurringFields());
+    taskTypeSelect.addEventListener('change', () => {
+        updateRecurringFields();
+        updateProjectPhaseFields();
+        updateVolumeFields();
+    });
+    volumeTotal.addEventListener('input', updateVolumeFields);
+    volumeStart.addEventListener('change', updateVolumeFields);
+    volumeDeadline.addEventListener('change', updateVolumeFields);
     updateRecurringFields(true);
+    updateProjectPhaseFields();
+    updateVolumeFields();
 
     attachmentsInput.addEventListener('change', () => {
         const selectedFiles = Array.from(attachmentsInput.files ?? []);
@@ -1090,6 +1282,10 @@
         assigneeSearch.value = '';
         prioritySelect.value = '';
         taskTypeSelect.value = '';
+        if (projectPhaseList) {
+            projectPhaseList.replaceChildren();
+            addProjectPhase();
+        }
         deadlineInput.value = '';
         deadlineInput.name = 'original_deadline';
         deadlineInput.disabled = false;
@@ -1103,6 +1299,8 @@
         deadlineHint.hidden = true;
         deadlineRequired.hidden = false;
         estimatedHoursInput.value = '';
+        volumeTotal.value = '';
+        volumeDeadline.value = '';
         nullDeadlineInput.value = '';
         nullEffortInput.value = '';
         recurringControls.forEach(control => {
@@ -1118,6 +1316,8 @@
         modal.dataset.formMode = 'create';
         modal.dataset.taskId = '';
         updateRecurringFields(true);
+        updateProjectPhaseFields();
+        updateVolumeFields();
         form.action = modal.dataset.createAction;
         form.method = 'POST';
         form.querySelector('input[name="_method"]')?.remove();
@@ -1170,7 +1370,12 @@
         deadlineRequired.hidden = true;
         estimatedHoursInput.value = task.estimated_hours ?? '';
         expectedOutputInput.value = task.expected_output ?? '';
+        volumeTotal.value = task.volume_total ?? '';
+        volumeStart.value = task.volume_start_date ?? '';
+        volumeDeadline.value = task.volume_deadline ?? '';
         updateRecurringFields(true);
+        updateProjectPhaseFields();
+        updateVolumeFields();
 
         const pocIds = Array.isArray(task.poc_ids) ? task.poc_ids.map(String) : [];
         const assigneeIds = Array.isArray(task.assigned_to) ? task.assigned_to.map(String) : [];
@@ -1262,7 +1467,7 @@
         });
     }
 
-    @if ($isEditingTask || $hasAttachmentErrors || $errors->hasAny(['title', 'company_id', 'department_id', 'poc_ids', 'poc_ids.*', 'assigned_to', 'task_type', 'priority', 'status', 'progress_percentage', 'original_deadline', 'due_date', 'estimated_hours', 'expected_output', 'description']))
+    @if ($isEditingTask || $hasAttachmentErrors || $errors->hasAny(['title', 'company_id', 'department_id', 'poc_ids', 'poc_ids.*', 'assigned_to', 'task_type', 'priority', 'status', 'progress_percentage', 'original_deadline', 'due_date', 'estimated_hours', 'expected_output', 'description', 'phases', 'phases.*']))
         document.addEventListener('DOMContentLoaded', () => {
             window.bootstrap.Modal.getOrCreateInstance(modal).show();
         }, { once: true });

@@ -46,6 +46,7 @@ class GetOverdueTasksTool implements McpToolInterface
     {
         $query = Task::query()
             ->visibleTo($user)
+            ->availableInRecurringWindow()
             ->overdue()
             ->with(['department:id,name', 'assignee:id,name', 'activeAssignees:id,name']);
 

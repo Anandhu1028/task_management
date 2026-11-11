@@ -16,7 +16,9 @@ use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
 use App\Services\TaskActivityFeedService;
 use App\Services\TaskAttachmentService;
+use App\Services\TaskQueryService;
 use App\Services\TaskWorkflowService;
+use App\Services\VolumeTaskService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -34,7 +36,7 @@ use Throwable;
 
 class TaskController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, TaskQueryService $taskQueries): View
     {
         $this->authorize('viewAny', Task::class);
 
@@ -52,6 +54,7 @@ class TaskController extends Controller
                 'pocs:id,name,designation',
                 'recurringTask:id,task_id,repeat_frequency,start_date,end_date,status',
                 'recurringSchedule:id,task_id,repeat_frequency,start_date,end_date,status',
+                'volume:id,task_id,total_volume,deadline_date',
             ])
             ->withExists([
                 'deadlineExtensionRequests as has_pending_deadline_extension_request' => fn (Builder $query) => $query
@@ -70,12 +73,14 @@ class TaskController extends Controller
                 'assignee:id,name,designation',
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
+                'volume:id,task_id,total_volume,deadline_date',
             ])
             ->get()
             ->groupBy('status');
 
         $counts = Task::query()
             ->visibleTo($request->user())
+            ->availableInRecurringWindow()
             ->selectRaw('COUNT(*) as total')
             ->selectRaw("SUM(CASE WHEN status IN ('notified', 'unassigned', 'assigned') THEN 1 ELSE 0 END) as pending_assignment_count")
             ->selectRaw("SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count")
@@ -83,12 +88,15 @@ class TaskController extends Controller
             ->first();
         $counts->overdue_count = Task::query()
             ->visibleTo($request->user())
+            ->availableInRecurringWindow()
             ->overdue()
             ->count();
         $counts->at_risk_count = Task::query()
             ->visibleTo($request->user())
+            ->availableInRecurringWindow()
             ->atRisk()
             ->count();
+        $recurringVisibilityRefreshAt = $taskQueries->nextRecurringVisibilityTransition($request->user());
 
         $companies = Company::query()->where('status', 'active')->orderBy('name')->get(['id', 'name']);
         $departments = Department::query()->where('status', 'active')->orderBy('name')->get(['id', 'name', 'company_id']);
@@ -98,7 +106,7 @@ class TaskController extends Controller
         if ($request->filled('edit')) {
             $editingTask = Task::query()
                 ->visibleTo($request->user())
-                ->with(['company', 'department', 'pocs', 'assignee', 'activeAssignees'])
+                ->with(['company', 'department', 'pocs', 'assignee', 'activeAssignees', 'volume'])
                 ->find($request->integer('edit'));
         }
 
@@ -111,6 +119,7 @@ class TaskController extends Controller
             'departments',
             'employees',
             'editingTask',
+            'recurringVisibilityRefreshAt',
         ));
     }
 
@@ -119,6 +128,7 @@ class TaskController extends Controller
         TaskWorkflowService $workflow,
         RecurringTaskTemplateService $recurringTemplates,
         TaskAttachmentService $attachments,
+        VolumeTaskService $volumes,
     ): RedirectResponse {
         $this->authorize('create', Task::class);
 
@@ -136,6 +146,7 @@ class TaskController extends Controller
         }
 
         $assigneeIds = $validated['assigned_to'] ?? [];
+        $phaseData = $validated['phases'] ?? [];
         if (! $this->assigneesBelongToDepartment($assigneeIds, $validated['company_id'], $validated['department_id'])) {
             return back()->withErrors(['assigned_to' => 'All assigned employees must be active in the selected department.'])->withInput();
         }
@@ -181,7 +192,7 @@ class TaskController extends Controller
                 ]);
         }
 
-        $taskData = collect($validated)->except(['assigned_to', 'poc_ids', 'attachments'])->merge([
+        $taskData = collect($validated)->except(['assigned_to', 'poc_ids', 'attachments', 'phases', 'volume_total', 'volume_start_date', 'volume_deadline'])->merge([
             'task_code' => Task::generateCode(),
             'created_by' => auth()->id(),
             'status' => empty($assigneeIds) ? 'notified' : 'assigned',
@@ -190,11 +201,43 @@ class TaskController extends Controller
         $storedAttachments = $this->storeAttachmentFiles($validated['attachments'] ?? []);
 
         try {
-            DB::transaction(function () use ($taskData, $pocIds, $assigneeIds, $storedAttachments, $workflow, $request): void {
+            DB::transaction(function () use ($taskData, $phaseData, $pocIds, $assigneeIds, $storedAttachments, $workflow, $request, $validated, $volumes): void {
                 $task = Task::create($taskData);
+
+                if ($task->task_type === 'volume') {
+                    $volume = $volumes->createConfiguration(
+                        $task,
+                        (int) $validated['volume_total'],
+                        $validated['volume_start_date'],
+                        $validated['volume_deadline'],
+                    );
+                    $task->statusHistory()->create([
+                        'changed_by' => auth()->id(),
+                        'new_status' => $task->status,
+                        'event_type' => 'volume_configuration_created',
+                        'remarks' => 'Volume configuration created: '.$volume->total_volume.' items; minimum '.$volumes->minimumDailyCount($volume).' per working day.',
+                    ]);
+                }
 
                 if (! empty($pocIds)) {
                     $task->pocs()->sync($pocIds);
+                }
+
+                foreach ($phaseData as $sortOrder => $phase) {
+                    $milestone = $task->milestones()->create([
+                        'created_by' => $request->user()->id,
+                        'title' => $phase['title'],
+                        'description' => $phase['description'] ?? null,
+                        'target_date' => $phase['target_date'],
+                        'sort_order' => $sortOrder + 1,
+                    ]);
+                    $task->statusHistory()->create([
+                        'milestone_id' => $milestone->id,
+                        'changed_by' => $request->user()->id,
+                        'new_status' => $milestone->status,
+                        'event_type' => 'milestone_created',
+                        'remarks' => 'Created project phase '.$milestone->title,
+                    ]);
                 }
 
                 $this->syncTaskAssignees($task, $assigneeIds, 'Initial assignment', auth()->id());
@@ -227,6 +270,7 @@ class TaskController extends Controller
         TaskWorkflowService $workflow,
         SubtaskProgressService $subtaskProgress,
         TaskActivityFeedService $activityFeedService,
+        VolumeTaskService $volumes,
     ): View {
         $this->authorize('view', $task);
 
@@ -256,6 +300,7 @@ class TaskController extends Controller
             'subtasks.creator',
             'subtasks.assignee',
             'subtasks.completedBy',
+            'volume',
         ]);
 
         $companies = Company::query()->where('status', 'active')->orderBy('name')->get(['id', 'name']);
@@ -269,7 +314,8 @@ class TaskController extends Controller
         $milestones = $task->milestones()
             ->with(['creator:id,name', 'completedBy:id,name', 'assignees:id,name', 'activity.changedBy:id,name'])
             ->when(
-                ! $request->user()->hasAssignedRole('Admin')
+                $task->task_type !== 'project'
+                    && ! $request->user()->hasAssignedRole('Admin')
                     && ! $request->user()->hasAssignedRole('CEO')
                     && ! $request->user()->hasAssignedRole('Manager')
                     && ! $request->user()->hasAssignedRole('Team Leader'),
@@ -316,6 +362,7 @@ class TaskController extends Controller
             )
             ->get();
         $taskActivityFeed = $activityFeedService->build($task);
+        $volumeSummary = $task->task_type === 'volume' && $task->volume !== null ? $volumes->summary($task) : null;
 
         return view('tasks.show', compact(
             'task',
@@ -337,6 +384,7 @@ class TaskController extends Controller
             'canReviewDeadlineExtensions',
             'deadlineExtensionRequests',
             'taskActivityFeed',
+            'volumeSummary',
         ));
     }
 
@@ -352,6 +400,7 @@ class TaskController extends Controller
         Task $task,
         TaskWorkflowService $workflow,
         SubtaskActivityService $subtaskActivity,
+        VolumeTaskService $volumes,
     ): RedirectResponse|JsonResponse {
         $this->authorize('update', $task);
 
@@ -420,14 +469,14 @@ class TaskController extends Controller
         // Original deadline is immutable after creation
         unset($validated['original_deadline']);
 
-        $taskData = collect($validated)->except(['assigned_to', 'poc_ids', 'attachments'])->all();
+        $taskData = collect($validated)->except(['assigned_to', 'poc_ids', 'attachments', 'volume_total', 'volume_start_date', 'volume_deadline'])->all();
         if ($hasAssigneeUpdate) {
             $taskData['assigned_to'] = $assigneeIds[0] ?? null;
         }
         $storedAttachments = $this->storeAttachmentFiles($validated['attachments'] ?? []);
 
         try {
-            DB::transaction(function () use ($task, $taskData, $pocIds, $hasAssigneeUpdate, $assigneeIds, $storedAttachments, $workflow, $request): void {
+            DB::transaction(function () use ($task, $taskData, $pocIds, $hasAssigneeUpdate, $assigneeIds, $storedAttachments, $workflow, $request, $validated, $volumes): void {
                 $task->refresh();
                 $oldStatusForAudit = $task->status;
                 $auditedChanges = [];
@@ -460,6 +509,26 @@ class TaskController extends Controller
                 }
 
                 $task->update($taskData);
+
+                if ($task->task_type === 'volume') {
+                    $volume = $task->volume;
+                    if ($volume === null) {
+                        $volume = $volumes->createConfiguration(
+                            $task,
+                            (int) $validated['volume_total'],
+                            $validated['volume_start_date'],
+                            $validated['volume_deadline'],
+                        );
+                    } else {
+                        $volume->update([
+                            'total_volume' => (int) $validated['volume_total'],
+                            'start_date' => $validated['volume_start_date'],
+                            'deadline_date' => $validated['volume_deadline'],
+                        ]);
+                        $task->update(['start_date' => $volume->start_date, 'due_date' => $volume->deadline_date]);
+                    }
+                    $task->update(['progress_percentage' => $volumes->summary($task->fresh('volume'))['percentage']]);
+                }
                 if ($hasAssigneeUpdate) {
                     $this->synchronizeAssignmentStatus($task);
                 }
@@ -1050,7 +1119,9 @@ class TaskController extends Controller
      */
     private function filteredTasksQuery(array $filters, User $user): Builder
     {
-        $query = Task::query()->visibleTo($user);
+        $query = Task::query()
+            ->visibleTo($user)
+            ->availableInRecurringWindow();
 
         if (! empty($filters['search'])) {
             $search = trim($filters['search']);

@@ -61,7 +61,7 @@ class RecurringTaskTemplateService
                 'end_date' => $data['recurring_end_date'],
                 'start_time' => $data['recurring_start_time'],
                 'end_time' => $data['recurring_end_time'],
-                'timezone' => config('app.timezone'),
+                'timezone' => ! empty($data['timezone']) ? $data['timezone'] : config('app.timezone'),
                 'status' => 'active',
             ]);
 

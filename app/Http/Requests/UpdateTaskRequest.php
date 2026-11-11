@@ -22,6 +22,13 @@ class UpdateTaskRequest extends FormRequest
         } elseif ($this->exists('assigned_to_present') && ! is_array($assigneeIds)) {
             $this->merge(['assigned_to' => []]);
         }
+
+        if ($this->input('task_type') === 'volume') {
+            $this->merge([
+                'start_date' => $this->input('volume_start_date'),
+                'due_date' => $this->input('volume_deadline'),
+            ]);
+        }
     }
 
     /** @return array<string, mixed> */
@@ -32,6 +39,9 @@ class UpdateTaskRequest extends FormRequest
             'company_id' => ['required', 'integer', 'exists:companies,id'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'task_type' => ['required', Rule::in(Task::TYPES)],
+            'volume_total' => ['exclude_unless:task_type,volume', 'required', 'integer', 'min:1', 'max:2147483647'],
+            'volume_start_date' => ['exclude_unless:task_type,volume', 'required', 'date_format:Y-m-d'],
+            'volume_deadline' => ['exclude_unless:task_type,volume', 'required', 'date_format:Y-m-d', 'after_or_equal:volume_start_date'],
             'priority' => ['required', Rule::in(Task::PRIORITIES)],
             'progress_percentage' => ['nullable', 'integer', 'min:0', 'max:100'],
             'assigned_to' => ['sometimes', 'nullable', 'array'],

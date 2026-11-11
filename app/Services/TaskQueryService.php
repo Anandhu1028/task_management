@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class TaskQueryService
@@ -45,7 +48,9 @@ class TaskQueryService
      */
     public function filteredTasksQuery(array $filters, User $user): Builder
     {
-        $query = Task::query()->visibleTo($user);
+        $query = Task::query()
+            ->visibleTo($user)
+            ->availableInRecurringWindow();
 
         if (($filters['scope'] ?? 'all') === 'assigned') {
             $query->assignedTo($user->id);
@@ -165,6 +170,7 @@ class TaskQueryService
     {
         $counts = Task::query()
             ->visibleTo($user)
+            ->availableInRecurringWindow()
             ->selectRaw('COUNT(*) as total')
             ->selectRaw("SUM(CASE WHEN status IN ('notified', 'unassigned', 'assigned') THEN 1 ELSE 0 END) as pending_assignment_count")
             ->selectRaw("SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count")
@@ -176,8 +182,108 @@ class TaskQueryService
             'pending_assignment_count' => (int) ($counts->pending_assignment_count ?? 0),
             'in_progress_count' => (int) ($counts->in_progress_count ?? 0),
             'completed_count' => (int) ($counts->completed_count ?? 0),
-            'overdue_count' => Task::query()->visibleTo($user)->overdue()->count(),
-            'at_risk_count' => Task::query()->visibleTo($user)->atRisk()->count(),
+            'overdue_count' => Task::query()->visibleTo($user)->availableInRecurringWindow()->overdue()->count(),
+            'at_risk_count' => Task::query()->visibleTo($user)->availableInRecurringWindow()->atRisk()->count(),
         ];
+    }
+
+    public function nextRecurringVisibilityTransition(User $user): ?CarbonImmutable
+    {
+        $now = CarbonImmutable::now('UTC');
+        $nextTransition = null;
+        $schedules = RecurringTask::query()
+            ->where('status', 'active')
+            ->whereIn('repeat_frequency', RecurringTask::FREQUENCIES)
+            ->whereHas('task', fn (Builder $query) => $query->visibleTo($user))
+            ->get(['id', 'task_id', 'repeat_frequency', 'start_date', 'end_date', 'start_time', 'end_time', 'timezone']);
+
+        foreach ($schedules as $schedule) {
+            if (! $schedule->hasValidTimezone()
+                || ! $schedule->start_date
+                || ! $schedule->end_date
+                || ! $schedule->start_time
+                || ! $schedule->end_time) {
+                continue;
+            }
+
+            $localNow = $now->setTimezone($schedule->timezone);
+            $startsAt = CarbonImmutable::parse($localNow->toDateString().' '.$schedule->start_time, $schedule->timezone);
+            $endsAt = CarbonImmutable::parse($localNow->toDateString().' '.$schedule->end_time, $schedule->timezone);
+
+            if ($schedule->isScheduledOn($localNow) && $endsAt->greaterThan($startsAt)) {
+                $currentOccurrence = DB::table('tasks')
+                    ->select('id')
+                    ->selectRaw(
+                        'CASE WHEN available_from <= ? AND expires_at >= ? AND status NOT IN (?, ?, ?) THEN 1 ELSE 0 END as is_available',
+                        [$now, $now, 'completed', 'missed', 'cancelled'],
+                    )
+                    ->where('recurring_task_id', $schedule->id)
+                    ->where('occurrence_date', $localNow->toDateString())
+                    ->first();
+
+                if ($currentOccurrence && (int) $currentOccurrence->is_available === 1) {
+                    $candidate = $endsAt->addSecond()->utc();
+                } elseif ($localNow->lessThan($startsAt)) {
+                    $candidate = $startsAt->utc();
+                } elseif (! $currentOccurrence && $localNow->lessThanOrEqualTo($endsAt)) {
+                    $candidate = $now->addMinute();
+                } else {
+                    $candidate = null;
+                }
+
+                if ($candidate && $candidate->greaterThan($now)) {
+                    $nextTransition = $this->earlierTransition($nextTransition, $candidate);
+                }
+            }
+
+            $nextDate = $this->nextScheduledDate($schedule, $localNow->startOfDay());
+            if ($nextDate) {
+                $candidate = CarbonImmutable::parse(
+                    $nextDate->toDateString().' '.$schedule->start_time,
+                    $schedule->timezone,
+                )->utc();
+
+                if ($candidate->greaterThan($now)) {
+                    $nextTransition = $this->earlierTransition($nextTransition, $candidate);
+                }
+            }
+        }
+
+        return $nextTransition;
+    }
+
+    private function nextScheduledDate(RecurringTask $schedule, CarbonImmutable $today): ?CarbonImmutable
+    {
+        $startDate = CarbonImmutable::parse($schedule->start_date->toDateString(), $schedule->timezone)->startOfDay();
+        $endDate = CarbonImmutable::parse($schedule->end_date->toDateString(), $schedule->timezone)->startOfDay();
+
+        if ($startDate->greaterThan($today)) {
+            return $startDate;
+        }
+
+        if ($schedule->repeat_frequency === 'daily') {
+            $nextDate = $today->addDay();
+
+            return $nextDate->lessThanOrEqualTo($endDate) ? $nextDate : null;
+        }
+
+        if ($schedule->repeat_frequency === 'weekly') {
+            $daysUntilNextOccurrence = ($startDate->dayOfWeek - $today->dayOfWeek + 7) % 7;
+            $nextDate = $today->addDays($daysUntilNextOccurrence === 0 ? 7 : $daysUntilNextOccurrence);
+
+            return $nextDate->lessThanOrEqualTo($endDate) ? $nextDate : null;
+        }
+
+        $nextDate = $startDate;
+        while ($nextDate->lessThanOrEqualTo($today)) {
+            $nextDate = $nextDate->addMonthNoOverflow();
+        }
+
+        return $nextDate->lessThanOrEqualTo($endDate) ? $nextDate : null;
+    }
+
+    private function earlierTransition(?CarbonImmutable $current, CarbonImmutable $candidate): CarbonImmutable
+    {
+        return $current === null || $candidate->lessThan($current) ? $candidate : $current;
     }
 }

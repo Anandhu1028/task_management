@@ -204,20 +204,25 @@ class RecurringTaskGenerationService
 
     private function expireOverdueOccurrences(): void
     {
+        $now = CarbonImmutable::now('UTC');
+
         Task::query()
             ->whereNotNull('recurring_task_id')
             ->whereNotNull('expires_at')
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<', $now)
             ->whereNotIn('status', ['completed', 'missed', 'cancelled'])
             ->lazyById(100)
             ->each(function (Task $occurrence): void {
                 DB::transaction(function () use ($occurrence): void {
-                    $occurrence = Task::query()->lockForUpdate()->find($occurrence->id);
+                    $occurrence = Task::query()
+                        ->whereKey($occurrence->id)
+                        ->where('expires_at', '<', CarbonImmutable::now('UTC'))
+                        ->whereNotIn('status', ['completed', 'missed', 'cancelled'])
+                        ->lockForUpdate()
+                        ->first();
 
                     if (! $occurrence
-                        || $occurrence->expires_at === null
-                        || $occurrence->expires_at->isFuture()
-                        || in_array($occurrence->status, ['completed', 'missed', 'cancelled'], true)) {
+                        || $occurrence->expires_at === null) {
                         return;
                     }
 
@@ -238,9 +243,23 @@ class RecurringTaskGenerationService
                 });
             });
 
-        RecurringTask::query()
+        foreach (RecurringTask::query()
             ->where('status', 'active')
-            ->whereDate('end_date', '<', CarbonImmutable::now()->toDateString())
-            ->update(['status' => 'completed']);
+            ->get(['id', 'end_date', 'timezone']) as $schedule) {
+            if (! $schedule->hasValidTimezone() || ! $schedule->end_date) {
+                Log::warning('Skipped recurring schedule completion because its end date or timezone is invalid.', [
+                    'recurring_task_id' => $schedule->id,
+                ]);
+
+                continue;
+            }
+
+            if ($schedule->end_date->toDateString() < CarbonImmutable::now($schedule->timezone)->toDateString()) {
+                RecurringTask::query()
+                    ->whereKey($schedule->id)
+                    ->where('status', 'active')
+                    ->update(['status' => 'completed']);
+            }
+        }
     }
 }

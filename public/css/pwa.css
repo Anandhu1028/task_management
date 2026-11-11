@@ -138,6 +138,31 @@
 .pwa-subtasks li { display: grid; gap: 2px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
 .pwa-subtasks__title { font-weight: 600; overflow-wrap: anywhere; } .pwa-subtasks__title.is-done { text-decoration: line-through; color: var(--muted); }
 a.pwa-subtasks__title { color: var(--p); } .pwa-subtasks__meta { color: var(--muted); font-size: 12px; }
+.pwa-project-phases { min-width: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.pwa-project-phases__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.pwa .pwa-project-phases__header h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.pwa-project-phases__header > span { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+.pwa-project-phases__progress { height: 16px; margin: 16px; overflow: hidden; background: #e2e8f0; border-radius: 999px; }
+.pwa-project-phases__progress > span { display: block; height: 100%; background: var(--p); border-radius: inherit; transition: width .2s ease; }
+.pwa-project-phases__list { display: grid; }
+.pwa-project-phase { display: grid; gap: 4px; min-width: 0; padding: 14px 16px; border-top: 1px solid var(--border); }
+.pwa-project-phase__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pwa-project-phase__heading h3 { min-width: 0; overflow-wrap: anywhere; font-size: 15px; font-weight: 600; }
+.pwa-project-phase__status { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 650; line-height: 1.5; }
+.pwa-project-phase__status--pending { background: var(--slate-soft); color: var(--text2); }
+.pwa-project-phase__status--in-progress { background: var(--p-soft); color: var(--p); }
+.pwa-project-phase__status--completed { background: var(--green-soft); color: var(--green); }
+.pwa-project-phase__status--cancelled { background: var(--slate-soft); color: var(--muted); }
+.pwa-project-phase__description { color: var(--muted); overflow-wrap: anywhere; }
+.pwa-project-phase__deadline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px !important; color: var(--muted); font-size: 12px; }
+.pwa-project-phase__overdue { padding: 1px 7px; border-radius: 999px; background: var(--red-soft); color: var(--red); font-size: 11px; font-weight: 650; }
+.pwa-project-phase__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.pwa-project-phase__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.pwa .pwa-project-phase__actions select { width: auto; min-width: 120px; min-height: 34px; padding: 6px 28px 6px 9px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--text); font: inherit; }
+.pwa-btn--outline { border-color: var(--p); background: var(--surface); color: var(--p); font-weight: 500; }
+.pwa-btn--outline:hover { background: var(--p-soft); }
+.pwa .pwa-project-phase__actions .pwa-btn { min-height: 34px; padding: 6px 10px; }
+.pwa-project-phases__empty { padding: 14px 16px; color: var(--muted); }
 .pwa-timeline { display: grid; gap: 10px; border-left: 2px solid var(--border); margin-left: 6px; padding-left: 14px; }
 .pwa-timeline li { display: grid; gap: 2px; } .pwa-timeline__meta { color: var(--muted); font-size: 12px; }
 

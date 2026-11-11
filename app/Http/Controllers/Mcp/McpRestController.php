@@ -250,6 +250,46 @@ class McpRestController extends Controller
         return $this->executeTool('get_project_report', $request);
     }
 
+    public function dailyWorkReport(Request $request): JsonResponse
+    {
+        return $this->executeTool('get_daily_work_report', $request);
+    }
+
+    public function companyReport(Request $request): JsonResponse
+    {
+        return $this->executeTool('get_company_report', $request);
+    }
+
+    public function employeePerformance(Request $request): JsonResponse
+    {
+        return $this->executeTool('get_employee_performance', $request);
+    }
+
+    public function subtaskDetails(Request $request): JsonResponse
+    {
+        return $this->executeTool('get_subtask_details', $request);
+    }
+
+    public function teamTasks(Request $request): JsonResponse
+    {
+        return $this->executeTool('get_team_tasks', $request);
+    }
+
+    public function createTask(Request $request): JsonResponse
+    {
+        return $this->executeTool('create_task', $request);
+    }
+
+    public function updateTaskStatus(Request $request): JsonResponse
+    {
+        return $this->executeTool('update_task_status', $request);
+    }
+
+    public function updateDailyTask(Request $request): JsonResponse
+    {
+        return $this->executeTool('update_daily_task', $request);
+    }
+
     private function executeTool(string $toolName, Request $request): JsonResponse
     {
         $user = $request->user();

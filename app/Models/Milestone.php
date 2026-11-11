@@ -44,6 +44,7 @@ class Milestone extends Model
         'description',
         'expected_outcome',
         'target_date',
+        'sort_order',
         'status',
         'progress_percentage',
         'completed_at',
@@ -53,6 +54,7 @@ class Milestone extends Model
     {
         return [
             'target_date' => 'date',
+            'sort_order' => 'integer',
             'progress_percentage' => 'integer',
             'completed_at' => 'datetime',
         ];

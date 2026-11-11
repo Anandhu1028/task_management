@@ -55,7 +55,7 @@ class TaskPolicy
         }
 
         if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
-            return true;
+            return $user->company_id === null || (int) $user->company_id === (int) $task->company_id;
         }
 
         if ($user->hasAssignedRole('Manager')) {
@@ -238,7 +238,7 @@ class TaskPolicy
     private function canManage(User $user, Task $task): bool
     {
         if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
-            return true;
+            return $user->company_id === null || (int) $user->company_id === (int) $task->company_id;
         }
 
         if ($user->hasAssignedRole('Manager')) {
@@ -255,7 +255,7 @@ class TaskPolicy
     private function canManageOperationalTask(User $user, Task $task): bool
     {
         if ($user->hasAssignedRole('Admin') || $user->hasAssignedRole('CEO')) {
-            return true;
+            return $user->company_id === null || (int) $user->company_id === (int) $task->company_id;
         }
 
         if ($user->hasAssignedRole('Manager')) {

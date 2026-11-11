@@ -142,6 +142,36 @@
                         @if (filled($value))<div><dt>{{ $label }}</dt><dd>{{ $value }}</dd></div>@endif
                     @endforeach
                 </dl>
+                @if ($task->task_type === 'project')
+                    @php
+                        $projectPhases = $task->milestones->sortBy('sort_order')->values();
+                        $completedProjectPhases = $projectPhases->where('status', 'completed')->count();
+                    @endphp
+                    <h2>Project phases ({{ $completedProjectPhases }}/{{ $projectPhases->count() }} completed)</h2>
+                    @if ($projectPhases->isNotEmpty())
+                        <ol class="pwa-subtasks">
+                            @foreach ($projectPhases as $phase)
+                                @php
+                                    $phaseIsOverdue = ! in_array($phase->status, ['completed', 'cancelled'], true)
+                                        && $phase->target_date->lt(today());
+                                @endphp
+                                <li>
+                                    <span class="pwa-subtasks__title">{{ $phase->title }}</span>
+                                    @if ($phase->description)
+                                        <span class="pwa-subtasks__meta">{{ $phase->description }}</span>
+                                    @endif
+                                    <span class="pwa-subtasks__meta {{ $phaseIsOverdue ? 'is-overdue' : '' }}">
+                                        Deadline: {{ $phase->target_date->format('M j, Y') }}
+                                        · {{ \App\Models\Milestone::STATUS_LABELS[$phase->status] ?? ucfirst($phase->status) }}
+                                        @if ($phaseIsOverdue) · Overdue @endif
+                                    </span>
+                                </li>
+                            @endforeach
+                        </ol>
+                    @else
+                        <p class="pwa-prose">No phases have been added to this project.</p>
+                    @endif
+                @endif
             </section>
 
             @if (isset($tabs['subtasks']))

@@ -6,6 +6,7 @@ use App\Models\Subtask;
 use App\Models\SubtaskDailyUpdate;
 use App\Models\Task;
 use App\Services\SubtaskActivityService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,12 +14,19 @@ use Illuminate\View\View;
 
 class SubtaskDailyUpdateController extends Controller
 {
-    public function __construct(private readonly SubtaskActivityService $activity) {}
+    public function __construct(
+        private readonly SubtaskActivityService $activity,
+    ) {}
 
-    public function store(Request $request, Task $task, Subtask $subtask): RedirectResponse
+    public function store(Request $request, Task $task, Subtask $subtask): RedirectResponse|JsonResponse
     {
         abort_if($subtask->task_id !== $task->id, 404);
         $this->authorize('view', $task);
+        abort_if(
+            $task->task_type === 'volume',
+            422,
+            'Record Volume output through the subtask details.',
+        );
 
         $update = new SubtaskDailyUpdate([
             'task_id' => $task->id,
@@ -32,6 +40,7 @@ class SubtaskDailyUpdateController extends Controller
             'work_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'work_description' => ['required', 'string', 'max:5000'],
             'work_completed' => ['nullable', 'string', 'max:5000'],
+            'completed_count' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'time_spent_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
         ]);
 
@@ -51,6 +60,7 @@ class SubtaskDailyUpdateController extends Controller
                 'work_date' => $workDate,
                 'work_description' => $validated['work_description'],
                 'work_completed' => $validated['work_completed'] ?? null,
+                'completed_count' => $validated['completed_count'] ?? null,
                 'current_status' => $subtask->is_completed ? 'completed' : $subtask->status,
                 'time_spent_minutes' => $timeSpent,
             ]);
@@ -81,6 +91,7 @@ class SubtaskDailyUpdateController extends Controller
                 $remarks,
                 $workDate,
             );
+
         });
 
         return redirect()

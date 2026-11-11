@@ -68,6 +68,10 @@ class McpServerTest extends TestCase
             'role_id' => $roleAdmin->id,
             'status' => 'active',
         ]);
+        $this->admin->update([
+            'company_id' => $this->company1->id,
+            'department_id' => $this->dept1->id,
+        ]);
         $this->admin->assignRole($roleAdmin);
 
         $this->manager = User::factory()->create([
@@ -270,6 +274,155 @@ class McpServerTest extends TestCase
         $this->assertNotEmpty($content['tasks']);
         $this->assertSame('My Personal Priority Task', $content['tasks'][0]['title']);
         $this->assertSame('Titan Project', $content['tasks'][0]['project']);
+    }
+
+    public function test_get_my_tasks_returns_assigned_records_with_default_and_explicit_pagination(): void
+    {
+        $task = $this->createTask([
+            'title' => 'Task Assigned Through Relationship',
+            'assigned_to' => null,
+        ]);
+
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $this->employee1->id,
+            'is_active' => true,
+            'assigned_at' => now(),
+        ]);
+
+        $defaultResponse = $this->withHeader('Authorization', 'Bearer '.$this->employee1Token)
+            ->postJson('/mcp', [
+                'jsonrpc' => '2.0',
+                'id' => 28,
+                'method' => 'tools/call',
+                'params' => [
+                    'name' => 'get_my_tasks',
+                    'arguments' => [],
+                ],
+            ]);
+
+        $defaultResponse->assertOk()
+            ->assertJsonPath('result.isError', false)
+            ->assertJsonPath('result.content.0.type', 'text');
+        $defaultContent = json_decode($defaultResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(20, $defaultContent['pagination']['per_page']);
+        $this->assertSame(1, $defaultContent['pagination']['total_tasks']);
+        $this->assertSame($task->id, $defaultContent['tasks'][0]['id']);
+        $this->assertContains($this->employee1->name, $defaultContent['tasks'][0]['assignees']);
+
+        $paginatedResponse = $this->withHeader('Authorization', 'Bearer '.$this->employee1Token)
+            ->postJson('/mcp', [
+                'jsonrpc' => '2.0',
+                'id' => 29,
+                'method' => 'tools/call',
+                'params' => [
+                    'name' => 'get_my_tasks',
+                    'arguments' => [
+                        'page' => 1,
+                        'per_page' => 50,
+                    ],
+                ],
+            ]);
+
+        $paginatedResponse->assertOk()
+            ->assertJsonPath('result.isError', false);
+        $paginatedContent = json_decode($paginatedResponse->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $paginatedContent['pagination']['current_page']);
+        $this->assertSame(50, $paginatedContent['pagination']['per_page']);
+        $this->assertSame(1, $paginatedContent['pagination']['total_tasks']);
+        $this->assertSame($task->id, $paginatedContent['tasks'][0]['id']);
+    }
+
+    public function test_get_my_tasks_returns_an_empty_page_for_a_user_without_assigned_tasks(): void
+    {
+        $response = $this->withHeader('Authorization', 'Bearer '.$this->employee1Token)
+            ->postJson('/mcp', [
+                'jsonrpc' => '2.0',
+                'id' => 30,
+                'method' => 'tools/call',
+                'params' => [
+                    'name' => 'get_my_tasks',
+                    'arguments' => [],
+                ],
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('result.isError', false)
+            ->assertJsonPath('result.content.0.type', 'text');
+        $content = json_decode($response->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(0, $content['pagination']['total_tasks']);
+        $this->assertSame([], $content['tasks']);
+    }
+
+    public function test_get_my_tasks_returns_valid_json_when_a_task_has_invalid_utf8(): void
+    {
+        $task = $this->createTask([
+            'title' => "Task \xB1 title",
+            'assigned_to' => $this->employee1->id,
+        ]);
+
+        $response = $this->withHeader('Authorization', 'Bearer '.$this->employee1Token)
+            ->postJson('/mcp', [
+                'jsonrpc' => '2.0',
+                'id' => 32,
+                'method' => 'tools/call',
+                'params' => [
+                    'name' => 'get_my_tasks',
+                    'arguments' => [],
+                ],
+            ]);
+
+        $response->assertOk()->assertJsonPath('result.isError', false);
+        $content = json_decode($response->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+        $returnedTask = collect($content['tasks'])->firstWhere('id', $task->id);
+        $this->assertSame("Task \u{FFFD} title", $returnedTask['title']);
+    }
+
+    public function test_get_my_tasks_respects_admin_manager_and_team_leader_scope(): void
+    {
+        $companyTask = $this->createTask(['title' => 'Company Task']);
+        $otherDepartment = Department::firstOrCreate([
+            'company_id' => $this->company1->id,
+            'name' => 'Support',
+        ], ['status' => 'active']);
+        $otherDepartmentTask = $this->createTask([
+            'title' => 'Other Department Task',
+            'department_id' => $otherDepartment->id,
+        ]);
+        $otherCompanyTask = $this->createTask([
+            'title' => 'Other Company Task',
+            'company_id' => $this->company2->id,
+            'department_id' => $this->dept2->id,
+            'created_by' => $this->employee2->id,
+        ]);
+
+        $retrieveTaskIds = function (string $token): array {
+            $response = $this->withHeader('Authorization', 'Bearer '.$token)
+                ->postJson('/mcp', [
+                    'jsonrpc' => '2.0',
+                    'id' => 31,
+                    'method' => 'tools/call',
+                    'params' => [
+                        'name' => 'get_my_tasks',
+                        'arguments' => [],
+                    ],
+                ]);
+
+            $response->assertOk()->assertJsonPath('result.isError', false);
+            $content = json_decode($response->json('result.content.0.text'), true, flags: JSON_THROW_ON_ERROR);
+
+            return array_column($content['tasks'], 'id');
+        };
+
+        $this->assertEqualsCanonicalizing(
+            [$companyTask->id, $otherDepartmentTask->id],
+            $retrieveTaskIds($this->adminToken),
+        );
+        $this->assertEqualsCanonicalizing(
+            [$companyTask->id, $otherDepartmentTask->id],
+            $retrieveTaskIds($this->managerToken),
+        );
+        $this->assertSame([$companyTask->id], $retrieveTaskIds($this->teamLeaderToken));
     }
 
     public function test_search_tasks_tool_and_isolation(): void

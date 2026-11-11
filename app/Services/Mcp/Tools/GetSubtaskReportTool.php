@@ -15,7 +15,7 @@ class GetSubtaskReportTool implements McpToolInterface
 
     public function description(): string
     {
-        return 'Retrieve subtask breakdowns, completion rates, pending subtasks, and overdue subtask alerts for parent tasks.';
+        return 'Retrieve subtask breakdowns, completion rates, and pending subtasks for parent tasks.';
     }
 
     public function inputSchema(): array
@@ -67,7 +67,6 @@ class GetSubtaskReportTool implements McpToolInterface
             $total = $subtasks->count();
             $completed = $subtasks->where('is_completed', true)->count();
             $pending = $total - $completed;
-            $overdue = $subtasks->filter(fn (Subtask $subtask) => $subtask->is_overdue)->count();
 
             $completionPercentage = $total > 0 ? round(($completed / $total) * 100, 1) : 0.0;
 
@@ -85,17 +84,15 @@ class GetSubtaskReportTool implements McpToolInterface
                     'total_subtasks' => $total,
                     'completed_subtasks' => $completed,
                     'pending_subtasks' => $pending,
-                    'overdue_subtasks' => $overdue,
                     'completion_percentage' => $completionPercentage,
                 ],
                 'subtasks' => $filteredSubtasks->map(fn (Subtask $st): array => [
                     'id' => $st->id,
                     'title' => $st->title,
-                    'priority' => $st->priority,
+                    'description' => $st->description,
                     'status' => $st->is_completed ? 'completed' : $st->status,
+                    'progress_percentage' => $st->is_completed ? 100 : (int) $st->progress_percentage,
                     'is_completed' => (bool) $st->is_completed,
-                    'is_overdue' => $st->is_overdue,
-                    'due_date' => $st->due_date?->toDateString(),
                     'assignee' => $st->assignee?->name ?? 'Unassigned',
                 ])->values()->all(),
             ];

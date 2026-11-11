@@ -59,8 +59,8 @@ class GetTeamReportTool implements McpToolInterface
 
         if (! empty($arguments['company_id'])) {
             $comp = (int) $arguments['company_id'];
-            if ($user->hasAssignedRole('Manager') && $user->company_id !== $comp) {
-                // Manager cannot view outside their company
+            if ($user->company_id && (int) $user->company_id !== $comp) {
+                // Deny unauthorized cross-company query
                 $scopedTasks->whereRaw('1 = 0');
             } else {
                 $scopedTasks->where('tasks.company_id', $comp);

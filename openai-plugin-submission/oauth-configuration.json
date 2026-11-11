@@ -1,0 +1,37 @@
+{
+  "client_id": "chatgpt_connector_live",
+  "authorization_endpoint": "https://tracker-manage.focuzacademy.in/oauth/authorize",
+  "token_endpoint": "https://tracker-manage.focuzacademy.in/oauth/token",
+  "revocation_endpoint": "https://tracker-manage.focuzacademy.in/oauth/revoke",
+  "scopes_supported": ["tasks:read", "tasks:write", "reports:read", "offline_access"],
+  "default_scopes": ["tasks:read", "reports:read"],
+  "pkce_required": true,
+  "pkce_methods_supported": ["S256"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "token_endpoint_auth_methods_supported": ["none"],
+  "token_type": "Bearer",
+  "access_token_ttl_seconds": 28800,
+  "refresh_token_ttl_seconds": 2592000,
+  "authorization_code_ttl_seconds": 600,
+  "public_client_supported": true,
+  "discovery_endpoints": {
+    "authorization_server_metadata": "https://tracker-manage.focuzacademy.in/.well-known/oauth-authorization-server",
+    "protected_resource_metadata": "https://tracker-manage.focuzacademy.in/.well-known/oauth-protected-resource",
+    "openid_configuration": "https://tracker-manage.focuzacademy.in/.well-known/openid-configuration"
+  },
+  "redirect_uris_registered": [
+    "https://chatgpt.com/connector/oauth/callback",
+    "https://chatgpt.com/connector/oauth/yHyws2Of_8Kj",
+    "https://chatgpt.com/aip/g-connector/oauth/callback",
+    "https://chat.openai.com/aip/g-connector/oauth/callback"
+  ],
+  "notes": [
+    "This file contains only public OAuth configuration — no client secrets or tokens.",
+    "PKCE S256 is required; plain method is rejected in production.",
+    "Client is non-confidential (public client). No client_secret is used.",
+    "Token replay protection: refresh tokens are rotated on every use and old tokens are immediately revoked.",
+    "Rate limiting: 30 token requests per minute per IP."
+  ]
+}
+

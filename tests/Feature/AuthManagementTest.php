@@ -52,18 +52,17 @@ class AuthManagementTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_local_login_page_offers_role_based_credential_fillers(): void
+    public function test_local_login_page_offers_configured_demo_credential_fillers(): void
     {
         $environment = $this->app->environment();
         $this->app['env'] = 'local';
         config([
             'app.debug' => true,
             'demo-login.enabled' => true,
-            'demo-login.password' => 'local-demo-password',
             'demo-login.accounts' => [
-                ['label' => 'Admin', 'email' => 'admin@example.test'],
-                ['label' => 'CEO', 'email' => 'ceo@example.test'],
-                ['label' => 'Team Leader', 'email' => 'leader@example.test'],
+                ['label' => 'Admin', 'email' => 'admin@example.test', 'password' => 'admin-demo-secret', 'icon' => 'bi-shield-lock-fill'],
+                ['label' => 'CEO', 'email' => 'ceo@example.test', 'password' => 'ceo-demo-secret', 'icon' => 'bi-crown-fill'],
+                ['label' => 'Team Leader', 'email' => 'leader@example.test', 'password' => 'leader-demo-secret', 'icon' => 'bi-people-fill'],
             ],
         ]);
 
@@ -75,10 +74,23 @@ class AuthManagementTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('data-email="admin@example.test" data-password="local-demo-password"', false)
-            ->assertSee('data-email="ceo@example.test" data-password="local-demo-password"', false)
-            ->assertSee('data-email="leader@example.test" data-password="local-demo-password"', false)
-            ->assertSee('Development only');
+            ->assertSee('data-demo-login', false)
+            ->assertSee('data-email="admin@example.test"', false)
+            ->assertSee('data-password="admin-demo-secret"', false)
+            ->assertSee('data-email="ceo@example.test"', false)
+            ->assertSee('data-password="ceo-demo-secret"', false)
+            ->assertSee('data-email="leader@example.test"', false)
+            ->assertSee('data-password="leader-demo-secret"', false)
+            ->assertSee('bi-shield-lock-fill', false)
+            ->assertSee('bi-crown-fill', false)
+            ->assertSee('bi-people-fill', false)
+            ->assertSee('document.getElementById(\'email\').value = this.dataset.email;', false)
+            ->assertSee('document.getElementById(\'password\').value = this.dataset.password;', false)
+            ->assertSee('action="'.route('login').'"', false)
+            ->assertSee('type="button"', false)
+            ->assertDontSee('/login/demo', false);
+
+        $this->assertGuest();
     }
 
     public function test_production_login_page_does_not_expose_quick_login_credentials(): void
@@ -88,11 +100,10 @@ class AuthManagementTest extends TestCase
         config([
             'app.debug' => true,
             'demo-login.enabled' => true,
-            'demo-login.password' => 'local-demo-password',
             'demo-login.accounts' => [
-                ['label' => 'Admin', 'email' => 'admin@example.test'],
-                ['label' => 'CEO', 'email' => 'ceo@example.test'],
-                ['label' => 'Team Leader', 'email' => 'leader@example.test'],
+                ['label' => 'Admin', 'email' => 'admin@example.test', 'password' => 'admin-demo-secret'],
+                ['label' => 'CEO', 'email' => 'ceo@example.test', 'password' => 'ceo-demo-secret'],
+                ['label' => 'Team Leader', 'email' => 'leader@example.test', 'password' => 'leader-demo-secret'],
             ],
         ]);
 
@@ -104,10 +115,13 @@ class AuthManagementTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertDontSee('data-email="admin@example.test"', false)
-            ->assertDontSee('data-email="ceo@example.test"', false)
-            ->assertDontSee('data-email="leader@example.test"', false)
-            ->assertDontSee('local-demo-password', false);
+            ->assertDontSee('admin@example.test', false)
+            ->assertDontSee('ceo@example.test', false)
+            ->assertDontSee('leader@example.test', false)
+            ->assertDontSee('admin-demo-secret', false)
+            ->assertDontSee('ceo-demo-secret', false)
+            ->assertDontSee('leader-demo-secret', false)
+            ->assertDontSee('data-demo-login', false);
     }
 
     public function test_local_login_page_hides_demo_accounts_when_disabled_or_debug_is_off(): void
@@ -117,9 +131,8 @@ class AuthManagementTest extends TestCase
         config([
             'app.debug' => true,
             'demo-login.enabled' => false,
-            'demo-login.password' => 'local-demo-password',
             'demo-login.accounts' => [
-                ['label' => 'Admin', 'email' => 'admin@example.test'],
+                ['label' => 'Admin', 'email' => 'admin@example.test', 'password' => 'admin-demo-secret'],
             ],
         ]);
 
@@ -136,15 +149,91 @@ class AuthManagementTest extends TestCase
 
         $disabledResponse
             ->assertOk()
-            ->assertDontSee('aria-label="Local testing quick login"', false)
+            ->assertSee('aria-label="Demo account quick fill"', false)
             ->assertDontSee('admin@example.test', false)
-            ->assertDontSee('local-demo-password', false);
+            ->assertDontSee('data-password=', false)
+            ->assertSee('Configure demo login credentials to enable these buttons.');
 
         $debugDisabledResponse
             ->assertOk()
-            ->assertDontSee('aria-label="Local testing quick login"', false)
+            ->assertDontSee('aria-label="Demo account quick fill"', false)
             ->assertDontSee('admin@example.test', false)
-            ->assertDontSee('local-demo-password', false);
+            ->assertDontSee('data-password=', false);
+    }
+
+    public function test_demo_credential_button_submits_through_the_existing_login_form(): void
+    {
+        $environment = $this->app->environment();
+        $this->app['env'] = 'local';
+        config([
+            'app.debug' => true,
+            'demo-login.enabled' => true,
+            'demo-login.accounts' => [
+                ['label' => 'Admin', 'email' => 'demo.admin@example.test', 'password' => 'local-admin-password'],
+            ],
+        ]);
+        $user = User::factory()->create([
+            'email' => 'demo.admin@example.test',
+            'password' => 'local-admin-password',
+            'status' => 'active',
+        ]);
+
+        try {
+            $this->get(route('login'))
+                ->assertOk()
+                ->assertSee('data-email="demo.admin@example.test"', false)
+                ->assertSee('data-password="local-admin-password"', false);
+        } finally {
+            $this->app['env'] = $environment;
+        }
+
+        $this->assertGuest();
+
+        $this->post(route('login'), [
+            'email' => 'demo.admin@example.test',
+            'password' => 'local-admin-password',
+        ])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_local_login_page_hides_demo_accounts_with_missing_credentials(): void
+    {
+        $environment = $this->app->environment();
+        $this->app['env'] = 'local';
+        config([
+            'app.debug' => true,
+            'demo-login.enabled' => true,
+            'demo-login.accounts' => [
+                ['label' => 'Admin', 'email' => 'admin@example.test', 'password' => 'admin-demo-secret'],
+                ['label' => 'CEO', 'email' => 'ceo@example.test', 'password' => ''],
+                ['label' => 'Team Leader', 'email' => '', 'password' => 'leader-demo-secret'],
+            ],
+        ]);
+
+        try {
+            $response = $this->get(route('login'));
+        } finally {
+            $this->app['env'] = $environment;
+        }
+
+        $response
+            ->assertOk()
+            ->assertSee('data-email="admin@example.test"', false)
+            ->assertSee('data-password="admin-demo-secret"', false)
+            ->assertSeeText('CEO')
+            ->assertSeeText('Team Leader')
+            ->assertDontSee('data-email="ceo@example.test"', false)
+            ->assertDontSee('leader-demo-secret', false);
+        $content = $response->getContent();
+        $sectionStart = strpos($content, 'class="tf-login-quick"');
+        $sectionEnd = strpos($content, '</section>', $sectionStart);
+        $this->assertNotFalse($sectionStart);
+        $this->assertNotFalse($sectionEnd);
+        $quickLoginSection = substr($content, $sectionStart, $sectionEnd - $sectionStart);
+        $this->assertSame(3, substr_count($quickLoginSection, 'data-demo-login'));
+        $this->assertSame(1, substr_count($quickLoginSection, 'data-email='));
     }
 
     public function test_registration_creates_an_inactive_employee_and_ignores_submitted_role(): void

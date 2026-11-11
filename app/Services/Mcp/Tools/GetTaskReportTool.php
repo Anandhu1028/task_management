@@ -85,7 +85,12 @@ class GetTaskReportTool implements McpToolInterface
             }
 
             if (! empty($arguments['company_id']) && $isAdminOrCeo) {
-                $q->where('tasks.company_id', (int) $arguments['company_id']);
+                $requestedComp = (int) $arguments['company_id'];
+                if ($user->company_id && (int) $user->company_id !== $requestedComp) {
+                    $q->whereRaw('1 = 0');
+                } else {
+                    $q->where('tasks.company_id', $requestedComp);
+                }
             }
 
             if (! empty($arguments['department_id']) && $isElevated) {

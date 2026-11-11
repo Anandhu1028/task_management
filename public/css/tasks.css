@@ -334,6 +334,87 @@
     color: #475569;
 }
 
+.tf-task-detail__header-status {
+    --tf-task-status-tone: #64748b;
+    --tf-task-status-soft: #f1f5f9;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 3px 8px;
+    border: 1px solid color-mix(in srgb, var(--tf-task-status-tone) 16%, #fff);
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fff 0%, var(--tf-task-status-soft) 100%);
+    color: var(--tf-task-status-tone);
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+}
+
+.tf-task-detail__header-status-dot {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.tf-task-detail__header-status--assigned,
+.tf-task-detail__header-status--in_progress {
+    --tf-task-status-tone: #2563eb;
+    --tf-task-status-soft: #dbeafe;
+}
+
+.tf-task-detail__header-status--completed {
+    --tf-task-status-tone: #15803d;
+    --tf-task-status-soft: #dcfce7;
+}
+
+.tf-task-detail__header-status--on_hold {
+    --tf-task-status-tone: #b45309;
+    --tf-task-status-soft: #fef3c7;
+}
+
+.tf-task-detail__header-status--submitted_for_review {
+    --tf-task-status-tone: #7c3aed;
+    --tf-task-status-soft: #ede9fe;
+}
+
+.tf-task-detail__header-status--rework,
+.tf-task-detail__header-status--missed {
+    --tf-task-status-tone: #c2410c;
+    --tf-task-status-soft: #ffedd5;
+}
+
+.tf-task-detail__header-status--cancelled {
+    --tf-task-status-tone: #dc2626;
+    --tf-task-status-soft: #fee2e2;
+}
+
+.tf-task-detail__started-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 22px;
+    padding: 3px 8px;
+    border: 1px solid #bbf7d0;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fff 0%, #dcfce7 100%);
+    color: #15803d;
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgb(21 128 61 / 8%);
+}
+
+.tf-task-detail__started-badge i {
+    font-size: 10px;
+}
+
 .tf-task-deadline {
     color: var(--tf-text);
     font-size: 11px;
@@ -1879,6 +1960,37 @@
 
 .tf-task-detail__card-body {
     padding: 13px 15px;
+}
+
+.tf-card-content-toggle {
+    display: inline-flex;
+    min-height: 28px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border: 1px solid #dbe5f2;
+    border-radius: 7px;
+    background: #fff;
+    color: #475569;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.tf-card-content-toggle:hover {
+    border-color: #bfdbfe;
+    background: #f8fbff;
+    color: #1d4ed8;
+}
+
+.tf-card-content-toggle:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
 }
 
 .tf-task-detail__output, .tf-task-detail__description {
@@ -5510,15 +5622,19 @@
 
 .tf-task-management #taskListView .tf-task-table tbody td .tf-task-identity__link {
     color: #132849;
-    font-size: 11px !important;
+    font-size: 11.5px !important;
     font-weight: 600;
     line-height: 1.4;
 }
 
 .tf-task-management #taskListView .tf-task-table tbody td .tf-task-identity__company {
     color: #8290a7;
-    font-size: 9px !important;
+    font-size: 9.5px !important;
     line-height: 1.35;
+}
+
+.tf-task-management #taskListView .tf-task-table tbody td .tf-task-poc {
+    font-size: 9.5px;
 }
 
 .tf-task-management .tf-task-assignee {
@@ -5535,12 +5651,20 @@
 
 .tf-task-management #taskListView .tf-task-table tbody td .tf-task-assignee__identity > span {
     color: #17243b;
-    font-size: 10px !important;
+    font-size: 11.5px !important;
 }
 
 .tf-task-management #taskListView .tf-task-table tbody td .tf-task-assignee__identity small, .tf-task-management #taskListView .tf-task-table tbody td .tf-task-deadline__revised {
     color: #8290a7;
-    font-size: 8.5px !important;
+    font-size: 9.5px !important;
+}
+
+.tf-task-management #taskListView .tf-task-deadline {
+    font-size: 12px;
+}
+
+.tf-task-management #taskListView .tf-task-progress__label {
+    font-size: 9.5px;
 }
 
 .tf-task-management .tf-task-priority, .tf-task-management .tf-task-status, .tf-task-management .tf-task-type {
@@ -5753,106 +5877,6 @@
     line-height: 1.4;
 }
 
-.tf-task-detail__summary-badges {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: stretch;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.tf-task-detail__summary-badge {
-    position: relative;
-    display: flex;
-    min-width: 112px;
-    flex: 1 1 112px;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 5px;
-    padding: 9px 10px;
-    border: 1px solid #e6ecf5;
-    border-radius: 11px;
-    background: linear-gradient(145deg, #fff 0%, #f8faff 100%);
-    box-shadow: 0 2px 6px rgb(22 43 77 / 4%);
-    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
-}
-
-.tf-task-detail__summary-badge:hover {
-    transform: translateY(-1px);
-    border-color: #cbdaf2;
-    box-shadow: 0 5px 12px rgb(22 43 77 / 8%);
-}
-
-.tf-task-detail__summary-badge-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: #78869c;
-    font-size: 8px;
-    font-weight: 650;
-    line-height: 1.2;
-}
-
-.tf-task-detail__summary-badge-label i {
-    display: inline-grid;
-    width: 18px;
-    height: 18px;
-    flex: 0 0 18px;
-    place-items: center;
-    border-radius: 6px;
-    background: #edf4ff;
-    color: #3478e5;
-    font-size: 9px;
-}
-
-.tf-task-detail__summary-badge > strong {
-    overflow-wrap: anywhere;
-    color: #273853;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1.25;
-}
-
-.tf-task-detail__summary-badge > small {
-    color: #8996aa;
-    font-size: 7px;
-    line-height: 1.2;
-}
-
-.tf-task-detail__summary-badge > .tf-task-status {
-    align-self: flex-start;
-    min-height: 17px;
-    padding: 3px 7px;
-    border-radius: 999px;
-    font-size: 8px;
-    line-height: 1;
-}
-
-.tf-task-detail__summary-badge--workflow {
-    border-color: #dce9ff;
-    background: linear-gradient(145deg, #f8fbff 0%, #eff6ff 100%);
-}
-
-.tf-task-detail__summary-badge--workflow .tf-task-detail__summary-badge-label i {
-    background: #e2edff;
-    color: #2563eb;
-}
-
-.tf-task-detail__summary-badge--start .tf-task-detail__summary-badge-label i {
-    background: #edf7f3;
-    color: #16835d;
-}
-
-.tf-task-detail__summary-badge--deadline .tf-task-detail__summary-badge-label i {
-    background: #fff5e8;
-    color: #c77712;
-}
-
-.tf-task-detail__summary-badge--effort .tf-task-detail__summary-badge-label i {
-    background: #f3efff;
-    color: #7553c7;
-}
-
 @media (max-width: 760px) {
     .tf-task-detail__summary {
         grid-template-columns: minmax(0, 1fr);
@@ -5860,18 +5884,6 @@
 
     .tf-task-detail__summary > .tf-task-detail__heading, .tf-task-detail__workflow-progress {
         grid-column: auto;
-    }
-}
-
-@media (max-width: 680px) {
-    .tf-task-detail__summary-badges {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .tf-task-detail__summary-badge {
-        min-width: 0;
-        padding: 8px;
     }
 }
 
@@ -6243,7 +6255,7 @@
 }
 
 .tf-task-detail__output-section .tf-task-detail__section-label {
-    margin-bottom: 5px;
+    margin-bottom: 10px;
 }
 
 .tf-task-detail__output {
@@ -6592,45 +6604,6 @@
 .tf-task-detail__summary > .tf-task-detail__heading > p {
     margin-top: 4px;
     font-size: 12px;
-}
-
-.tf-task-detail__summary-badges {
-    gap: 9px;
-    margin-top: 12px;
-}
-
-.tf-task-detail__summary-badge {
-    min-width: 128px;
-    gap: 6px;
-    padding: 10px 11px;
-    border-radius: 12px;
-}
-
-.tf-task-detail__summary-badge-label {
-    gap: 6px;
-    font-size: 10px;
-}
-
-.tf-task-detail__summary-badge-label i {
-    width: 20px;
-    height: 20px;
-    flex-basis: 20px;
-    border-radius: 7px;
-    font-size: 10px;
-}
-
-.tf-task-detail__summary-badge > strong {
-    font-size: 13px;
-}
-
-.tf-task-detail__summary-badge > small {
-    font-size: 10px;
-}
-
-.tf-task-detail__summary-badge > .tf-task-status {
-    min-height: 21px;
-    padding: 4px 8px;
-    font-size: 10px;
 }
 
 .tf-task-detail__workflow-progress {
@@ -7033,15 +7006,6 @@
         font-size: 18px;
     }
 
-    .tf-task-detail__summary-badges {
-        gap: 8px;
-    }
-
-    .tf-task-detail__summary-badge {
-        min-width: 0;
-        padding: 8px;
-    }
-
     .tf-task-detail__main > [data-task-detail-panel="overview"] > section[aria-labelledby="task-description-title"] > .tf-task-detail__card-body {
         padding: 14px;
     }
@@ -7058,25 +7022,6 @@
 
 .tf-task-detail__summary > .tf-task-detail__heading > p {
     font-size: 11px;
-}
-
-.tf-task-detail__summary-badge {
-    gap: 5px;
-    padding: 8px 9px;
-}
-
-.tf-task-detail__summary-badge-label, .tf-task-detail__summary-badge > small {
-    font-size: 9px;
-}
-
-.tf-task-detail__summary-badge-label i {
-    width: 19px;
-    height: 19px;
-    flex-basis: 19px;
-}
-
-.tf-task-detail__summary-badge > strong {
-    font-size: 12px;
 }
 
 .tf-task-detail__workflow-progress {
@@ -7196,7 +7141,7 @@
 }
 
 .tf-task-detail__output {
-    padding: 10px 12px;
+    padding: 13px 12px;
     font-size: 11px;
 }
 
@@ -7329,11 +7274,11 @@
 }
 
 #panel-subtasks .tf-subtask-card__title {
-    font-size: 18px;
+    font-size: 16px;
 }
 
 #panel-subtasks .tf-subtask-card__subtitle {
-    font-size: 13.5px;
+    font-size: 12px;
 }
 
 #panel-subtasks .tf-subtask-card__progress-text,
@@ -7343,16 +7288,20 @@
 #panel-subtasks .tf-st-assignee-name,
 #panel-subtasks .tf-st-dates,
 #panel-subtasks .tf-st-description {
-    font-size: 12px;
+    font-size: 13px;
 }
 
 #panel-subtasks .tf-subtask-table th {
-    font-size: 12px;
+    font-size: 11px;
 }
 
 #panel-subtasks .tf-st-duration-badge,
 #panel-subtasks .tf-st-status-pill {
-    font-size: 11px;
+    font-size: 12px;
+}
+
+#panel-subtasks #subtasks-empty-row td {
+    font-size: 13px;
 }
 
 .tf-task-detail__grid[data-activity-view="overview"] > .tf-task-detail__sidebar .tf-activity-tabs-nav,
@@ -7369,8 +7318,7 @@
 }
 
 .tf-task-detail__grid[data-activity-view]:not([data-activity-view="overview"]) .tf-activity-tab-panel:not([hidden]) {
-    grid-column: 1;
-    grid-row: 2;
+    grid-area: content;
     min-width: 0;
 }
 
@@ -7661,5 +7609,1015 @@
         max-width: calc(100vw - 24px);
         right: -2px;
         padding: 8px;
+    }
+}
+
+.task-overview-project-phases {
+    --project-phase-ink: #17243b;
+    --project-phase-muted: #718096;
+    --project-phase-border: #e8edf4;
+    --project-phase-blue: #2563eb;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--project-phase-border);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(27, 44, 78, .045);
+}
+
+.task-overview-project-phases__header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.task-overview-project-phases__heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 11px;
+}
+
+.task-overview-project-phases__icon,
+.task-overview-project-phases__empty-icon {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: var(--project-phase-blue);
+    font-size: 16px;
+}
+
+.task-overview-project-phases__heading h2 {
+    margin: 0;
+    color: var(--project-phase-ink);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.task-overview-project-phases__heading p {
+    margin: 3px 0 0;
+    color: var(--project-phase-muted);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.task-overview-project-phases__summary {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: baseline;
+    gap: 4px;
+    padding: 7px 10px;
+    border: 1px solid #e5edfc;
+    border-radius: 9px;
+    background: #f7faff;
+    color: #64748b;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.task-overview-project-phases__summary strong {
+    color: var(--project-phase-blue);
+    font-size: 15px;
+    font-weight: 750;
+}
+
+.task-overview-project-phases__progress {
+    height: 7px;
+    margin: 16px 18px 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf1f6;
+}
+
+.task-overview-project-phases__progress .progress-bar {
+    border-radius: inherit;
+    background: linear-gradient(90deg, #60a5fa, #2563eb);
+    transition: width .25s ease;
+}
+
+.task-overview-project-phases__list {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.task-overview-project-phase {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 15px 18px;
+}
+
+.task-overview-project-phase + .task-overview-project-phase {
+    border-top: 1px solid #edf1f6;
+}
+
+.task-overview-project-phase:not(:last-child)::after {
+    position: absolute;
+    top: 43px;
+    bottom: -16px;
+    left: 31px;
+    width: 1px;
+    background: #e6ebf2;
+    content: "";
+}
+
+.task-overview-project-phase__marker {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 27px;
+    height: 27px;
+    place-items: center;
+    border: 1px solid #dbe5f2;
+    border-radius: 50%;
+    background: #fff;
+    color: #94a3b8;
+    font-size: 10px;
+}
+
+.task-overview-project-phase[data-project-phase-status="in_progress"] .task-overview-project-phase__marker {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.task-overview-project-phase[data-project-phase-status="completed"] .task-overview-project-phase__marker {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #059669;
+}
+
+.task-overview-project-phase[data-project-phase-status="cancelled"] .task-overview-project-phase__marker {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #94a3b8;
+}
+
+.task-overview-project-phase__content {
+    min-width: 0;
+}
+
+.task-overview-project-phase__top {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.task-overview-project-phase__title {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.task-overview-project-phase__number {
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: .07em;
+    line-height: 1.3;
+    text-transform: uppercase;
+}
+
+.task-overview-project-phase__title h3 {
+    margin: 0;
+    color: var(--project-phase-ink);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.task-overview-project-phase__status {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.task-overview-project-phase__status > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.task-overview-project-phase__status.is-pending {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+}
+
+.task-overview-project-phase__status.is-in-progress {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.task-overview-project-phase__status.is-completed {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.task-overview-project-phase__status.is-cancelled {
+    border-color: #e2e8f0;
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.task-overview-project-phase__description {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.task-overview-project-phase__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.task-overview-project-phase__meta > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.task-overview-project-phase__meta .is-overdue {
+    color: #b91c1c;
+    font-weight: 650;
+}
+
+.task-overview-project-phase__overdue {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.task-overview-project-phase__actions {
+    display: flex;
+    grid-column: 2;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.task-overview-project-phase__actions .form-select {
+    width: auto;
+    min-width: 132px;
+    border-color: #dce4ef;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+.task-overview-project-phase__actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 7px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.task-overview-project-phases__footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 18px;
+    border-top: 1px solid #edf1f6;
+    background: #fafbfd;
+    color: #64748b;
+    font-size: 10px;
+}
+
+.task-overview-project-phases__footer > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.task-overview-project-phases__footer i {
+    color: #2563eb;
+}
+
+.task-overview-project-phases__empty {
+    display: grid;
+    justify-items: center;
+    gap: 7px;
+    padding: 28px 16px;
+    text-align: center;
+}
+
+.task-overview-project-phases__empty-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 18px;
+}
+
+.task-overview-project-phases__empty strong {
+    color: var(--project-phase-ink);
+    font-size: 12px;
+}
+
+.task-overview-project-phases__empty p {
+    margin: 0;
+    color: var(--project-phase-muted);
+    font-size: 11px;
+}
+
+@media (max-width: 560px) {
+    .task-overview-project-phases__header {
+        padding: 13px;
+    }
+
+    .task-overview-project-phases__summary {
+        padding: 6px 8px;
+        font-size: 9px;
+    }
+
+    .task-overview-project-phase {
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 8px;
+        padding: 13px;
+    }
+
+    .task-overview-project-phase:not(:last-child)::after {
+        left: 25px;
+    }
+
+    .task-overview-project-phase__marker {
+        width: 24px;
+        height: 24px;
+    }
+
+    .task-overview-project-phase__top {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .task-overview-project-phase__actions {
+        grid-column: 2;
+    }
+
+    .task-overview-project-phases__footer {
+        padding: 10px 13px;
+    }
+}
+
+.tf-create-task__project-phases {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid #dbe5f1;
+    border-radius: 9px;
+    background: #fbfcfe;
+}
+
+.tf-create-task__project-phases-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.tf-create-task__project-phases-heading h3 {
+    margin: 0;
+    color: #23334d;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.tf-create-task__project-phases-heading p {
+    margin: 2px 0 0;
+    color: #77869b;
+    font-size: 9px;
+    line-height: 1.4;
+}
+
+.tf-create-task__project-phase-add {
+    display: inline-flex;
+    min-height: 27px;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 9px;
+    border: 1px solid #3978ff;
+    border-radius: 7px;
+    background: #fff;
+    color: #2463eb;
+    font-size: 10px;
+    font-weight: 550;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.tf-create-task__project-phase-add:hover {
+    background: #f0f5ff;
+}
+
+.tf-create-task__project-phase-add i {
+    font-size: 13px;
+}
+
+.tf-create-task__project-phase-list {
+    display: grid;
+    gap: 7px;
+}
+
+.tf-create-task__project-phase-row {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1.4fr) minmax(105px, 0.75fr) 18px;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    padding: 8px;
+    border: 1px solid #dbe5f1;
+    border-radius: 7px;
+    background: #fff;
+}
+
+.tf-create-task__project-phase-row .form-control {
+    width: 100%;
+    min-width: 0;
+    min-height: 29px;
+    padding: 4px 8px;
+    border: 1px solid #cbd7e7;
+    border-radius: 6px;
+    background-color: #fff;
+    color: #334155;
+    font-family: var(--tf-font);
+    font-size: 10px;
+    box-shadow: none;
+}
+
+.tf-create-task__project-phase-row .form-control::placeholder {
+    color: #98a5b8;
+    opacity: 1;
+}
+
+.tf-create-task__project-phase-row .form-control:focus {
+    border-color: #8bb5ff;
+    outline: 0;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.tf-create-task__project-phase-remove {
+    display: inline-flex;
+    width: 18px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #ff6b73;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.tf-create-task__project-phase-remove:hover {
+    color: #dc3545;
+}
+
+@media (max-width: 560px) {
+    .tf-create-task__project-phase-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 20px;
+    }
+
+    .tf-create-task__project-phase-row [data-project-phase-deadline] {
+        grid-column: 1 / 3;
+    }
+}
+
+.tf-volume-overview-card {
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgb(15 23 42 / 4%);
+}
+
+.tf-volume-overview-card__header {
+    min-height: 60px;
+    padding: 11px 16px;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.tf-volume-overview-card__header .task-activity-feed__heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tf-volume-overview-card__header .task-activity-feed__icon {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    place-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #2563eb;
+    font-size: 13px;
+}
+
+.tf-volume-overview-card__header .task-activity-feed__title {
+    margin: 0;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.tf-volume-overview-card__body {
+    padding: 16px !important;
+}
+
+.tf-volume-overview-card__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.tf-volume-overview-card__metric {
+    display: flex;
+    min-width: 0;
+    min-height: 68px;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 2px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: #f1f6fe;
+}
+
+.tf-volume-overview-card__metric--completed {
+    border-color: #b7dfcc;
+    background: #e7f4ed;
+}
+
+.tf-volume-overview-card__metric-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tf-volume-overview-card__metric-label {
+    overflow: hidden;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .035em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tf-volume-overview-card__metric--completed .tf-volume-overview-card__metric-label {
+    color: #166534;
+}
+
+.tf-volume-overview-card__metric-icon {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    place-items: center;
+    border-radius: 7px;
+    font-size: 13px;
+}
+
+.tf-volume-overview-card__metric-content {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.tf-volume-overview-card__metric-value {
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.05;
+}
+
+.tf-volume-overview-card__metric--completed .tf-volume-overview-card__metric-value {
+    color: #13834b;
+}
+
+.tf-volume-overview-card__metric-value-line {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.tf-volume-overview-card__metric-detail {
+    color: #64748b;
+    font-size: 9px;
+    line-height: 1.1;
+}
+
+.tf-volume-overview-card__progress {
+    margin-bottom: 14px;
+}
+
+.tf-volume-overview-card__progress .progress {
+    height: 8px;
+}
+
+.tf-volume-overview-card__progress .small {
+    font-size: 11px;
+}
+
+.tf-volume-overview-card__summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.tf-volume-overview-card__meta {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0;
+    padding: 7px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 10px;
+}
+
+.tf-volume-overview-card__meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tf-volume-overview-card__meta-separator {
+    color: #cbd5e1;
+}
+
+.tf-volume-overview-card__alert {
+    flex: 0 1 440px;
+    min-width: 0;
+    margin: 0 !important;
+    gap: 6px !important;
+    padding: 5px 8px !important;
+    border-radius: 8px !important;
+}
+
+.tf-volume-overview-card__alert-icon {
+    flex: 0 0 auto;
+    font-size: 14px !important;
+}
+
+.tf-volume-overview-card__alert-copy {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 4px;
+}
+
+.tf-volume-overview-card__alert-copy strong {
+    font-size: 10px;
+}
+
+.tf-volume-overview-card__alert-copy > span {
+    font-size: 9px;
+    line-height: 1.2;
+}
+
+.tf-volume-overview-card__schedule-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 9px;
+}
+
+.tf-volume-overview-card__schedule-heading h3 {
+    font-size: 13px;
+}
+
+.tf-volume-overview-card__schedule-heading > span {
+    font-size: 10px;
+}
+
+.tf-volume-overview-card__table-wrap {
+    overflow: auto;
+    border-color: #e2e8f0 !important;
+    border-radius: 10px !important;
+}
+
+.tf-volume-overview-card__table {
+    min-width: 640px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    --bs-table-bg: transparent;
+    --bs-table-hover-bg: transparent;
+    font-size: 11px;
+}
+
+.tf-volume-overview-card__column-date {
+    width: 38%;
+}
+
+.tf-volume-overview-card__column-target {
+    width: 19%;
+}
+
+.tf-volume-overview-card__column-actual {
+    width: 25%;
+}
+
+.tf-volume-overview-card__column-status {
+    width: 18%;
+}
+
+.tf-volume-overview-card__table th {
+    padding: 10px 12px !important;
+    border-bottom: 1px solid #e8edf4;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .045em;
+    white-space: nowrap;
+}
+
+.tf-volume-overview-card__table th:nth-child(n + 2) {
+    text-align: center;
+}
+
+.tf-volume-overview-card__table thead th:first-child {
+    padding-left: 16px !important;
+    border-top-left-radius: 9px;
+}
+
+.tf-volume-overview-card__table thead th:last-child {
+    border-top-right-radius: 9px;
+}
+
+.tf-volume-overview-card__table td {
+    padding: 11px 12px !important;
+    border-bottom: 1px solid #edf1f6;
+    background: #fff;
+    font-size: 12px;
+    transition: background-color 150ms ease;
+}
+
+.tf-volume-overview-card__table tbody tr:hover > td {
+    background: #f8fbff;
+}
+
+.tf-volume-overview-card__table tbody tr:last-child > td {
+    border-bottom: 0;
+}
+
+.tf-volume-overview-card__table tbody tr:last-child > td:first-child {
+    border-bottom-left-radius: 9px;
+}
+
+.tf-volume-overview-card__table tbody tr:last-child > td:last-child {
+    border-bottom-right-radius: 9px;
+}
+
+.tf-volume-overview-card__table tbody tr.tf-volume-overview-card__table-row--today > td {
+    background: #f3f8ff;
+}
+
+.tf-volume-overview-card__table tbody tr.tf-volume-overview-card__table-row--today:hover > td {
+    background: #edf5ff;
+}
+
+.tf-volume-overview-card__table tbody tr.tf-volume-overview-card__table-row--today > td:first-child {
+    box-shadow: inset 3px 0 #60a5fa;
+}
+
+.tf-volume-overview-card__table td:nth-child(2),
+.tf-volume-overview-card__table td:nth-child(3),
+.tf-volume-overview-card__table td:nth-child(4) {
+    text-align: center;
+}
+
+.tf-volume-overview-card__date-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tf-volume-overview-card__date-value {
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.tf-volume-overview-card__weekday {
+    display: block;
+    margin-top: 3px;
+    color: #8491a5;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.tf-volume-overview-card__today {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.tf-volume-overview-card__target {
+    display: inline-flex;
+    min-width: 62px;
+    align-items: baseline;
+    justify-content: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.tf-volume-overview-card__target small {
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 500;
+}
+
+.tf-volume-overview-card__actual {
+    display: inline-grid;
+    min-width: 28px;
+    min-height: 24px;
+    padding: 3px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    place-items: center;
+}
+
+.tf-volume-overview-card__actual--achieved {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.tf-volume-overview-card__actual--below {
+    background: #fef3c7;
+    color: #a16207;
+}
+
+.tf-volume-overview-card__actual-empty {
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.tf-volume-overview-card__status-badge {
+    display: inline-flex;
+    min-height: 22px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+    transition: box-shadow 150ms ease, transform 150ms ease;
+}
+
+.tf-volume-overview-card__status-badge:hover {
+    box-shadow: 0 2px 5px rgb(15 23 42 / 10%);
+    transform: translateY(-1px);
+}
+
+.tf-volume-overview-card__status-indicator {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;
+}
+
+.tf-volume-overview-card__status-badge--achieved {
+    border-color: #b7e4c7;
+    background: linear-gradient(180deg, #f3fcf6, #e8f7ed);
+    color: #15803d;
+}
+
+.tf-volume-overview-card__status-badge--mismatch {
+    border-color: #f2c5c5;
+    background: linear-gradient(180deg, #fff7f7, #fef0f0);
+    color: #b91c1c;
+}
+
+.tf-volume-overview-card__status-badge--missed {
+    border-color: #f2d487;
+    background: linear-gradient(180deg, #fffaf0, #fff4d8);
+    color: #946200;
+}
+
+.tf-volume-overview-card__status-badge--pending {
+    border-color: #d9e1eb;
+    background: linear-gradient(180deg, #fff, #f3f6fa);
+    color: #64748b;
+}
+
+.tf-volume-overview-card__status-badge--pending .tf-volume-overview-card__status-indicator {
+    border-style: dashed;
+}
+
+@media (max-width: 575px) {
+    .tf-volume-overview-card__body {
+        padding: 12px !important;
+    }
+
+    .tf-volume-overview-card__header {
+        padding: 10px 12px;
+    }
+
+    .tf-volume-overview-card__schedule-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .tf-volume-overview-card__meta-separator {
+        display: none;
+    }
+}
+
+@media (max-width: 767px) {
+    .tf-volume-overview-card__summary-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tf-volume-overview-card__meta,
+    .tf-volume-overview-card__alert {
+        width: 100%;
     }
 }

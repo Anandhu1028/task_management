@@ -517,7 +517,6 @@ body.tf-guest-body {
 .tf-login-quick__heading {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
 }
 
@@ -539,12 +538,17 @@ body.tf-guest-body {
 }
 
 .tf-login-quick__buttons button {
+    display: inline-flex;
+    width: 100%;
     min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     padding: 5px 7px;
     border: 1px solid #dce4f0;
     border-radius: 9px;
-    background: #fff;
-    color: #334155;
+    background: #f1f5ff;
+    color: #2456d9;
     font: inherit;
     font-size: 10.5px;
     font-weight: 600;
@@ -555,9 +559,21 @@ body.tf-guest-body {
 .tf-login-quick__buttons button:hover,
 .tf-login-quick__buttons button:focus-visible {
     border-color: #93b4ff;
-    background: #f1f5ff;
+    background: #e6eeff;
     color: #2456d9;
     outline: none;
+}
+
+.tf-login-quick__buttons button:disabled {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.tf-login-quick__notice {
+    color: #64748b;
+    font-size: 10px;
 }
 
 .tf-login-secure {
@@ -690,11 +706,20 @@ body.tf-guest-body {
 .tf-brand {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 10px;
     font-weight: 750;
     font-size: 18px;
     letter-spacing: -0.03em;
     color: var(--tf-text);
+}
+
+.tf-brand__image {
+    display: block;
+    width: 100%;
+    max-width: 220px;
+    max-height: 56px;
+    object-fit: contain;
 }
 
 .tf-brand__mark {
@@ -5573,10 +5598,16 @@ body.tf-chatgpt-modal-open {
 }
 
 .tf-brand {
+    width: 100%;
     gap: 8px;
     font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.02em;
+}
+
+.tf-brand__image {
+    max-width: 220px;
+    max-height: 56px;
 }
 
 .tf-brand__mark {
@@ -5588,6 +5619,11 @@ body.tf-chatgpt-modal-open {
 
 .tf-workspace-wrap {
     padding: 2px 10px 8px;
+}
+
+.tf-body.is-collapsed .tf-brand__image {
+    width: 40px;
+    max-height: none;
 }
 
 .tf-workspace {
@@ -6537,10 +6573,23 @@ body.tf-chatgpt-modal-open {
     width: 100%;
     max-width: 100%;
     gap: 3px;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow: visible;
     padding: 4px;
     border-radius: 999px;
     background: #eef4ff;
+}
+
+@media (max-width: 760px) {
+    .tf-activity-tabs-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .tf-activity-tabs-nav::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 .tf-activity-tab-btn {

@@ -172,6 +172,44 @@ class PwaTaskTest extends TestCase
         $this->actingAs($employee)->get(route('pwa.tasks.show', $theirs))->assertForbidden();
     }
 
+    public function test_assignee_can_see_project_phase_deadline_and_status_in_pwa(): void
+    {
+        $employee = $this->makeEmployee();
+        $task = $this->makeTask([
+            'task_type' => 'project',
+            'assigned_to' => $employee->id,
+            'status' => 'assigned',
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $employee->id,
+            'assigned_by' => $this->admin->id,
+            'assigned_at' => now(),
+            'is_active' => true,
+        ]);
+        $task->milestones()->create([
+            'created_by' => $this->admin->id,
+            'title' => 'Initial planning',
+            'description' => 'Confirm the delivery scope.',
+            'target_date' => now()->subDay()->toDateString(),
+            'status' => 'in_progress',
+            'sort_order' => 1,
+        ]);
+
+        $this->actingAs($employee)
+            ->get(route('pwa.tasks.show', $task))
+            ->assertOk()
+            ->assertSee('Project phases')
+            ->assertSee('0 of 1 completed')
+            ->assertSee('aria-label="Project phase completion"', false)
+            ->assertSee('aria-valuenow="0"', false)
+            ->assertSee('Initial planning')
+            ->assertSee('Confirm the delivery scope.')
+            ->assertSee('In Progress')
+            ->assertSee('pwa-project-phase__status--in-progress', false)
+            ->assertSee('Overdue');
+    }
+
     public function test_assignee_sees_start_work_and_pwa_action_redirects_back_to_pwa(): void
     {
         $employee = $this->makeEmployee();

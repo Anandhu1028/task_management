@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Mcp\McpServerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class McpController extends Controller
@@ -20,8 +21,20 @@ class McpController extends Controller
      */
     public function handle(Request $request): Response
     {
+        $requestId = $request->attributes->get('mcp_request_id');
+        Log::debug('MCP HTTP request received', [
+            'stage' => 'http_request_received',
+            'request_id' => $requestId,
+            'content_type' => $request->header('Content-Type'),
+        ]);
+
         $user = $request->user();
         if (! $user) {
+            Log::error('MCP authenticated user resolution failed', [
+                'stage' => 'authenticated_user_resolution',
+                'request_id' => $requestId,
+            ]);
+
             return response()->json([
                 'jsonrpc' => '2.0',
                 'id' => null,
@@ -35,6 +48,11 @@ class McpController extends Controller
         $payload = $request->json()->all();
 
         if (empty($payload)) {
+            Log::warning('MCP JSON-RPC payload was empty or invalid', [
+                'stage' => 'json_rpc_payload_parsing',
+                'request_id' => $requestId,
+            ]);
+
             return response()->json([
                 'jsonrpc' => '2.0',
                 'id' => null,
@@ -44,6 +62,12 @@ class McpController extends Controller
                 ],
             ], 400);
         }
+
+        Log::debug('MCP JSON-RPC payload parsed', [
+            'stage' => 'json_rpc_payload_parsed',
+            'is_batch' => array_is_list($payload),
+            'request_id' => $requestId,
+        ]);
 
         // Handle batch JSON-RPC requests
         if (array_is_list($payload) && count($payload) > 0) {
@@ -57,6 +81,12 @@ class McpController extends Controller
                 }
             }
 
+            Log::debug('MCP batch response generated', [
+                'stage' => 'mcp_response_generated',
+                'response_count' => count($responses),
+                'request_id' => $requestId,
+            ]);
+
             return response()->json($responses);
         }
 
@@ -64,8 +94,18 @@ class McpController extends Controller
         $response = $this->mcpServer->handleJsonRpc($user, $payload);
 
         if ($response === null) {
+            Log::debug('MCP notification response completed', [
+                'stage' => 'mcp_response_generated',
+                'request_id' => $requestId,
+            ]);
+
             return response()->noContent();
         }
+
+        Log::debug('MCP JSON-RPC response generated', [
+            'stage' => 'mcp_response_generated',
+            'request_id' => $requestId,
+        ]);
 
         return response()->json($response);
     }

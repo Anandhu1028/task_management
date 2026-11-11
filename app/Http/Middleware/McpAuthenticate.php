@@ -5,6 +5,8 @@ namespace App\Http\Middleware;
 use App\Services\Mcp\OAuthService;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 class McpAuthenticate
@@ -20,6 +22,9 @@ class McpAuthenticate
      */
     public function handle(Request $request, Closure $next, ?string $requiredScope = null): Response
     {
+        $requestId = (string) Str::uuid();
+        $request->attributes->set('mcp_request_id', $requestId);
+
         $authorization = $request->header('Authorization');
 
         if (! $authorization || ! str_starts_with($authorization, 'Bearer ')) {
@@ -37,6 +42,12 @@ class McpAuthenticate
         $scopes = $authResult['scopes'];
 
         if ($requiredScope && ! in_array($requiredScope, $scopes, true)) {
+            Log::warning('MCP request scope rejected', [
+                'stage' => 'scope_authorization',
+                'required_scope' => $requiredScope,
+                'request_id' => $requestId,
+            ]);
+
             return $this->forbiddenResponse($request, "Missing required scope: {$requiredScope}");
         }
 
@@ -44,12 +55,26 @@ class McpAuthenticate
         $request->setUserResolver(fn () => $user);
         auth()->setUser($user);
         $request->attributes->set('mcp_scopes', $scopes);
+        if (isset($authResult['client_id'])) {
+            $request->attributes->set('mcp_client_id', $authResult['client_id']);
+        }
+
+        Log::debug('MCP authentication succeeded', [
+            'stage' => 'authenticated_user_resolved',
+            'scope_count' => count($scopes),
+            'request_id' => $requestId,
+        ]);
 
         return $next($request);
     }
 
     private function unauthorizedResponse(Request $request, string $message): Response
     {
+        Log::warning('MCP authentication rejected', [
+            'stage' => 'oauth_token_validation',
+            'request_id' => $request->attributes->get('mcp_request_id'),
+        ]);
+
         if ($request->isJson() || $request->has('jsonrpc')) {
             $id = $request->input('id');
 

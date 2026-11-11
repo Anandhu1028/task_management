@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Models\McpOAuthClient;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 class McpOAuthClientSeeder extends Seeder
 {
@@ -13,22 +12,28 @@ class McpOAuthClientSeeder extends Seeder
      */
     public function run(): void
     {
+        // ChatGPT uses Authorization Code + PKCE S256 (public OAuth 2.0/2.1 client).
+        // It must NOT be confidential (is_confidential = false) and must NOT have a secret,
+        // because ChatGPT does not send client secrets during public token exchange.
         McpOAuthClient::updateOrCreate(
             ['client_id' => 'chatgpt_connector_live'],
             [
                 'name' => 'ChatGPT Connector',
-                'secret' => Hash::make('focuz_tracker_secret_2026'),
+                'secret' => null,
                 'redirect_uris' => [
-                    'https://chatgpt.com/connector/oauth/*',
-                    'https://chat.openai.com/connector/oauth/*',
-                    'https://chatgpt.com/aip/*',
-                    'https://chat.openai.com/aip/*',
+                    'https://chatgpt.com/connector/oauth/callback',
                     'https://chatgpt.com/connector/oauth/yHyws2Of_8Kj',
+                    'https://chatgpt.com/connector/oauth/yHyws2Qf_8Kj',
                     'https://chatgpt.com/aip/g-connector/oauth/callback',
                     'https://chat.openai.com/aip/g-connector/oauth/callback',
                 ],
-                'scopes' => ['tasks:read', 'reports:read', 'offline_access'],
-                'is_confidential' => true,
+                'scopes' => [
+                    'tasks:read',
+                    'tasks:write',
+                    'reports:read',
+                    'offline_access',
+                ],
+                'is_confidential' => false,
                 'is_revoked' => false,
             ]
         );

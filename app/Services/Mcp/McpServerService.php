@@ -3,16 +3,25 @@
 namespace App\Services\Mcp;
 
 use App\Models\User;
+use App\Services\Mcp\Tools\CreateTaskTool;
+use App\Services\Mcp\Tools\GetCompanyReportTool;
+use App\Services\Mcp\Tools\GetDailyWorkReportTool;
 use App\Services\Mcp\Tools\GetDeadlineRequestsTool;
+use App\Services\Mcp\Tools\GetEmployeePerformanceTool;
 use App\Services\Mcp\Tools\GetMyTasksTool;
 use App\Services\Mcp\Tools\GetOverdueTasksTool;
 use App\Services\Mcp\Tools\GetProjectReportTool;
+use App\Services\Mcp\Tools\GetSubtaskDetailsTool;
 use App\Services\Mcp\Tools\GetSubtaskReportTool;
 use App\Services\Mcp\Tools\GetTaskDetailsTool;
 use App\Services\Mcp\Tools\GetTaskReportTool;
 use App\Services\Mcp\Tools\GetTeamReportTool;
+use App\Services\Mcp\Tools\GetTeamTasksTool;
 use App\Services\Mcp\Tools\McpToolInterface;
 use App\Services\Mcp\Tools\SearchTasksTool;
+use App\Services\Mcp\Tools\UpdateDailyTaskTool;
+use App\Services\Mcp\Tools\UpdateTaskStatusTool;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -29,8 +38,9 @@ class McpServerService
      */
     private array $tools = [];
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ?McpAuditService $auditService = null,
+    ) {
         $this->registerDefaultTools();
     }
 
@@ -38,14 +48,22 @@ class McpServerService
     {
         $tools = [
             new GetMyTasksTool,
+            new GetTeamTasksTool,
             new SearchTasksTool,
             new GetTaskDetailsTool,
+            new GetSubtaskDetailsTool,
             new GetTaskReportTool,
             new GetOverdueTasksTool,
             new GetTeamReportTool,
             new GetSubtaskReportTool,
             new GetDeadlineRequestsTool,
             new GetProjectReportTool,
+            new GetDailyWorkReportTool,
+            new GetCompanyReportTool,
+            new GetEmployeePerformanceTool,
+            new CreateTaskTool,
+            new UpdateTaskStatusTool,
+            new UpdateDailyTaskTool,
         ];
 
         foreach ($tools as $tool) {
@@ -99,14 +117,32 @@ class McpServerService
                     return $this->errorResponse($id, -32601, "Method '{$method}' not found.");
             }
         } catch (Throwable $e) {
-            Log::error('MCP tool execution exception', [
-                'user_id' => $user->id,
+            Log::error('MCP request processing failed', $this->exceptionContext($e, 'json_rpc_request') + [
                 'method' => $method,
-                'error' => $e->getMessage(),
             ]);
 
             return $this->errorResponse($id, -32603, 'Internal error during MCP request processing.');
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function exceptionContext(Throwable $exception, string $stage): array
+    {
+        $context = [
+            'stage' => $stage,
+            'exception_class' => $exception::class,
+            'exception_code' => $exception->getCode(),
+            'request_id' => request()->attributes->get('mcp_request_id'),
+        ];
+
+        if ($exception instanceof QueryException) {
+            $context['sql_state'] = $exception->getCode();
+            $context['sql_template'] = $exception->getSql();
+        }
+
+        return $context;
     }
 
     /**
@@ -125,8 +161,8 @@ class McpServerService
                 ],
             ],
             'serverInfo' => [
-                'name' => self::SERVER_NAME,
-                'version' => self::SERVER_VERSION,
+                'name' => config('mcp.server_name', self::SERVER_NAME),
+                'version' => config('mcp.server_version', self::SERVER_VERSION),
             ],
         ]);
     }
@@ -146,6 +182,13 @@ class McpServerService
             ];
         }
 
+        Log::debug('MCP tool registry listed', [
+            'stage' => 'tool_registration',
+            'tool_count' => count($toolList),
+            'get_my_tasks_registered' => isset($this->tools['get_my_tasks']),
+            'request_id' => request()->attributes->get('mcp_request_id'),
+        ]);
+
         return $this->successResponse($id, [
             'tools' => $toolList,
         ]);
@@ -161,20 +204,53 @@ class McpServerService
         $arguments = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
 
         if (! isset($this->tools[$toolName])) {
+            Log::warning('MCP tool lookup failed', [
+                'stage' => 'tool_registration_lookup',
+                'tool' => $toolName,
+                'request_id' => request()->attributes->get('mcp_request_id'),
+            ]);
+
             return $this->errorResponse($id, -32602, "Tool '{$toolName}' not found.");
         }
 
         $tool = $this->tools[$toolName];
 
         $startTime = microtime(true);
+        Log::debug('MCP tool execution started', [
+            'stage' => 'tool_execution_started',
+            'tool' => $toolName,
+            'argument_names' => array_keys($arguments),
+            'request_id' => request()->attributes->get('mcp_request_id'),
+        ]);
 
         try {
             $result = $tool->execute($user, $arguments);
             $executionDuration = round((microtime(true) - $startTime) * 1000, 2);
 
             Log::info("MCP Tool executed: {$toolName}", [
-                'user_id' => $user->id,
+                'stage' => 'tool_execution_completed',
                 'tool' => $toolName,
+                'duration_ms' => $executionDuration,
+                'request_id' => request()->attributes->get('mcp_request_id'),
+            ]);
+
+            $serializedResult = json_encode(
+                $result,
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR,
+            );
+
+            Log::debug('MCP tool result serialized', [
+                'stage' => 'mcp_response_serialization',
+                'tool' => $toolName,
+                'serialized_bytes' => strlen($serializedResult),
+                'request_id' => request()->attributes->get('mcp_request_id'),
+            ]);
+
+            $this->auditService?->log([
+                'user' => $user,
+                'tool_name' => $toolName,
+                'action' => 'call',
+                'status' => 'success',
                 'duration_ms' => $executionDuration,
             ]);
 
@@ -182,12 +258,29 @@ class McpServerService
                 'content' => [
                     [
                         'type' => 'text',
-                        'text' => json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+                        'text' => $serializedResult,
                     ],
                 ],
                 'isError' => false,
             ]);
         } catch (\InvalidArgumentException $e) {
+            $executionDuration = round((microtime(true) - $startTime) * 1000, 2);
+
+            Log::warning('MCP tool arguments rejected', [
+                'stage' => 'tool_argument_validation',
+                'tool' => $toolName,
+                'exception_class' => $e::class,
+                'request_id' => request()->attributes->get('mcp_request_id'),
+            ]);
+
+            $this->auditService?->log([
+                'user' => $user,
+                'tool_name' => $toolName,
+                'action' => 'call',
+                'status' => 'denied',
+                'duration_ms' => $executionDuration,
+            ]);
+
             return $this->successResponse($id, [
                 'content' => [
                     [
@@ -198,17 +291,26 @@ class McpServerService
                 'isError' => true,
             ]);
         } catch (Throwable $e) {
-            Log::error("Error executing MCP tool {$toolName}", [
-                'user_id' => $user->id,
+            $executionDuration = round((microtime(true) - $startTime) * 1000, 2);
+
+            Log::error('MCP tool execution failed', $this->exceptionContext($e, 'tool_execution') + [
                 'tool' => $toolName,
-                'exception' => $e->getMessage(),
+                'duration_ms' => $executionDuration,
+            ]);
+
+            $this->auditService?->log([
+                'user' => $user,
+                'tool_name' => $toolName,
+                'action' => 'call',
+                'status' => 'error',
+                'duration_ms' => $executionDuration,
             ]);
 
             return $this->successResponse($id, [
                 'content' => [
                     [
                         'type' => 'text',
-                        'text' => "Error executing tool {$toolName}: {$e->getMessage()}",
+                        'text' => "Tool {$toolName} failed due to an internal error.",
                     ],
                 ],
                 'isError' => true,

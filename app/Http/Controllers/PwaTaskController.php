@@ -57,6 +57,7 @@ class PwaTaskController extends Controller
             'attachments.uploadedBy:id,name',
             'statusHistory.changedBy:id,name',
             'subtasks.assignee:id,name',
+            'milestones',
         ]);
 
         $canReviewExtensions = $user->can('reviewDeadlineExtensions', $task);
@@ -109,8 +110,7 @@ class PwaTaskController extends Controller
             default => [],
         };
 
-        $query = $queries->filteredTasksQuery($criteria, $request->user())
-            ->availableInRecurringWindow();
+        $query = $queries->filteredTasksQuery($criteria, $request->user());
 
         if ($filter === 'active') {
             $query->whereNotIn('tasks.status', ['completed', 'cancelled']);
@@ -126,6 +126,7 @@ class PwaTaskController extends Controller
             'filter' => $filter,
             'search' => $search,
             'filters' => self::FILTERS,
+            'recurringVisibilityRefreshAt' => $queries->nextRecurringVisibilityTransition($request->user()),
         ];
     }
 

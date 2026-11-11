@@ -284,7 +284,9 @@ class UserController extends Controller
         $today = today()->toDateString();
         $weekStart = now()->startOfWeek()->toDateString();
         $weekEnd = now()->endOfWeek()->toDateString();
-        $assignedTasksQuery = Task::query()->assignedTo($user->id);
+        $assignedTasksQuery = Task::query()
+            ->availableInRecurringWindow()
+            ->assignedTo($user->id);
         $taskCounts = (clone $assignedTasksQuery)
             ->selectRaw('COUNT(*) as total')
             ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed")

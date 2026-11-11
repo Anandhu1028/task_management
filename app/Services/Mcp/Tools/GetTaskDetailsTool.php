@@ -84,12 +84,9 @@ class GetTaskDetailsTool implements McpToolInterface
             'id' => $st->id,
             'title' => $st->title,
             'description' => $st->description,
-            'priority' => $st->priority,
             'status' => $st->status,
-            'progress_percentage' => (int) $st->progress_percentage,
+            'progress_percentage' => $st->is_completed ? 100 : (int) $st->progress_percentage,
             'is_completed' => (bool) $st->is_completed,
-            'is_overdue' => $st->is_overdue,
-            'due_date' => $st->due_date?->toDateString(),
             'assignee' => $st->assignee?->name ?? 'Unassigned',
         ])->values()->all();
 

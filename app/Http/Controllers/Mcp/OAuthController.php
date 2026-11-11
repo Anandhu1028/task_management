@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Mcp;
 
 use App\Http\Controllers\Controller;
+use App\Services\Mcp\McpAuditService;
 use App\Services\Mcp\OAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -13,6 +14,7 @@ class OAuthController extends Controller
 {
     public function __construct(
         private readonly OAuthService $oauthService,
+        private readonly McpAuditService $auditService,
     ) {}
 
     /**
@@ -28,18 +30,41 @@ class OAuthController extends Controller
         $codeChallenge = (string) $request->query('code_challenge');
         $codeChallengeMethod = (string) $request->query('code_challenge_method', 'S256');
         $requestedScope = (string) $request->query('scope', 'tasks:read reports:read');
+        $resource = (string) $request->query('resource', '');
 
         $client = $this->oauthService->findClient($clientId);
         if (! $client) {
+            $this->auditService->log([
+                'action' => 'authorize',
+                'client_id' => $clientId,
+                'status' => 'denied',
+                'error_message' => 'Unknown or inactive client_id.',
+            ]);
+
             return response()->json(['error' => 'invalid_client', 'error_description' => 'Unknown or inactive client_id.'], 400);
         }
 
         if (! $client->isValidRedirectUri($redirectUri)) {
+            $this->auditService->log([
+                'action' => 'authorize',
+                'client_id' => $clientId,
+                'status' => 'denied',
+                'error_message' => 'Unauthorized redirect_uri: '.$redirectUri,
+            ]);
+
             return response()->json(['error' => 'invalid_request', 'error_description' => 'Unauthorized redirect_uri.'], 400);
+        }
+
+        if ($resource !== '' && ! $this->oauthService->isValidResource($resource)) {
+            return $this->redirectWithError($redirectUri, 'invalid_target', 'Invalid or unsupported resource indicator.', $state);
         }
 
         if ($responseType !== 'code') {
             return $this->redirectWithError($redirectUri, 'unsupported_response_type', 'Only code response_type is supported.', $state);
+        }
+
+        if ($request->has('scope') && ! $this->oauthService->areScopesSupported($requestedScope)) {
+            return $this->redirectWithError($redirectUri, 'invalid_scope', 'The requested scope is invalid or unsupported.', $state);
         }
 
         if (empty($codeChallenge)) {
@@ -98,7 +123,19 @@ class OAuthController extends Controller
         $state = $validated['state'] ?? '';
 
         if ($validated['action'] === 'deny') {
+            $this->auditService->log([
+                'user' => $user,
+                'action' => 'authorize',
+                'client_id' => $client->client_id,
+                'status' => 'denied',
+                'error_message' => 'User denied authorization request.',
+            ]);
+
             return $this->redirectWithError($redirectUri, 'access_denied', 'The user denied the authorization request.', $state);
+        }
+
+        if ($request->filled('scope') && ! $this->oauthService->areScopesSupported($validated['scope'])) {
+            return $this->redirectWithError($redirectUri, 'invalid_scope', 'The requested scope is invalid or unsupported.', $state);
         }
 
         $scopes = $this->oauthService->normalizeScopes($validated['scope'] ?? null);
@@ -111,6 +148,14 @@ class OAuthController extends Controller
             $validated['code_challenge_method'],
             $scopes,
         );
+
+        $this->auditService->log([
+            'user' => $user,
+            'action' => 'authorize',
+            'client_id' => $client->client_id,
+            'status' => 'success',
+            'resource_type' => 'auth_code',
+        ]);
 
         $separator = str_contains($redirectUri, '?') ? '&' : '?';
         $redirectUrl = $redirectUri.$separator.'code='.urlencode($authCode);
@@ -163,6 +208,13 @@ class OAuthController extends Controller
                     $clientSecret ?: null,
                 );
 
+                $this->auditService->log([
+                    'action' => 'token',
+                    'client_id' => $clientId,
+                    'status' => 'success',
+                    'resource_type' => 'access_token',
+                ]);
+
                 return response()->json($token);
             }
 
@@ -182,6 +234,13 @@ class OAuthController extends Controller
                     $clientSecret ?: null,
                 );
 
+                $this->auditService->log([
+                    'action' => 'token_refresh',
+                    'client_id' => $clientId,
+                    'status' => 'success',
+                    'resource_type' => 'refresh_token',
+                ]);
+
                 return response()->json($token);
             }
 
@@ -190,6 +249,13 @@ class OAuthController extends Controller
                 'error_description' => 'Supported grant types are authorization_code and refresh_token.',
             ], 400);
         } catch (\InvalidArgumentException $e) {
+            $this->auditService->log([
+                'action' => 'token',
+                'client_id' => $clientId,
+                'status' => 'error',
+                'error_message' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'error' => 'invalid_grant',
                 'error_description' => $e->getMessage(),
@@ -202,6 +268,31 @@ class OAuthController extends Controller
                 'error_description' => 'Failed to process token request.',
             ], 500);
         }
+    }
+
+    /**
+     * RFC 7009: OAuth 2.0 Token Revocation.
+     * POST /oauth/revoke
+     */
+    public function revoke(Request $request): JsonResponse
+    {
+        $token = (string) $request->input('token');
+        $tokenTypeHint = (string) $request->input('token_type_hint', '');
+        $clientId = (string) $request->input('client_id');
+
+        if ($token !== '') {
+            $this->oauthService->revokeToken($token, $clientId ?: null, $tokenTypeHint ?: null);
+
+            $this->auditService->log([
+                'action' => 'revoke',
+                'client_id' => $clientId ?: null,
+                'status' => 'success',
+                'resource_type' => $tokenTypeHint ?: 'token',
+            ]);
+        }
+
+        // RFC 7009 Section 2.2: The authorization server responds with HTTP status code 200
+        return response()->json(['status' => 'revoked']);
     }
 
     private function redirectWithError(string $redirectUri, string $error, string $description, ?string $state = null): RedirectResponse

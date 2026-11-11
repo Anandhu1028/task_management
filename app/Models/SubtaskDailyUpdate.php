@@ -18,6 +18,7 @@ class SubtaskDailyUpdate extends Model
         'work_date',
         'work_description',
         'work_completed',
+        'completed_count',
         'current_status',
         'time_spent_minutes',
     ];
@@ -26,6 +27,7 @@ class SubtaskDailyUpdate extends Model
     {
         return [
             'work_date' => 'date',
+            'completed_count' => 'integer',
             'time_spent_minutes' => 'integer',
         ];
     }

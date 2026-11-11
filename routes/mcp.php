@@ -22,6 +22,11 @@ Route::post('/oauth/token', [OAuthController::class, 'token'])
     ->middleware('throttle:30,1')
     ->name('oauth.token');
 
+// RFC 7009 Token Revocation Endpoint
+Route::post('/oauth/revoke', [OAuthController::class, 'revoke'])
+    ->middleware('throttle:30,1')
+    ->name('oauth.revoke');
+
 // MCP Server Streamable HTTP Endpoint
 Route::get('/mcp', [McpController::class, 'info'])->name('mcp.info');
 Route::post('/mcp', [McpController::class, 'handle'])
@@ -42,4 +47,12 @@ Route::middleware(['throttle:60,1', 'mcp.auth:tasks:read'])->prefix('api/mcp')->
     Route::get('/subtask-report', [McpRestController::class, 'subtaskReport'])->name('mcp.rest.subtask-report');
     Route::get('/deadline-requests', [McpRestController::class, 'deadlineRequests'])->name('mcp.rest.deadline-requests');
     Route::get('/project-report', [McpRestController::class, 'projectReport'])->name('mcp.rest.project-report');
+    Route::get('/daily-work-report', [McpRestController::class, 'dailyWorkReport'])->name('mcp.rest.daily-work-report');
+    Route::get('/company-report', [McpRestController::class, 'companyReport'])->name('mcp.rest.company-report');
+    Route::get('/employee-performance', [McpRestController::class, 'employeePerformance'])->name('mcp.rest.employee-performance');
+    Route::get('/subtask-details', [McpRestController::class, 'subtaskDetails'])->name('mcp.rest.subtask-details');
+    Route::get('/team-tasks', [McpRestController::class, 'teamTasks'])->name('mcp.rest.team-tasks');
+    Route::post('/create-task', [McpRestController::class, 'createTask'])->name('mcp.rest.create-task');
+    Route::post('/update-task-status', [McpRestController::class, 'updateTaskStatus'])->name('mcp.rest.update-task-status');
+    Route::post('/update-daily-task', [McpRestController::class, 'updateDailyTask'])->name('mcp.rest.update-daily-task');
 });

@@ -29,11 +29,13 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         $middleware->validateCsrfTokens(except: [
             'mcp',
+            'api/mcp/*',
             'oauth/token',
+            'oauth/revoke',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->is('mcp') || $request->is('oauth/token') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api/*') || $request->is('mcp') || $request->is('oauth/token') || $request->is('oauth/revoke') || $request->expectsJson(),
         );
     })->create();

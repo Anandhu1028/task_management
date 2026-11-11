@@ -214,7 +214,7 @@ class DashboardService
         $employeeId = ! empty($params['employee_id']) ? (int) $params['employee_id'] : null;
 
         // Base scoped task query for Admin/CEO based on selected filters
-        $baseQuery = Task::query();
+        $baseQuery = Task::query()->availableInRecurringWindow();
 
         if ($companyId) {
             $baseQuery->where('tasks.company_id', $companyId);
@@ -465,7 +465,7 @@ class DashboardService
         $employeeFilterId = ! empty($params['employee_id']) ? (int) $params['employee_id'] : null;
 
         // Base department query
-        $deptQuery = Task::query();
+        $deptQuery = Task::query()->availableInRecurringWindow();
         if ($departmentId) {
             $deptQuery->where('tasks.department_id', $departmentId);
         } else {
@@ -578,7 +578,7 @@ class DashboardService
             ->get();
 
         // Team Leader's Own Tasks (My Tasks)
-        $personalTasksQuery = Task::query()->assignedTo($user->id);
+        $personalTasksQuery = Task::query()->availableInRecurringWindow()->assignedTo($user->id);
         $personalCounts = $this->calculateTaskCounts(clone $personalTasksQuery);
         $personalRecentTasks = (clone $personalTasksQuery)
             ->with(['company:id,name', 'department:id,name'])
@@ -645,7 +645,7 @@ class DashboardService
      */
     private function buildEmployeeDashboard(User $user, array $dateRange, array $params, string $greeting): array
     {
-        $myTasksQuery = Task::query()->visibleTo($user);
+        $myTasksQuery = Task::query()->visibleTo($user)->availableInRecurringWindow();
 
         // Summary cards keep workflow states and deadline conditions separate.
         $scopedCounts = $this->calculateTaskCounts(clone $myTasksQuery);
@@ -1156,6 +1156,7 @@ class DashboardService
 
         return $teamLeaders->map(function (User $tl) use ($todayStr): array {
             $personalStats = Task::query()
+                ->availableInRecurringWindow()
                 ->assignedTo($tl->id)
                 ->selectRaw('COUNT(id) as total')
                 ->selectRaw("COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress")
@@ -1169,7 +1170,7 @@ class DashboardService
                 ->first();
 
             $deptCount = $tl->department_id
-                ? Task::query()->where('department_id', $tl->department_id)->count()
+                ? Task::query()->availableInRecurringWindow()->where('department_id', $tl->department_id)->count()
                 : 0;
 
             $total = (int) ($personalStats?->total ?? 0);
@@ -1218,6 +1219,7 @@ class DashboardService
 
         return $employees->map(function (User $emp): array {
             $statsQuery = Task::query()
+                ->availableInRecurringWindow()
                 ->assignedTo($emp->id)
                 ->selectRaw('COUNT(DISTINCT tasks.id) as total');
             $this->addStatusCountColumns($statsQuery);
@@ -1316,6 +1318,7 @@ class DashboardService
         $lastFourWeeksStart = $thisWeekStart->copy()->subWeeks(3);
         $memberPeriods = [];
         $totalAssigned = Task::query()
+            ->availableInRecurringWindow()
             ->where('department_id', $departmentId)
             ->whereIn('assigned_to', $employeeIds)
             ->count();
@@ -1325,6 +1328,7 @@ class DashboardService
             'last_4_weeks' => $lastFourWeeksStart,
         ] as $period => $periodStart) {
             $statsByEmployee = Task::query()
+                ->availableInRecurringWindow()
                 ->where('department_id', $departmentId)
                 ->whereIn('assigned_to', $employeeIds)
                 ->where(function (Builder $query) use ($periodStart, $now): void {
@@ -1372,6 +1376,7 @@ class DashboardService
         }
 
         $createdTasks = Task::query()
+            ->availableInRecurringWindow()
             ->where('department_id', $departmentId)
             ->whereBetween('created_at', [$weeklyStart, $now])
             ->get(['created_at']);
@@ -1384,6 +1389,7 @@ class DashboardService
         }
 
         $completedTasks = Task::query()
+            ->availableInRecurringWindow()
             ->where('department_id', $departmentId)
             ->where('status', 'completed')
             ->where(function (Builder $query) use ($weeklyStart, $now): void {
@@ -1435,6 +1441,7 @@ class DashboardService
         for ($i = 0; $i < 5; $i++) {
             $dayDate = $startOfWeek->copy()->addDays($i)->toDateString();
             $count = Task::query()
+                ->availableInRecurringWindow()
                 ->assignedTo($userId)
                 ->where(function ($q) use ($dayDate) {
                     $q->whereDate('due_date', $dayDate)
@@ -1748,6 +1755,7 @@ class DashboardService
         $companyTasksByPeriod = [];
         foreach ($periods as $pKey => [$pStart, $pEnd]) {
             $baseTaskQ = Task::query()
+                ->availableInRecurringWindow()
                 ->with(['company:id,name', 'department:id,name', 'assignee:id,name,designation']);
 
             if ($selectedCompanyId) {
@@ -1800,8 +1808,10 @@ class DashboardService
         $type = $dateRange['period_type'] ?? 'monthly';
 
         $baseCompleted = Task::query()
+            ->availableInRecurringWindow()
             ->where('tasks.status', 'completed');
         $baseCreated = Task::query()
+            ->availableInRecurringWindow()
             ->where('tasks.status', '!=', 'cancelled');
 
         if ($companyId) {

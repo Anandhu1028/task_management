@@ -15,19 +15,16 @@ class AuthenticatedSessionController extends Controller
     {
         $demoAccounts = [];
 
-        if (app()->environment('local') && config('app.debug') && config('demo-login.enabled')) {
-            $demoPassword = config('demo-login.password');
-
-            if (filled($demoPassword)) {
-                $demoAccounts = collect(config('demo-login.accounts', []))
-                    ->filter(fn (array $account): bool => filled($account['email'] ?? null))
-                    ->map(fn (array $account): array => [
-                        ...$account,
-                        'password' => $demoPassword,
-                    ])
-                    ->values()
-                    ->all();
-            }
+        if (app()->environment('local') && config('app.debug')) {
+            $demoAccounts = collect(config('demo-login.accounts', []))
+                ->map(fn (array $account): array => [
+                    ...$account,
+                    'available' => config('demo-login.enabled')
+                        && filled($account['email'] ?? null)
+                        && filled($account['password'] ?? null),
+                ])
+                ->values()
+                ->all();
         }
 
         return view('auth.login', compact('demoAccounts'));
