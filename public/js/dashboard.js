@@ -258,6 +258,7 @@
     const notificationBell = document.querySelector('[data-tf-notification-bell]');
     const notificationList = document.querySelector('[data-tf-notification-list]');
     const notificationMarkReadForm = document.querySelector('[data-tf-mark-read-form]');
+    const notificationCount = document.querySelector('[data-tf-notification-count]');
     let notificationPollInProgress = false;
     let notificationPollingErrorReported = false;
 
@@ -273,41 +274,36 @@
         dot.className = 'tf-notify__dot';
         element.append(dot);
 
+        const iconWrap = document.createElement('span');
+        iconWrap.className = 'tf-notify__icon';
+        iconWrap.setAttribute('aria-hidden', 'true');
+        const icon = document.createElement('i');
+        icon.className = `bi ${notification.icon || 'bi-bell'}`;
+        iconWrap.append(icon);
+        element.append(iconWrap);
+
         const content = document.createElement('span');
-        const title = document.createElement('span');
-        title.className = 'tf-notify__title';
-        title.textContent = notification.title || 'Task update';
-        content.append(title);
+        content.className = 'tf-notify__content';
 
-        if (notification.actor_name) {
-            const actorSpan = document.createElement('span');
-            actorSpan.className = 'tf-notify__actor text-muted';
-            actorSpan.style.fontSize = '11px';
-            actorSpan.style.display = 'block';
-            actorSpan.textContent = notification.actor_role
-                ? `${notification.actor_name} (${notification.actor_role})`
-                : notification.actor_name;
-            content.append(actorSpan);
-        }
+        const addLine = (className, text) => {
+            if (!text) return;
+            const line = document.createElement('span');
+            line.className = className;
+            line.textContent = text;
+            content.append(line);
+        };
 
-        if (notification.task_title) {
-            const taskTitle = document.createElement('span');
-            taskTitle.className = 'tf-notify__body';
-            taskTitle.style.fontWeight = '600';
-            taskTitle.textContent = notification.task_title;
-            content.append(taskTitle);
-        }
-
-        if (notification.body) {
-            const bodyText = document.createElement('span');
-            bodyText.className = 'tf-notify__body';
-            bodyText.textContent = notification.body;
-            content.append(bodyText);
-        }
+        addLine('tf-notify__title', notification.title || 'Task update');
+        addLine('tf-notify__message', notification.message);
+        addLine('tf-notify__task', notification.task_label);
+        addLine('tf-notify__subtask', notification.subtask_title ? `Subtask: ${notification.subtask_title}` : null);
 
         const time = document.createElement('span');
         time.className = 'tf-notify__time';
         time.textContent = notification.created_at || '';
+        if (notification.created_at_exact) {
+            time.title = notification.created_at_exact;
+        }
         content.append(time);
         element.append(content);
 
@@ -333,6 +329,7 @@
 
             const data = await response.json();
             const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+            const unreadCount = Number(data.unread_count) || 0;
 
             notificationList.replaceChildren(...notifications.map(createNotificationElement));
 
@@ -344,23 +341,29 @@
             }
 
             let notificationDot = notificationBell?.querySelector('[data-tf-notification-dot]');
-            if ((data.unread_count || 0) > 0 && notificationBell && !notificationDot) {
+            if (unreadCount > 0 && notificationBell && !notificationDot) {
                 notificationDot = document.createElement('span');
                 notificationDot.className = 'tf-bell__dot';
                 notificationDot.dataset.tfNotificationDot = '';
                 notificationBell.append(notificationDot);
-            } else if ((data.unread_count || 0) === 0) {
+            } else if (unreadCount === 0) {
                 notificationDot?.remove();
             }
 
+            if (notificationCount) {
+                notificationCount.textContent = String(unreadCount);
+                notificationCount.setAttribute('aria-label', `${unreadCount} unread`);
+                notificationCount.hidden = unreadCount === 0;
+            }
+
             if (notificationMarkReadForm) {
-                notificationMarkReadForm.hidden = (data.unread_count || 0) === 0;
+                notificationMarkReadForm.hidden = unreadCount === 0;
             }
 
             notificationBell?.setAttribute(
                 'aria-label',
-                (data.unread_count || 0) > 0
-                    ? `Notifications, ${data.unread_count} unread`
+                unreadCount > 0
+                    ? `Notifications, ${unreadCount} unread`
                     : 'Notifications',
             );
 

@@ -24,41 +24,38 @@
 
             <div class="dropdown-menu dropdown-menu-end tf-dropdown tf-dropdown--wide">
                 <div class="tf-dropdown__head">
-                    <strong>Notifications</strong>
+                    <div class="tf-dropdown__heading">
+                        <strong>Notifications</strong>
+                        <span
+                            class="tf-notify__count"
+                            data-tf-notification-count
+                            aria-label="{{ $unreadNotificationCount ?? 0 }} unread"
+                            @if (($unreadNotificationCount ?? 0) === 0) hidden @endif
+                        >{{ $unreadNotificationCount ?? 0 }}</span>
+                    </div>
                     <form method="POST" action="{{ route('notifications.read-all') }}"
                           data-tf-mark-read-form @if (($unreadNotificationCount ?? 0) === 0) hidden @endif>
-                            @csrf
-                            <button class="tf-link-btn" type="submit" data-tf-mark-read>Mark all as read</button>
+                        @csrf
+                        <button class="tf-link-btn tf-notify__mark-read" type="submit" data-tf-mark-read>
+                            <i class="bi bi-check2-all" aria-hidden="true"></i>
+                            Mark all as read
+                        </button>
                     </form>
                 </div>
 
                 <div class="tf-notify-list" data-tf-notification-list>
                     @foreach ($notifications ?? [] as $note)
-                        <a class="tf-notify {{ $note->read_at === null ? 'is-unread' : '' }}" href="{{ route('notifications.open', $note->id) }}">
-                            <span class="tf-notify__dot"></span>
-                            <span>
-                                <span class="tf-notify__title">{{ $note->data['title'] ?? 'Task update' }}</span>
-                                @if (!empty($note->data['actor_name']))
-                                    <span class="tf-notify__actor text-muted" style="font-size: 11px; display: block; margin-top: 1px;">
-                                        <i class="bi bi-person"></i> {{ $note->data['actor_name'] }}{{ !empty($note->data['actor_role']) ? ' (' . $note->data['actor_role'] . ')' : '' }}
-                                    </span>
-                                @endif
-                                @if (!empty($note->data['task_title']))
-                                    <span class="tf-notify__body" style="font-weight: 600;">{{ $note->data['task_title'] }}</span>
-                                @endif
-                                @if (!empty($note->data['body']))
-                                    <span class="tf-notify__body">{{ $note->data['body'] }}</span>
-                                @endif
-                                <span class="tf-notify__time">{{ $note->created_at?->diffForHumans() }}</span>
-                            </span>
-                        </a>
+                        @include('notifications._item', ['item' => \App\Support\NotificationPresenter::present($note)])
                     @endforeach
                     @if (($notifications ?? collect())->isEmpty())
                         <p class="tf-notify__empty" data-tf-notification-empty>No notifications yet.</p>
                     @endif
                 </div>
 
-                <span class="tf-dropdown__foot">Showing your latest notifications</span>
+                <a class="tf-dropdown__foot" href="{{ route('notifications.index') }}">
+                    <span>View all notifications</span>
+                    <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                </a>
             </div>
         </div>
 

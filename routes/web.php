@@ -60,6 +60,7 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::post('/tasks/{task}/status', [TaskController::class, 'updateStatus'])->name('tasks.status.update');
     Route::post('/tasks/{task}/risk', [TaskController::class, 'updateRisk'])->name('tasks.risk.update');
     Route::post('/tasks/{task}/review', [TaskController::class, 'review'])->name('tasks.review');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::get('/notifications/poll', [NotificationController::class, 'poll'])->name('notifications.poll');
     Route::get('/notifications/{notification}', [NotificationController::class, 'open'])->name('notifications.open');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
@@ -105,12 +106,6 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::post('/users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
     Route::resource('users', UserController::class);
 });
-
-// Public Legal & Support Pages (Required for ChatGPT App Submission)
-Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy'])->name('legal.privacy');
-Route::get('/terms', [LegalController::class, 'terms'])->name('legal.terms');
-Route::get('/support', [LegalController::class, 'support'])->name('legal.support');
-Route::get('/data-deletion', [LegalController::class, 'dataDeletion'])->name('legal.data-deletion');
 
 // Public Legal & Support Pages (Required for ChatGPT App Submission)
 Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy'])->name('legal.privacy');

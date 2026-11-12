@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Task;
+use App\Support\NotificationPresenter;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -10,6 +12,25 @@ use Illuminate\Notifications\DatabaseNotification;
 
 class NotificationController extends Controller
 {
+    public function index(Request $request): View
+    {
+        $user = $request->user();
+        $unreadOnly = $request->query('filter') === 'unread';
+
+        $query = $unreadOnly ? $user->unreadNotifications() : $user->notifications();
+
+        $notifications = $query->latest()->paginate(20)->withQueryString();
+        $items = $notifications->getCollection()
+            ->map(fn (DatabaseNotification $notification): array => NotificationPresenter::present($notification));
+
+        return view('notifications.index', [
+            'items' => $items,
+            'paginator' => $notifications,
+            'unreadOnly' => $unreadOnly,
+            'unreadCount' => $user->unreadNotifications()->count(),
+        ]);
+    }
+
     public function poll(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -17,20 +38,9 @@ class NotificationController extends Controller
 
         return response()->json([
             'unread_count' => $user->unreadNotifications()->count(),
-            'notifications' => $notifications->map(fn (DatabaseNotification $notification): array => [
-                'id' => $notification->id,
-                'title' => $notification->data['title'] ?? 'Task update',
-                'task_title' => $notification->data['task_title'] ?? null,
-                'body' => $notification->data['body'] ?? null,
-                'actor_name' => $notification->data['actor_name'] ?? null,
-                'actor_role' => $notification->data['actor_role'] ?? null,
-                'subtask_title' => $notification->data['subtask_title'] ?? null,
-                'url' => isset($notification->data['task_id'])
-                    ? route('notifications.open', $notification->id)
-                    : null,
-                'created_at' => $notification->created_at?->diffForHumans(),
-                'is_unread' => $notification->read_at === null,
-            ])->values(),
+            'notifications' => $notifications
+                ->map(fn (DatabaseNotification $notification): array => NotificationPresenter::present($notification))
+                ->values(),
         ]);
     }
 

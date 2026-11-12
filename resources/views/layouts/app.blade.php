@@ -36,6 +36,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" >
     {{-- Shared and route-specific styles --}}
     <link href="{{ asset('css/shared.css') }}?v={{ filemtime(public_path('css/shared.css')) }}" rel="stylesheet" >
+    <link href="{{ asset('css/notifications-append.css') }}?v={{ filemtime(public_path('css/notifications-append.css')) }}" rel="stylesheet" >
     @if (request()->routeIs('dashboard', 'dashboard.*'))
         <link href="{{ asset('css/dashboard.css') }}?v={{ filemtime(public_path('css/dashboard.css')) }}" rel="stylesheet">
     @endif
