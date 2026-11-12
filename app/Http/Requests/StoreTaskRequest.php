@@ -23,6 +23,12 @@ class StoreTaskRequest extends FormRequest
         }
 
         if ($this->input('task_type') === 'recurring') {
+            $aliases = ['Asia/Calcutta' => 'Asia/Kolkata'];
+            $timezone = (string) $this->input('timezone', '');
+            $timezone = $aliases[$timezone] ?? $timezone;
+            $this->merge(['timezone' => in_array($timezone, \DateTimeZone::listIdentifiers(), true)
+                ? $timezone
+                : (config('tasks.schedule_timezone', 'Asia/Kolkata') ?: 'Asia/Kolkata')]);
             $this->merge([
                 'original_deadline' => null,
                 'due_date' => null,

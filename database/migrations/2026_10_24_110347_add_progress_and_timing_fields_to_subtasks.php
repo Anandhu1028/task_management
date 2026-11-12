@@ -41,7 +41,7 @@ return new class extends Migration
                 $table->foreign('subtask_id')
                     ->references('id')
                     ->on('subtasks')
-                    ->cascadeOnDelete();
+                    ->nullOnDelete();
             });
         }
 

@@ -8,6 +8,7 @@ use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\TaskVolumeUpdate;
 use App\Models\User;
+use App\Services\VolumeTaskService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Role;
@@ -132,7 +133,9 @@ class VolumeTaskTest extends TestCase
                 );
 
                 $this->assertSame(2, $today['actual']);
-                $this->assertSame('Achieved', $today['status']);
+                $this->assertSame(4, $today['cumulative_target']);
+                $this->assertSame(2, $today['cumulative_actual']);
+                $this->assertSame('Behind', $today['status']);
                 $this->assertSame(2, $summary['today_actual_count']);
                 $this->assertSame(2, $summary['completed']);
                 $this->assertSame(8, $summary['remaining']);
@@ -240,7 +243,7 @@ class VolumeTaskTest extends TestCase
         $this->assertSame(10, $task->fresh()->progress_percentage);
     }
 
-    public function test_subtask_completion_does_not_change_its_single_volume_contribution(): void
+    public function test_each_volume_subtask_counts_as_one_actual_output(): void
     {
         $this->travelTo('2026-11-10 10:00:00');
         $task = $this->volumeTask(10, '2026-11-09', '2026-11-13', 'VOL-TEST-NO-COUNT');
@@ -249,7 +252,11 @@ class VolumeTaskTest extends TestCase
         ])->assertCreated();
         $subtaskId = (int) $response->json('subtask.id');
 
-        $this->assertDatabaseHas('task_volume_updates', ['task_id' => $task->id, 'subtask_id' => $subtaskId]);
+        $this->assertDatabaseHas('task_volume_updates', [
+            'task_id' => $task->id,
+            'subtask_id' => $subtaskId,
+            'completed_count' => 1,
+        ]);
         $this->actingAs($this->admin)
             ->patchJson(route('subtasks.update', [$task, $subtaskId]), ['status' => 'completed'])
             ->assertOk();
@@ -279,15 +286,218 @@ class VolumeTaskTest extends TestCase
 
                 $this->assertSame(1, $today['actual']);
                 $this->assertTrue($today['has_update']);
-                $this->assertSame('Mismatch', $today['status']);
-                $this->assertSame(2, $summary['mismatch_count']);
+                $this->assertSame('Behind', $today['status']);
+                $this->assertSame(1, $summary['mismatch_count']);
+                $this->assertSame('Missed Daily Update', $summary['rows']->first()['daily_update_status']);
 
                 return true;
             });
 
         $this->actingAs($this->admin)->get(route('tasks.show', $task))
             ->assertOk()
-            ->assertSee('workday(s) below the target of 2/day');
+            ->assertSee('Cumulative output is 1. Additional output is needed to complete the volume.');
+    }
+
+    public function test_cumulative_actual_catches_up_without_clearing_a_historical_missed_update(): void
+    {
+        $this->travelTo('2026-11-12 10:00:00');
+        $task = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-CUMULATIVE-CATCHUP');
+        foreach (range(1, 4) as $number) {
+            $this->createVolumeSubtask($task, "Catch-up output {$number}", '2026-11-12')->assertCreated();
+        }
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $firstDay = $summary['rows']->first();
+                $secondDay = $summary['rows']->get(1);
+
+                $this->assertSame(2, $summary['minimum_daily_count']);
+                $this->assertSame(4, $secondDay['cumulative_target']);
+                $this->assertSame(4, $secondDay['cumulative_actual']);
+                $this->assertSame('Caught Up', $secondDay['status']);
+                $this->assertSame('Missed Daily Update', $firstDay['daily_update_status']);
+                $this->assertSame('Submitted', $secondDay['daily_update_status']);
+
+                return true;
+            });
+        $this->travelBack();
+    }
+
+    public function test_today_volume_update_is_pending_until_a_subtask_is_submitted(): void
+    {
+        $this->travelTo('2026-11-11 10:00:00');
+        $task = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-TODAY-PENDING');
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $today = $summary['rows']->first();
+
+                $this->assertSame('Pending', $today['daily_update_status']);
+                $this->assertSame("Today's Daily Update Pending", $today['daily_update_label']);
+                $this->assertFalse($today['has_update']);
+
+                return true;
+            });
+
+        $this->createVolumeSubtask($task, 'Submitted update', '2026-11-11')->assertCreated();
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $today = $summary['rows']->first();
+
+                $this->assertSame('Submitted', $today['daily_update_status']);
+                $this->assertTrue($today['has_update']);
+                $this->assertSame(1, $summary['today_actual_count']);
+
+                return true;
+            });
+
+        $this->travelBack();
+    }
+
+    public function test_cumulative_volume_status_distinguishes_behind_and_ahead_output(): void
+    {
+        $this->travelTo('2026-11-12 10:00:00');
+        $behindTask = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-CUMULATIVE-BEHIND');
+        $this->createVolumeSubtask($behindTask, 'Day one', '2026-11-11', completedCount: 1)->assertCreated();
+        $this->createVolumeSubtask($behindTask, 'Day two', '2026-11-12', completedCount: 1)->assertCreated();
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $behindTask))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $secondDay = $summary['rows']->get(1);
+                $this->assertSame(4, $secondDay['cumulative_target']);
+                $this->assertSame(2, $secondDay['cumulative_actual']);
+                $this->assertSame('Behind', $secondDay['status']);
+                $this->assertSame('Behind', $summary['overall_status']);
+
+                return true;
+            });
+
+        $aheadTask = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-CUMULATIVE-AHEAD');
+        foreach (range(1, 5) as $number) {
+            $this->createVolumeSubtask($aheadTask, "Ahead output {$number}", '2026-11-11')->assertCreated();
+        }
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $aheadTask))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $firstDay = $summary['rows']->first();
+                $this->assertSame(2, $firstDay['cumulative_target']);
+                $this->assertSame(5, $firstDay['cumulative_actual']);
+                $this->assertSame('Ahead', $firstDay['status']);
+                $this->assertSame('Ahead', $summary['overall_status']);
+
+                return true;
+            });
+        $this->travelBack();
+    }
+
+    public function test_same_date_subtask_counts_are_summed(): void
+    {
+        $this->travelTo('2026-11-11 10:00:00');
+        $task = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-SAME-DATE-SUM');
+        foreach (range(1, 4) as $number) {
+            $this->createVolumeSubtask($task, "Output {$number}", '2026-11-11')->assertCreated();
+        }
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $firstDay = $summary['rows']->first();
+                $this->assertSame(4, $firstDay['actual']);
+                $this->assertSame(4, $firstDay['cumulative_actual']);
+                $this->assertSame('Ahead', $firstDay['status']);
+                $this->assertSame(4, $summary['today_actual_count']);
+
+                return true;
+            });
+
+        $this->assertDatabaseCount('subtasks', 4);
+        $this->assertDatabaseCount('task_volume_updates', 4);
+        $this->travelBack();
+    }
+
+    public function test_moving_or_deleting_a_volume_subtask_recalculates_later_cumulative_rows(): void
+    {
+        $this->travelTo('2026-11-12 10:00:00');
+        $task = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-EDIT-CUMULATIVE');
+        $firstResponse = $this->createVolumeSubtask($task, 'Earlier output', '2026-11-11')
+            ->assertCreated();
+        $firstSubtaskId = (int) $firstResponse->json('subtask.id');
+        $secondResponse = $this->createVolumeSubtask($task, 'Later output', '2026-11-12')
+            ->assertCreated();
+        $secondSubtaskId = (int) $secondResponse->json('subtask.id');
+
+        $this->actingAs($this->admin)
+            ->patchJson(route('subtasks.update', [$task, $firstSubtaskId]), ['work_date' => '2026-11-12'])
+            ->assertOk()
+            ->assertJsonPath('subtask.volume_update.work_date', '2026-11-12');
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $secondDay = $summary['rows']->get(1);
+                $this->assertSame(2, $secondDay['cumulative_actual']);
+                $this->assertSame('Behind', $secondDay['status']);
+
+                return true;
+            });
+
+        $this->actingAs($this->admin)->deleteJson(route('subtasks.destroy', [$task, $secondSubtaskId]))->assertOk();
+        $this->actingAs($this->admin)->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $this->assertSame(1, $summary['cumulative_actual']);
+                $this->assertSame(1, $summary['completed']);
+                $this->assertSame(9, $summary['remaining']);
+
+                return true;
+            });
+        $this->travelBack();
+    }
+
+    public function test_working_day_holidays_change_the_daily_target_and_skip_cumulative_dates(): void
+    {
+        config(['tasks.volume_holidays' => ['2026-11-12']]);
+        $task = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-CUMULATIVE-HOLIDAY');
+        $summary = app(VolumeTaskService::class)->summary($task);
+
+        $this->assertSame(4, $summary['working_days']);
+        $this->assertSame(3, $summary['minimum_daily_count']);
+        $this->assertSame(
+            ['2026-11-11', '2026-11-13', '2026-11-16', '2026-11-17'],
+            $summary['rows']->map(fn (array $row): string => $row['date']->toDateString())->all(),
+        );
+        $this->assertSame(6, $summary['rows']->get(1)['cumulative_target']);
+    }
+
+    public function test_volume_status_reports_completed_and_overdue_independently_of_daily_updates(): void
+    {
+        $this->travelTo('2026-11-11 10:00:00');
+        $completedTask = $this->volumeTask(5, '2026-11-11', '2026-11-17', 'VOL-EARLY-COMPLETED');
+        foreach (range(1, 5) as $number) {
+            $this->createVolumeSubtask($completedTask, "Complete volume {$number}", '2026-11-11')->assertCreated();
+        }
+
+        $this->actingAs($this->admin)->get(route('tasks.show', $completedTask))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', fn (array $summary): bool => $summary['overall_status'] === 'Completed'
+                && $summary['remaining'] === 0);
+
+        $this->travelTo('2026-11-18 10:00:00');
+        $overdueTask = $this->volumeTask(10, '2026-11-11', '2026-11-17', 'VOL-DEADLINE-OVERDUE');
+        $this->actingAs($this->admin)->get(route('tasks.show', $overdueTask))
+            ->assertOk()
+            ->assertViewHas('volumeSummary', function (array $summary): bool {
+                $this->assertSame('Overdue', $summary['overall_status']);
+                $this->assertSame('Missed Daily Update', $summary['rows']->first()['daily_update_status']);
+
+                return true;
+            });
+        $this->travelBack();
     }
 
     public function test_volume_output_rejects_non_working_dates_and_the_separate_daily_update_route(): void
@@ -353,9 +563,27 @@ class VolumeTaskTest extends TestCase
             ->get(route('tasks.show', $task))
             ->assertOk()
             ->assertDontSee('Completed output (count)')
+            ->assertDontSee('Actual output (count)')
             ->assertSee('Work date')
+            ->assertSee('Actual Output')
+            ->assertDontSee('Cumulative Target')
+            ->assertSee('Cumulative Actual')
+            ->assertDontSee('Daily Update Status')
             ->assertDontSee('Record daily output')
             ->assertDontSee('subtaskDailyUpdateModal');
+    }
+
+    public function test_task_list_uses_volume_start_date_when_deciding_if_daily_update_is_due(): void
+    {
+        $this->travelTo('2026-11-11 10:00:00');
+        $task = $this->volumeTask(10, '2026-11-12', '2026-11-13', 'VOL-FUTURE-START');
+        $task->forceFill(['start_date' => '2026-11-10'])->save();
+
+        $html = $this->actingAs($this->admin)->get(route('tasks.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-task-id="'.$task->id.'"', $html);
+        $this->assertStringNotContainsString('No daily update received today.', $html);
+        $this->travelBack();
     }
 
     private function volumeTask(int $total, string $start, string $deadline, string $taskCode): Task
@@ -386,6 +614,7 @@ class VolumeTaskTest extends TestCase
         string $title,
         ?string $workDate,
         ?User $assignee = null,
+        ?int $completedCount = null,
     ): TestResponse {
         $payload = ['title' => $title];
         if ($workDate !== null) {

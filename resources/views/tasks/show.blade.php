@@ -31,6 +31,7 @@
 
             return $history->subtask_id !== null
                 || $history->milestone_id !== null
+                || $eventType === 'work_update'
                 || $eventType === 'subtask'
                 || str_starts_with($eventType, 'subtask_');
         });
@@ -1519,7 +1520,7 @@
 
                     @if ($volumeSummary !== null)
                         @include('tasks.partials.volume-overview', ['prefix' => 'overview'])
-                    @else
+                    @endif
                     <section class="task-activity-feed task-activity-feed--overview"
                         data-task-activity-feed data-user-id="{{ auth()->id() }}" data-task-id="{{ $task->id }}"
                         aria-labelledby="task-latest-activity-title">
@@ -1579,7 +1580,7 @@
                                                     {{ $feedActivity['badge'] }}
                                                 </span>
                                             </div>
-                                            @if (in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
+                                            @if (in_array($feedActivity['tone'], ['assigned', 'reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
                                                 <div class="task-activity-feed__assignment-row">
                                                     <p class="task-activity-feed__assignment-target">
                                                         <strong>@if ($feedActivity['tone'] === 'poc_notification') Assign POC &rarr; @else Assign to: @endif</strong> {{ $feedActivity['assigned_to'] }}
@@ -1617,7 +1618,7 @@
                                                         </ul>
                                                     </div>
                                                 @endif
-                                                @if (! in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
+                                                @if (! in_array($feedActivity['tone'], ['assigned', 'reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
                                                     <time class="task-activity-feed__card-time"
                                                         datetime="{{ $feedActivity['at']->toIso8601String() }}">
                                                         {{ $feedActivity['at']->diffForHumans() }},
@@ -1631,7 +1632,6 @@
                             </ol>
                         @endif
                     </section>
-                    @endif
 
                 </div>
 
@@ -2330,9 +2330,16 @@
                             ],
                         ])->filter(fn(array $milestone): bool => filled($milestone['date']))->values();
                         $timelineSchedule = $task->recurringSchedule ?? $task->recurringTask;
+                        $subtaskHistory = $task->statusHistory->filter(function ($history): bool {
+                            $eventType = strtolower((string) $history->event_type);
+
+                            return $history->subtask_id !== null
+                                || $eventType === 'subtask'
+                                || str_starts_with($eventType, 'subtask_');
+                        });
                         $timelineDates = collect([$timelineRangeStart, $timelineRangeEnd])
                             ->merge($mainTaskHistory->pluck('created_at'))
-                            ->merge($task->statusHistory->whereNotNull('subtask_id')->pluck('created_at'))
+                            ->merge($subtaskHistory->pluck('created_at'))
                             ->merge($mainTaskHistory->where('event_type', 'work_update')->pluck('activity_date'))
                             ->merge($task->assignments->pluck('assigned_at'))
                             ->merge($task->assignments->pluck('unassigned_at'))
@@ -2503,10 +2510,10 @@
                             ->sort(fn(array $first, array $second): int => ($first['date'] ?? '') <=> ($second['date'] ?? '')
                                 ?: (int) ($first['timestamp'] ?? 0) <=> (int) ($second['timestamp'] ?? 0))
                             ->values();
-                        $subtaskTimelineActivities = $task->statusHistory
-                            ->filter(fn($history): bool => $history->subtask_id !== null)
-                            ->map(function ($history) use ($task): array {
-                                $subtask = $task->subtasks->firstWhere('id', $history->subtask_id);
+                        $subtaskTimelineActivities = $subtaskHistory
+                            ->map(function ($history): array {
+                                $snapshot = json_decode((string) $history->remarks, true);
+                                $snapshot = is_array($snapshot) ? $snapshot : [];
 
                                 return [
                                     'date' => $history->created_at?->timezone(config('app.timezone'))->toDateString(),
@@ -2516,7 +2523,9 @@
                                     'actor' => $history->changedBy?->name ?? 'System',
                                     'from' => $history->old_status,
                                     'to' => $history->new_status,
-                                    'subtaskTitle' => $subtask?->title ?? 'Subtask',
+                                    'subtaskTitle' => $history->subtask?->title
+                                        ?? ($snapshot['title'] ?? null)
+                                        ?? 'Subtask',
                                     'detail' => $history->remarks,
                                 ];
                             })
@@ -4381,7 +4390,7 @@
                                                     {{ $feedActivity['badge'] }}
                                                 </span>
                                             </div>
-                                            @if (in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
+                                            @if (in_array($feedActivity['tone'], ['assigned', 'reassigned', 'poc_notification'], true) && $feedActivity['assigned_to'])
                                                 <div class="task-activity-feed__assignment-row">
                                                     <p class="task-activity-feed__assignment-target">
                                                         <strong>@if ($feedActivity['tone'] === 'poc_notification') Assign POC &rarr; @else Assign to: @endif</strong> {{ $feedActivity['assigned_to'] }}
@@ -4419,7 +4428,7 @@
                                                         </ul>
                                                     </div>
                                                 @endif
-                                                @if (! in_array($feedActivity['tone'], ['reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
+                                                @if (! in_array($feedActivity['tone'], ['assigned', 'reassigned', 'poc_notification'], true) || ! $feedActivity['assigned_to'])
                                                     <time class="task-activity-feed__card-time"
                                                         datetime="{{ $feedActivity['at']->toIso8601String() }}">
                                                         {{ $feedActivity['at']->diffForHumans() }},
@@ -5447,6 +5456,10 @@
                     })
                     .then(data => {
                         if (data.ok && data.subtask) {
+                            if (isVolumeTask) {
+                                window.location.reload();
+                                return;
+                            }
                             const st = data.subtask;
                             const li = document.getElementById(`subtask-${st.id}`);
                             if (li) {
@@ -5789,7 +5802,7 @@
                         .filter(change => change.text !== '');
                 };
                 const subtaskEventPresentation = event => {
-                    const type = String(event.type || '').toLowerCase();
+                    const type = String(event.type || '').toLowerCase().replace(/^subtask_/, '');
                     const actor = event.actor || 'System';
                     const changes = parseSubtaskChanges(event.detail);
                     const completionTypes = [
@@ -5807,8 +5820,37 @@
                         'hold', 'on_hold', 'resume', 'reopened', ...completionTypes,
                     ].includes(type);
 
-                    if ((type === 'created' || type === 'create')) {
+                    if (type === 'created' || type === 'create') {
                         return { title: `Subtask created by ${actor}`, changes };
+                    }
+                    if (type === 'assignment') {
+                        const oldAssignee = String(event.from || '').trim();
+                        const newAssignee = String(event.to || 'Unassigned').trim();
+                        const reassigned = oldAssignee && oldAssignee.toLowerCase() !== 'unassigned';
+                        return {
+                            title: reassigned
+                                ? `Subtask reassigned from ${oldAssignee} to ${newAssignee} by ${actor}`
+                                : `Subtask assigned to ${newAssignee} by ${actor}`,
+                            changes,
+                        };
+                    }
+                    if (type === 'status') {
+                        const status = normalizedTargetStatus;
+                        const action = status === 'completed'
+                            ? 'completed'
+                            : (status === 'cancelled'
+                                ? 'cancelled'
+                                : (status === 'on_hold'
+                                    ? 'put on hold'
+                                    : (status === 'in_progress' && String(event.from || '').toLowerCase() === 'on_hold'
+                                        ? 'resumed'
+                                        : (status === 'in_progress' ? 'started' : null))));
+                        if (action) {
+                            return { title: `Subtask ${action} by ${actor}`, changes };
+                        }
+                    }
+                    if (type === 'daily_update') {
+                        return { title: `Subtask daily update added by ${actor}`, changes };
                     }
                     if (isCompletionEvent) {
                         const completionChanges = changes.length
@@ -5923,15 +5965,31 @@
                 }).join('');
                 const subtaskEventLabel = event => {
                     const type = String(event.type || '').replace(/^subtask_/, '');
+                    const targetStatus = String(event.to || '').toLowerCase();
+                    if (type === 'status') {
+                        if (targetStatus === 'completed') return 'Subtask Completed';
+                        if (targetStatus === 'cancelled') return 'Subtask Cancelled';
+                        if (targetStatus === 'on_hold') return 'Subtask Put On Hold';
+                        if (targetStatus === 'in_progress') {
+                            return String(event.from || '').toLowerCase() === 'on_hold'
+                                ? 'Subtask Resumed'
+                                : 'Subtask Started';
+                        }
+                    }
+                    if (type === 'assignment') {
+                        return String(event.from || '').trim()
+                            && String(event.from).toLowerCase() !== 'unassigned'
+                            ? 'Subtask Reassigned'
+                            : 'Subtask Assigned';
+                    }
                     return ({
                         created: 'Subtask Created',
                         deleted: 'Subtask Deleted',
-                        status: 'Status Updated',
                         progress: 'Progress Updated',
-                        assignment: 'Assignee Updated',
+                        daily_update: 'Subtask Daily Update',
                         deadline: 'Dates Updated',
                         conflict: 'Date Conflict',
-                        updated: 'Subtask Updated',
+                        updated: 'Subtask Details Updated',
                     })[type] || `Subtask ${prettySubtaskValue(type || 'Activity')}`;
                 };
                 const subtaskEventTone = event => {

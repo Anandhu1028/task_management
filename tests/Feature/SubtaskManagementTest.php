@@ -8,6 +8,7 @@ use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Role;
@@ -271,6 +272,72 @@ class SubtaskManagementTest extends TestCase
             'description' => 'Updated details',
             'assigned_to' => $this->employee->id,
         ]);
+    }
+
+    public function test_task_view_omits_daily_update_monitoring_and_keeps_the_subtasks_list(): void
+    {
+        $task = $this->createTask();
+        $this->createSubtask($task, ['title' => 'Existing subtask']);
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('tf-subtask-daily-monitor', $html);
+        $this->assertStringContainsString('Existing subtask', $html);
+        $this->assertStringContainsString('Subtasks', $html);
+    }
+
+    public function test_subtask_creation_and_lifecycle_actions_are_shown_as_subtask_activities(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00:00', config('app.timezone')));
+        $task = $this->createTask([
+            'status' => 'in_progress',
+            'start_date' => '2026-11-11',
+            'due_date' => '2026-11-13',
+            'original_deadline' => '2026-11-13',
+        ]);
+
+        $response = $this->postJson(route('subtasks.store', $task), [
+            'title' => 'First daily update',
+            'assigned_to' => $this->employee->id,
+        ]);
+        $response->assertCreated();
+        $subtask = Subtask::query()->where('task_id', $task->id)->firstOrFail();
+
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'subtask_id' => $subtask->id,
+            'event_type' => 'subtask_created',
+        ]);
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'subtask_id' => $subtask->id,
+            'event_type' => 'subtask_assignment',
+        ]);
+
+        $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+        $this->assertStringNotContainsString('tf-subtask-daily-monitor', $html);
+        $this->assertStringContainsString('First daily update', $html);
+        $this->assertStringContainsString('Subtask Created', $html);
+
+        $this->patchJson(route('subtasks.update', [$task, $subtask]), [
+            'title' => 'Updated daily update',
+        ])->assertOk();
+        $this->patchJson(route('subtasks.update', [$task, $subtask]), [
+            'status' => 'in_progress',
+        ])->assertOk();
+
+        $this->deleteJson(route('subtasks.destroy', [$task, $subtask]))
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'subtask_id' => null,
+            'event_type' => 'subtask_deleted',
+        ]);
+        $deletedHtml = $this->get(route('tasks.show', $task))->assertOk()->getContent();
+        $this->assertStringContainsString('deleted subtask', $deletedHtml);
+        $this->travelBack();
     }
 
     public function test_active_task_assignee_cannot_reassign_a_subtask(): void

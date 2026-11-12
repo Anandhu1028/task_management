@@ -334,6 +334,24 @@
     color: #475569;
 }
 
+.tf-daily-update-status {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 5px;
+    max-width: 190px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.tf-daily-update-status--missing {
+    color: #b91c1c;
+}
+
+.tf-daily-update-status--submitted {
+    color: #15803d;
+}
+
 .tf-task-detail__header-status {
     --tf-task-status-tone: #64748b;
     --tf-task-status-soft: #f1f5f9;
@@ -8568,6 +8586,31 @@
     color: #15803d;
 }
 
+.tf-volume-overview-card__status-badge--ahead {
+    border-color: #a5e3ee;
+    background: linear-gradient(180deg, #f0fcff, #dff7fb);
+    color: #0e7490;
+}
+
+.tf-volume-overview-card__status-badge--completed {
+    border-color: #86efac;
+    background: linear-gradient(180deg, #f0fdf4, #dcfce7);
+    color: #15803d;
+}
+
+.tf-volume-overview-card__status-badge--behind,
+.tf-volume-overview-card__status-badge--overdue {
+    border-color: #f2c5c5;
+    background: linear-gradient(180deg, #fff7f7, #fef0f0);
+    color: #b91c1c;
+}
+
+.tf-volume-overview-card__status-badge--upcoming {
+    border-color: #d9e1eb;
+    background: linear-gradient(180deg, #fff, #f3f6fa);
+    color: #64748b;
+}
+
 .tf-volume-overview-card__status-badge--mismatch {
     border-color: #f2c5c5;
     background: linear-gradient(180deg, #fff7f7, #fef0f0);
@@ -8588,6 +8631,30 @@
 
 .tf-volume-overview-card__status-badge--pending .tf-volume-overview-card__status-indicator {
     border-style: dashed;
+}
+
+.tf-volume-overview-card__status-badge--update-submitted {
+    border-color: #bfdbfe;
+    background: linear-gradient(180deg, #f8fbff, #eaf3ff);
+    color: #1d4ed8;
+}
+
+.tf-volume-overview-card__status-badge--update-missed-daily-update {
+    border-color: #fecdd3;
+    background: linear-gradient(180deg, #fff8f8, #ffe4e6);
+    color: #be123c;
+}
+
+.tf-volume-overview-card__status-badge--update-pending {
+    border-color: #fed7aa;
+    background: linear-gradient(180deg, #fffaf5, #ffedd5);
+    color: #c2410c;
+}
+
+.tf-volume-overview-card__status-badge--update-upcoming {
+    border-color: #d9e1eb;
+    background: linear-gradient(180deg, #fff, #f3f6fa);
+    color: #64748b;
 }
 
 @media (max-width: 575px) {

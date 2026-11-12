@@ -242,6 +242,11 @@ class Task extends Model
         return $this->hasMany(TaskVolumeUpdate::class);
     }
 
+    public function subtaskDailyUpdates(): HasMany
+    {
+        return $this->hasMany(SubtaskDailyUpdate::class);
+    }
+
     public function getDisplayStatusAttribute(): string
     {
         return $this->status;
@@ -334,14 +339,19 @@ class Task extends Model
         });
     }
 
+    /**
+     * Recurring tasks are only listed on their scheduled dates and only while the
+     * schedule's own time window (start_time to end_time, in the schedule's
+     * timezone) is open. Outside that window they are hidden.
+     */
     public function scopeAvailableInRecurringWindow(Builder $query): Builder
     {
         $now = CarbonImmutable::now('UTC');
-        $eligibleOccurrenceDates = [];
 
-        // Maps schedule_id => task_id for the master recurring template tasks
-        // that are currently within their active window.
-        $eligibleMasterTaskIds = [];
+        // schedule_id => local date, for schedules whose window is open right now.
+        $openScheduleDates = [];
+        // schedule_id => master template task id.
+        $openMasterTaskIds = [];
 
         foreach (RecurringTask::query()
             ->where('status', 'active')
@@ -369,21 +379,18 @@ class Task extends Model
                 continue;
             }
 
-            $eligibleOccurrenceDates[$schedule->getKey()] = $localNow->toDateString();
-            $eligibleMasterTaskIds[$schedule->getKey()] = (int) $schedule->task_id;
+            $openScheduleDates[$schedule->getKey()] = $localNow->toDateString();
+            $openMasterTaskIds[$schedule->getKey()] = (int) $schedule->task_id;
         }
 
-        // For each eligible schedule, check whether a generated occurrence
-        // already exists for today (any occurrence, regardless of its window
-        // fields). If one exists, the master template task should NOT also
-        // appear — the occurrence is the canonical representation. Only show
-        // the master task when no occurrence has been generated yet.
+        // If today's occurrence has already been generated, it is the row that is
+        // shown; the master template is only shown while no occurrence exists yet.
         $masterTaskIdsWithoutOccurrence = [];
-        if ($eligibleOccurrenceDates !== []) {
+        if ($openScheduleDates !== []) {
             $schedulesWithOccurrence = static::withTrashed()
                 ->whereNotNull('recurring_task_id')
-                ->where(function (Builder $datesQuery) use ($eligibleOccurrenceDates): void {
-                    foreach ($eligibleOccurrenceDates as $scheduleId => $date) {
+                ->where(function (Builder $datesQuery) use ($openScheduleDates): void {
+                    foreach ($openScheduleDates as $scheduleId => $date) {
                         $datesQuery->orWhere(function (Builder $q) use ($scheduleId, $date): void {
                             $q->where('recurring_task_id', $scheduleId)
                                 ->whereDate('occurrence_date', $date);
@@ -395,24 +402,22 @@ class Task extends Model
                 ->flip()
                 ->all();
 
-            foreach ($eligibleMasterTaskIds as $scheduleId => $masterTaskId) {
+            foreach ($openMasterTaskIds as $scheduleId => $masterTaskId) {
                 if (! isset($schedulesWithOccurrence[$scheduleId])) {
                     $masterTaskIdsWithoutOccurrence[] = $masterTaskId;
                 }
             }
         }
 
-        return $query->where(function (Builder $windowQuery) use ($now, $eligibleOccurrenceDates, $masterTaskIdsWithoutOccurrence): void {
-            // Branch 1: regular (non-recurring) tasks are always visible.
+        return $query->where(function (Builder $windowQuery) use ($openScheduleDates, $masterTaskIdsWithoutOccurrence): void {
+            // 1. Regular (non-recurring) tasks are always visible.
             $windowQuery->where(function (Builder $regularTaskQuery): void {
                 $regularTaskQuery->whereNull('tasks.recurring_task_id')
                     ->where('tasks.task_type', '!=', 'recurring');
             });
 
-            // Branch 2: master recurring template tasks that are within their
-            // active window but do not yet have a generated occurrence for
-            // today. This ensures the task is visible from the first moment
-            // the window opens, even when the scheduler has not run yet.
+            // 2. Master recurring task: only while its window is open and today's
+            //    occurrence has not been generated yet.
             if ($masterTaskIdsWithoutOccurrence !== []) {
                 $windowQuery->orWhere(function (Builder $masterQuery) use ($masterTaskIdsWithoutOccurrence): void {
                     $masterQuery->whereNull('tasks.recurring_task_id')
@@ -421,19 +426,18 @@ class Task extends Model
                 });
             }
 
-            if ($eligibleOccurrenceDates === []) {
+            if ($openScheduleDates === []) {
                 return;
             }
 
-            // Branch 3: generated occurrence tasks that are within their
-            // specific available_from / expires_at time window.
-            $windowQuery->orWhere(function (Builder $occurrenceQuery) use ($now, $eligibleOccurrenceDates): void {
+            // 3. Generated occurrence: only for today's date of a schedule whose
+            //    window is open. The window was already checked above in the
+            //    schedule's own timezone, so no second timestamp comparison is made.
+            $windowQuery->orWhere(function (Builder $occurrenceQuery) use ($openScheduleDates): void {
                 $occurrenceQuery->whereNotNull('tasks.recurring_task_id')
-                    ->where('tasks.available_from', '<=', $now)
-                    ->where('tasks.expires_at', '>=', $now)
                     ->whereNotIn('tasks.status', ['completed', 'missed', 'cancelled'])
-                    ->where(function (Builder $datesQuery) use ($eligibleOccurrenceDates): void {
-                        foreach ($eligibleOccurrenceDates as $scheduleId => $date) {
+                    ->where(function (Builder $datesQuery) use ($openScheduleDates): void {
+                        foreach ($openScheduleDates as $scheduleId => $date) {
                             $datesQuery->orWhere(function (Builder $occurrenceDateQuery) use ($scheduleId, $date): void {
                                 $occurrenceDateQuery
                                     ->where('tasks.recurring_task_id', $scheduleId)

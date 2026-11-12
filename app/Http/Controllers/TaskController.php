@@ -16,6 +16,7 @@ use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
 use App\Services\TaskActivityFeedService;
 use App\Services\TaskAttachmentService;
+use App\Services\TaskDailyUpdateMonitoringService;
 use App\Services\TaskQueryService;
 use App\Services\TaskWorkflowService;
 use App\Services\VolumeTaskService;
@@ -36,14 +37,21 @@ use Throwable;
 
 class TaskController extends Controller
 {
-    public function index(Request $request, TaskQueryService $taskQueries): View
-    {
+    public function index(
+        Request $request,
+        TaskQueryService $taskQueries,
+        TaskDailyUpdateMonitoringService $dailyUpdateMonitoring,
+    ): View {
         $this->authorize('viewAny', Task::class);
 
         $filters = $this->validatedFilters($request);
+        $today = today(config('app.timezone'))->toDateString();
 
         $tasks = $this->applyKanbanSort(
-            $this->filteredTasksQuery($filters, $request->user()),
+            $dailyUpdateMonitoring->withTodayUpdateFlags(
+                $this->filteredTasksQuery($filters, $request->user()),
+                $today,
+            ),
             $filters['sort'] ?? 'deadline_priority',
         )
             ->with([
@@ -53,8 +61,8 @@ class TaskController extends Controller
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
                 'recurringTask:id,task_id,repeat_frequency,start_date,end_date,status',
-                'recurringSchedule:id,task_id,repeat_frequency,start_date,end_date,status',
-                'volume:id,task_id,total_volume,deadline_date',
+                'recurringSchedule:id,task_id,repeat_frequency,start_date,end_date,start_time,end_time,timezone,status',
+                'volume:id,task_id,total_volume,start_date,deadline_date',
             ])
             ->withExists([
                 'deadlineExtensionRequests as has_pending_deadline_extension_request' => fn (Builder $query) => $query
@@ -62,9 +70,15 @@ class TaskController extends Controller
             ])
             ->paginate((int) ($filters['per_page'] ?? 15))
             ->appends($filters);
+        $tasks->getCollection()->each(function (Task $task) use ($dailyUpdateMonitoring, $today): void {
+            $task->setAttribute('daily_update_monitoring_status', $dailyUpdateMonitoring->todayStatus($task, $today));
+        });
 
         $kanbanTasks = $this->applyKanbanSort(
-            $this->filteredTasksQuery($filters, $request->user()),
+            $dailyUpdateMonitoring->withTodayUpdateFlags(
+                $this->filteredTasksQuery($filters, $request->user()),
+                $today,
+            ),
             $filters['sort'] ?? 'deadline_priority',
         )
             ->with([
@@ -73,9 +87,12 @@ class TaskController extends Controller
                 'assignee:id,name,designation',
                 'activeAssignees:id,name,designation',
                 'pocs:id,name,designation',
-                'volume:id,task_id,total_volume,deadline_date',
+                'volume:id,task_id,total_volume,start_date,deadline_date',
             ])
             ->get()
+            ->each(function (Task $task) use ($dailyUpdateMonitoring, $today): void {
+                $task->setAttribute('daily_update_monitoring_status', $dailyUpdateMonitoring->todayStatus($task, $today));
+            })
             ->groupBy('status');
 
         $counts = Task::query()
@@ -292,6 +309,7 @@ class TaskController extends Controller
             'recurringSchedule',
             'recurringSchedule.occurrences:id,recurring_task_id,occurrence_date,status,completed_at,missed_at,task_code,title',
             'statusHistory.changedBy',
+            'statusHistory.subtask',
             'statusHistory.attachments',
             'milestones.creator:id,name',
             'milestones.completedBy:id,name',

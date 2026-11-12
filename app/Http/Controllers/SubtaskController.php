@@ -58,9 +58,13 @@ class SubtaskController extends Controller
         $this->validateSubtaskDates($task, $data['start_date'], $data['due_date']);
         $this->validateAssignee($task, $data['assigned_to']);
 
-        $subtask = DB::transaction(function () use ($task, $request, $data): Subtask {
+        $assignedUserName = $data['assigned_to'] === null
+            ? null
+            : User::query()->whereKey($data['assigned_to'])->value('name');
+
+        $subtask = DB::transaction(function () use ($task, $request, $data, $assignedUserName): Subtask {
             $sortOrder = (int) ($task->subtasks()->max('sort_order') ?? -1) + 1;
-            $subtask = $this->createSubtask($task, $data, $request->user(), $sortOrder);
+            $subtask = $this->createSubtask($task, $data, $request->user(), $sortOrder, $assignedUserName);
             if ($task->task_type !== 'volume') {
                 $this->progress->sync($task);
             }
@@ -119,12 +123,22 @@ class SubtaskController extends Controller
             $this->validateAssignee($task, $rows[$index]['assigned_to'], "subtasks.{$index}.");
         }
 
-        $subtasks = DB::transaction(function () use ($task, $request, $rows): array {
+        $assigneeNames = User::query()
+            ->whereIn('id', collect($rows)->pluck('assigned_to')->filter()->unique())
+            ->pluck('name', 'id');
+
+        $subtasks = DB::transaction(function () use ($task, $request, $rows, $assigneeNames): array {
             $sortOrder = (int) ($task->subtasks()->max('sort_order') ?? -1) + 1;
             $subtasks = [];
 
             foreach ($rows as $row) {
-                $subtasks[] = $this->createSubtask($task, $row, $request->user(), $sortOrder++);
+                $subtasks[] = $this->createSubtask(
+                    $task,
+                    $row,
+                    $request->user(),
+                    $sortOrder++,
+                    $assigneeNames->get($row['assigned_to'] ?? null),
+                );
             }
 
             if ($task->task_type !== 'volume') {
@@ -284,6 +298,7 @@ class SubtaskController extends Controller
         $oldStartDate = $subtask->start_date?->format('Y-m-d');
         $oldDueDate = $subtask->due_date?->format('Y-m-d');
         $oldEstimatedHours = $subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours;
+        $oldActualHours = $subtask->actual_hours === null ? null : (string) $subtask->actual_hours;
         $newStatus = $validated['status'] ?? $oldStatus;
         $newProgress = array_key_exists('progress_percentage', $validated)
             ? (int) $validated['progress_percentage']
@@ -314,6 +329,7 @@ class SubtaskController extends Controller
             $oldStartDate,
             $oldDueDate,
             $oldEstimatedHours,
+            $oldActualHours,
             $newStatus,
             $newProgress,
         ): void {
@@ -353,7 +369,13 @@ class SubtaskController extends Controller
                 $workDate = array_key_exists('work_date', $validated)
                     ? $validated['work_date']
                     : ($existingVolumeUpdate?->update_date?->toDateString() ?? today(config('app.timezone'))->toDateString());
-                $this->volumes->syncFromSubtask($task, $subtask, $actor, $workDate, $subtask->description);
+                $this->volumes->syncFromSubtask(
+                    $task,
+                    $subtask,
+                    $actor,
+                    $workDate,
+                    $subtask->description,
+                );
             }
 
             if (array_key_exists('assigned_to', $validated)
@@ -409,6 +431,16 @@ class SubtaskController extends Controller
                     "{$actor->name} ".($event === 'completed' ? 'completed' : 'changed the status of')
                         ." {$subtask->title} on {$task->task_code} to ".Subtask::STATUS_LABELS[$newStatus].'.',
                 );
+            } elseif ($progressChanged) {
+                $this->activity->record(
+                    $task,
+                    $subtask,
+                    $actor,
+                    'progress',
+                    (string) $oldProgress,
+                    (string) $newProgress,
+                    "updated progress for subtask \"{$subtask->title}\" from {$oldProgress}% to {$newProgress}%",
+                );
             }
 
             $newStartDate = $subtask->start_date?->format('Y-m-d');
@@ -425,10 +457,20 @@ class SubtaskController extends Controller
                 );
             }
 
-            if ($oldTitle !== $subtask->title
-                || $oldDescription !== $subtask->description
-                || $oldPriority !== $subtask->priority
-                || $oldEstimatedHours !== ($subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours)) {
+            $detailChanges = [];
+            foreach ([
+                'Title' => [$oldTitle, $subtask->title],
+                'Description' => [$oldDescription, $subtask->description],
+                'Priority' => [$oldPriority, $subtask->priority],
+                'Estimated hours' => [$oldEstimatedHours, $subtask->estimated_hours === null ? null : (string) $subtask->estimated_hours],
+                'Actual hours' => [$oldActualHours, $subtask->actual_hours === null ? null : (string) $subtask->actual_hours],
+            ] as $label => [$oldValue, $newValue]) {
+                if ($oldValue !== $newValue) {
+                    $detailChanges[] = "{$label}: ".($oldValue ?? '—').' → '.($newValue ?? '—');
+                }
+            }
+
+            if ($detailChanges !== []) {
                 $this->activity->record(
                     $task,
                     $subtask,
@@ -436,7 +478,7 @@ class SubtaskController extends Controller
                     'updated',
                     $oldTitle,
                     $subtask->title,
-                    "updated details for subtask \"{$subtask->title}\"",
+                    "updated details for subtask \"{$subtask->title}\": ".implode('; ', $detailChanges),
                 );
             }
 
@@ -528,8 +570,13 @@ class SubtaskController extends Controller
     /**
      * @param  array<string, mixed>  $data
      */
-    private function createSubtask(Task $task, array $data, User $actor, int $sortOrder): Subtask
-    {
+    private function createSubtask(
+        Task $task,
+        array $data,
+        User $actor,
+        int $sortOrder,
+        ?string $assignedUserName = null,
+    ): Subtask {
         $workDate = $task->task_type === 'volume' ? ($data['work_date'] ?? null) : null;
         unset($data['work_date']);
 
@@ -559,6 +606,17 @@ class SubtaskController extends Controller
             $subtask->status,
             "{$actor->name} created subtask \"{$subtask->title}\"",
         );
+        if ($assignedUserName !== null) {
+            $this->activity->record(
+                $task,
+                $subtask,
+                $actor,
+                'assignment',
+                null,
+                $assignedUserName,
+                "assigned subtask \"{$subtask->title}\" to {$assignedUserName}",
+            );
+        }
         $this->activity->notifyParticipants(
             $task,
             $subtask,

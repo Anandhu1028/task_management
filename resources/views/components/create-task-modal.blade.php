@@ -339,8 +339,8 @@
                             <p class="tf-create-task__recurring-duration">
                                 Daily availability: <strong id="createTaskRecurringDuration">Select a start and end time</strong>
                             </p>
-                            <input type="hidden" name="timezone" id="createTaskRecurringTimezone" value="{{ old('timezone', config('app.timezone')) }}">
-                            <p class="tf-create-task__hint mb-0">Times use timezone (<span id="createTaskRecurringTimezoneLabel">{{ old('timezone', config('app.timezone')) }}</span>).</p>
+                            <input type="hidden" name="timezone" id="createTaskRecurringTimezone" value="{{ old('timezone', config('tasks.schedule_timezone', 'Asia/Kolkata') ?: 'Asia/Kolkata') }}">
+                            <p class="tf-create-task__hint mb-0">Times use timezone (<span id="createTaskRecurringTimezoneLabel">{{ old('timezone', config('tasks.schedule_timezone', 'Asia/Kolkata') ?: 'Asia/Kolkata') }}</span>).</p>
                         </section>
 
                         <section class="tf-create-task__recurring tf-create-task__field--full" id="createTaskVolumeConfiguration"
@@ -512,7 +512,9 @@
     const volumeStart = document.getElementById('createTaskVolumeStart');
     const volumeWorkingDays = document.getElementById('createTaskVolumeWorkingDays');
     const volumeMinimum = document.getElementById('createTaskVolumeMinimum');
-    const recurringControls = recurringSchedule.querySelectorAll('input, select');
+    // The hidden timezone input is excluded so that clearing/disabling the schedule
+    // fields never wipes the timezone value.
+    const recurringControls = recurringSchedule.querySelectorAll('input:not([type="hidden"]), select');
     const recurringStartDate = document.getElementById('createTaskRecurringStartDate');
     const recurringEndDate = document.getElementById('createTaskRecurringEndDate');
     const recurringStartTime = document.getElementById('createTaskRecurringStartTime');
@@ -552,20 +554,6 @@
     let previousTaskType = taskTypeSelect.value;
     let previousDeadline = '';
     let previousEffort = '';
-
-    try {
-        const clientTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (clientTz) {
-            if (recurringTimezoneInput) {
-                recurringTimezoneInput.value = clientTz;
-            }
-            if (recurringTimezoneLabel) {
-                recurringTimezoneLabel.textContent = clientTz;
-            }
-        }
-    } catch (e) {
-        // Fallback to server configured timezone
-    }
 
     const updateRecurringDuration = () => {
         const [startHour, startMinute] = recurringStartTime.value.split(':').map(Number);

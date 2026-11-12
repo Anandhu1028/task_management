@@ -28,7 +28,7 @@ return new class extends Migration
 
         Schema::table('task_status_histories', function (Blueprint $table): void {
             if (! Schema::hasColumn('task_status_histories', 'subtask_id')) {
-                $table->foreignId('subtask_id')->nullable()->after('task_id')->constrained('subtasks')->cascadeOnDelete();
+                $table->foreignId('subtask_id')->nullable()->after('task_id')->constrained('subtasks')->nullOnDelete();
             }
         });
     }

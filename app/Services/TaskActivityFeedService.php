@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Subtask;
 use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
@@ -28,6 +29,7 @@ class TaskActivityFeedService
      */
     public function build(Task $task): Collection
     {
+        $task->loadMissing('statusHistory.subtask');
         $activities = collect();
         $creator = $task->creator;
         $creationPocs = $task->created_at === null
@@ -123,7 +125,7 @@ class TaskActivityFeedService
         }
 
         foreach ($task->statusHistory as $history) {
-            if ($this->isSubtaskActivity($history)) {
+            if (strtolower((string) $history->event_type) === 'work_update') {
                 continue;
             }
 
@@ -156,6 +158,10 @@ class TaskActivityFeedService
      */
     private function fromHistory(TaskStatusHistory $history): array
     {
+        if ($this->isSubtaskActivity($history)) {
+            return $this->fromSubtaskHistory($history);
+        }
+
         $oldStatus = $history->old_status === null
             ? null
             : (Task::STATUS_LABELS[$history->old_status] ?? $this->formatStatus($history->old_status));
@@ -177,6 +183,133 @@ class TaskActivityFeedService
                 : ($eventType === 'cancellation' ? 'cancelled' : $eventType),
             'attachments' => $history->attachments,
         ];
+    }
+
+    /**
+     * @return array{
+     *     id: string,
+     *     at: Carbon,
+     *     actor: string,
+     *     designation: ?string,
+     *     assigned_to: ?string,
+     *     text: string,
+     *     detail: ?string,
+     *     badge: string,
+     *     tone: string,
+     *     attachments: Collection<int, TaskAttachment>
+     * }
+     */
+    private function fromSubtaskHistory(TaskStatusHistory $history): array
+    {
+        $eventType = strtolower((string) $history->event_type);
+        $event = str_starts_with($eventType, 'subtask_')
+            ? substr($eventType, strlen('subtask_'))
+            : $eventType;
+        $snapshot = json_decode((string) $history->remarks, true);
+        $snapshot = is_array($snapshot) ? $snapshot : [];
+        $subtaskTitle = $history->subtask?->title
+            ?? ($snapshot['title'] ?? null)
+            ?? ($event === 'deleted' ? $history->old_status : null)
+            ?? 'Subtask';
+        $oldValue = $history->old_status;
+        $newValue = $history->new_status;
+        $assignedTo = null;
+        $detail = $history->remarks;
+        $tone = 'updated';
+        $badge = 'Subtask Activity';
+
+        if ($event === 'created') {
+            $text = "created subtask \"{$subtaskTitle}\"";
+            $detail = null;
+            $tone = 'created';
+            $badge = 'Subtask Created';
+        } elseif ($event === 'assignment') {
+            $isReassignment = filled($oldValue) && mb_strtolower($oldValue) !== 'unassigned';
+            $assignedTo = filled($newValue) && mb_strtolower($newValue) !== 'unassigned' ? $newValue : null;
+            $text = $isReassignment
+                ? "reassigned subtask \"{$subtaskTitle}\" from {$oldValue} to ".($assignedTo ?? 'Unassigned')
+                : "assigned subtask \"{$subtaskTitle}\" to ".($assignedTo ?? 'Unassigned');
+            $tone = $isReassignment ? 'reassigned' : 'assigned';
+            $badge = $isReassignment ? 'Subtask Reassigned' : 'Subtask Assigned';
+        } elseif ($event === 'status') {
+            $oldStatus = $this->formatSubtaskStatus($oldValue);
+            $newStatus = $this->formatSubtaskStatus($newValue);
+            $transition = "Status: {$oldStatus} → {$newStatus}";
+
+            if ($newValue === 'in_progress' && $oldValue === 'on_hold') {
+                $text = "resumed subtask \"{$subtaskTitle}\"";
+                $tone = 'resume';
+                $badge = 'Subtask Resumed';
+            } elseif ($newValue === 'in_progress') {
+                $text = "started subtask \"{$subtaskTitle}\"";
+                $tone = 'start';
+                $badge = 'Subtask Started';
+            } elseif ($newValue === 'on_hold') {
+                $text = "put subtask \"{$subtaskTitle}\" on hold";
+                $tone = 'hold';
+                $badge = 'Subtask On Hold';
+            } elseif ($newValue === 'completed') {
+                $text = "completed subtask \"{$subtaskTitle}\"";
+                $tone = 'completed';
+                $badge = 'Subtask Completed';
+            } elseif ($newValue === 'cancelled') {
+                $text = "cancelled subtask \"{$subtaskTitle}\"";
+                $tone = 'cancelled';
+                $badge = 'Subtask Cancelled';
+            } else {
+                $text = "changed the status of subtask \"{$subtaskTitle}\" from {$oldStatus} to {$newStatus}";
+                $tone = 'updated';
+                $badge = 'Subtask Status Updated';
+            }
+
+            $detail = trim($transition.($history->remarks ? ' · '.$history->remarks : ''));
+        } elseif ($event === 'daily_update') {
+            $text = "added a daily update to subtask \"{$subtaskTitle}\"";
+            $tone = 'updated';
+            $badge = 'Subtask Daily Update';
+        } elseif ($event === 'deleted') {
+            $text = "deleted subtask \"{$subtaskTitle}\"";
+            $tone = 'cancelled';
+            $badge = 'Subtask Deleted';
+            $detail = filled($snapshot['assignee'] ?? null)
+                ? 'Assigned employee: '.$snapshot['assignee']
+                : null;
+        } elseif ($event === 'updated') {
+            $text = "updated details for subtask \"{$subtaskTitle}\"";
+            $badge = 'Subtask Details Updated';
+        } elseif ($event === 'deadline') {
+            $text = "updated the timeframe for subtask \"{$subtaskTitle}\"";
+            $badge = 'Subtask Dates Updated';
+        } elseif ($event === 'conflict') {
+            $text = "recorded a date conflict for subtask \"{$subtaskTitle}\"";
+            $tone = 'risk';
+            $badge = 'Subtask Date Conflict';
+        } else {
+            $text = "updated subtask \"{$subtaskTitle}\"";
+        }
+
+        return [
+            'id' => 'task-history-'.$history->id,
+            'at' => $history->created_at,
+            'actor' => $history->changedBy?->name ?? 'System',
+            'designation' => $history->changedBy?->designation,
+            'assigned_to' => $assignedTo,
+            'text' => $text,
+            'detail' => $detail,
+            'badge' => $badge,
+            'tone' => $tone,
+            'attachments' => $history->attachments,
+        ];
+    }
+
+    private function formatSubtaskStatus(?string $status): string
+    {
+        if ($status === null || $status === '') {
+            return 'Unknown';
+        }
+
+        return Subtask::STATUS_LABELS[$status]
+            ?? ucwords(str_replace('_', ' ', $status));
     }
 
     private function isSubtaskActivity(TaskStatusHistory $history): bool

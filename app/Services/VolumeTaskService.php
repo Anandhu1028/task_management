@@ -7,7 +7,6 @@ use App\Models\Task;
 use App\Models\TaskVolume;
 use App\Models\TaskVolumeUpdate;
 use App\Models\User;
-use App\Notifications\TaskLifecycleNotification;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -47,7 +46,7 @@ class VolumeTaskService
         ]);
     }
 
-    /** @return array{total:int, completed:int, remaining:int, percentage:int, today_actual_count:int, working_days:int, minimum_daily_count:int, rows:Collection<int, array<string, mixed>>, mismatch_count:int} */
+    /** @return array{total:int, completed:int, remaining:int, percentage:int, today_actual_count:int, cumulative_actual:int, cumulative_target:int, working_days:int, minimum_daily_count:int, overall_status:string, rows:Collection<int, array<string, mixed>>, mismatch_count:int} */
     public function summary(Task $task): array
     {
         $volume = $task->volume;
@@ -66,40 +65,97 @@ class VolumeTaskService
             ->orderBy('update_date')
             ->get()
             ->filter(fn (TaskVolumeUpdate $update): bool => isset($eligibleDates[$update->update_date->toDateString()]));
-        $dailyCounts = $updates
+        $updatesByDate = $updates
             ->groupBy(fn (TaskVolumeUpdate $update): string => $update->update_date->toDateString())
-            ->map(fn (Collection $dayUpdates): int => $dayUpdates->pluck('subtask_id')->unique()->count());
+            ->map(fn (Collection $dayUpdates): array => [
+                'actual' => $dayUpdates->count(),
+                'has_update' => $dayUpdates->isNotEmpty(),
+            ]);
         $minimum = $this->minimumDailyCount($volume);
         $today = today(config('app.timezone'))->toDateString();
+        $totalActual = $updates->count();
+        $cumulativeActual = 0;
+        $eligibleDaysElapsed = 0;
         $rows = collect($dates)
-            ->map(function (CarbonImmutable $date) use ($dailyCounts, $minimum, $today): array {
+            ->map(function (CarbonImmutable $date) use (
+                $updatesByDate,
+                $minimum,
+                $today,
+                $volume,
+                &$cumulativeActual,
+                &$eligibleDaysElapsed,
+            ): array {
                 $dateString = $date->toDateString();
-                $actual = (int) ($dailyCounts[$dateString] ?? 0);
-                $hasUpdate = $dailyCounts->has($dateString);
-                $status = $dateString > $today
-                    ? 'Pending'
-                    : ($actual >= $minimum ? 'Achieved' : ($hasUpdate ? 'Mismatch' : 'Missed Update'));
+                $day = $updatesByDate->get($dateString, ['actual' => 0, 'has_update' => false]);
+                $actual = $day['actual'];
+                if ($dateString <= $today) {
+                    $cumulativeActual += $actual;
+                }
+                $eligibleDaysElapsed++;
+                $cumulativeTarget = min($volume->total_volume, $minimum * $eligibleDaysElapsed);
+                $volumeStatus = $dateString > $today
+                    ? 'Upcoming'
+                    : ($cumulativeActual >= $volume->total_volume
+                        ? 'Completed'
+                        : ($dateString === $volume->deadline_date->toDateString() && $today > $dateString
+                            ? 'Overdue'
+                        : ($cumulativeActual < $cumulativeTarget
+                            ? 'Behind'
+                            : ($cumulativeActual === $cumulativeTarget ? 'Caught Up' : 'Ahead'))));
+                $dailyUpdateStatus = $day['has_update']
+                    ? 'Submitted'
+                    : ($dateString > $today
+                        ? 'Upcoming'
+                        : ($dateString === $today ? 'Pending' : 'Missed Daily Update'));
+                $dailyUpdateLabel = $dailyUpdateStatus === 'Pending'
+                    ? "Today's Daily Update Pending"
+                    : $dailyUpdateStatus;
 
                 return [
                     'date' => $date,
                     'minimum' => $minimum,
+                    'daily_target' => $minimum,
                     'actual' => $actual,
-                    'has_update' => $hasUpdate,
-                    'status' => $status,
+                    'cumulative_target' => $cumulativeTarget,
+                    'cumulative_actual' => $cumulativeActual,
+                    'has_update' => $day['has_update'],
+                    'status' => $volumeStatus,
+                    'daily_update_status' => $dailyUpdateStatus,
+                    'daily_update_label' => $dailyUpdateLabel,
                 ];
             });
-        $completed = (int) $dailyCounts->sum();
+        $cumulativeActualToday = (int) $updates
+            ->filter(fn (TaskVolumeUpdate $update): bool => $update->update_date->toDateString() <= $today)
+            ->count();
+        $eligibleDaysElapsedToday = count(array_filter(
+            $dateStrings->all(),
+            fn (string $date): bool => $date <= $today,
+        ));
+        $cumulativeTargetToday = min($volume->total_volume, $minimum * $eligibleDaysElapsedToday);
+        $todayActual = (int) ($updatesByDate->get($today)['actual'] ?? 0);
+        $status = $totalActual >= $volume->total_volume
+            ? 'Completed'
+            : ($today < $volume->start_date->toDateString()
+                ? 'Upcoming'
+                : ($today > $volume->deadline_date->toDateString()
+                    ? 'Overdue'
+                    : ($cumulativeActualToday < $cumulativeTargetToday
+                        ? 'Behind'
+                        : ($cumulativeActualToday === $cumulativeTargetToday ? 'Caught Up' : 'Ahead'))));
 
         return [
             'total' => $volume->total_volume,
-            'completed' => $completed,
-            'remaining' => max(0, $volume->total_volume - $completed),
-            'percentage' => (int) min(100, floor(($completed / $volume->total_volume) * 100)),
-            'today_actual_count' => (int) ($dailyCounts[$today] ?? 0),
+            'completed' => $totalActual,
+            'remaining' => max(0, $volume->total_volume - $totalActual),
+            'percentage' => (int) min(100, floor(($totalActual / $volume->total_volume) * 100)),
+            'today_actual_count' => $todayActual,
+            'cumulative_actual' => $cumulativeActualToday,
+            'cumulative_target' => $cumulativeTargetToday,
             'working_days' => $rows->count(),
             'minimum_daily_count' => $minimum,
             'rows' => $rows,
-            'mismatch_count' => $rows->whereIn('status', ['Mismatch', 'Missed Update'])->count(),
+            'overall_status' => $status,
+            'mismatch_count' => $status === 'Behind' ? 1 : 0,
         ];
     }
 
@@ -111,7 +167,7 @@ class VolumeTaskService
         ?string $remarks,
     ): void {
         /** @var TaskVolume $volume */
-        $volume = $task->volume()->firstOrFail();
+        $volume = $task->volume()->lockForUpdate()->firstOrFail();
 
         $updates = TaskVolumeUpdate::query()
             ->where('task_id', $task->id)
@@ -120,7 +176,6 @@ class VolumeTaskService
             ->get();
 
         $this->validateUpdateDate($volume, $date);
-
         $existingUpdate = $updates->first(
             fn (TaskVolumeUpdate $update): bool => $update->update_date->toDateString() === $date,
         ) ?? $updates->first();
@@ -146,7 +201,8 @@ class VolumeTaskService
             }
         }
 
-        $this->refreshProgress($task, $subtask, $user, $date);
+        $task->load('volume');
+        $task->update(['progress_percentage' => $this->summary($task)['percentage']]);
     }
 
     private function validateUpdateDate(TaskVolume $volume, string $date): void
@@ -161,45 +217,5 @@ class VolumeTaskService
                 'work_date' => 'Volume output must be recorded on a working day within the configured volume period and not in the future.',
             ]);
         }
-    }
-
-    private function refreshProgress(Task $task, Subtask $subtask, User $user, ?string $date): void
-    {
-        $task->load('volume');
-        $summary = $this->summary($task);
-        $task->update(['progress_percentage' => $summary['percentage']]);
-
-        if ($date === null) {
-            return;
-        }
-
-        $day = $summary['rows']->first(
-            fn (array $row): bool => $row['date']->toDateString() === $date,
-        );
-        if (($day['status'] ?? null) !== 'Mismatch'
-            || $task->statusHistory()
-                ->where('event_type', 'volume_minimum_missed')
-                ->whereDate('activity_date', $date)
-                ->exists()) {
-            return;
-        }
-
-        $task->statusHistory()->create([
-            'subtask_id' => $subtask->id,
-            'changed_by' => $user->id,
-            'old_status' => $task->status,
-            'new_status' => $task->status,
-            'event_type' => 'volume_minimum_missed',
-            'activity_date' => $date,
-            'remarks' => 'Volume minimum of '.$summary['minimum_daily_count'].' was not met.',
-        ]);
-        User::query()->whereIn('id', $task->pocs()->pluck('users.id'))->get()->each(
-            fn (User $poc) => $poc->notify(new TaskLifecycleNotification(
-                $task,
-                $user->name,
-                'Volume daily minimum not met',
-                $task->task_code.' is below its daily minimum for '.$date.'.',
-            )),
-        );
     }
 }

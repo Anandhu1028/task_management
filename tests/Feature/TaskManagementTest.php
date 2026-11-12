@@ -12,6 +12,7 @@ use App\Models\TaskStatusHistory;
 use App\Models\User;
 use App\Notifications\TaskLifecycleNotification;
 use App\Services\TaskActivityFeedService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -74,6 +75,41 @@ class TaskManagementTest extends TestCase
         $this->assertSame(1, substr_count($response->getContent(), 'id="createTaskModal"'));
         $response->assertSee("input.name = 'poc_ids[]';", false)
             ->assertDontSee("checkbox.name = 'poc_ids[]';", false);
+    }
+
+    public function test_task_list_shows_the_daily_update_state_for_each_active_task(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00:00', config('app.timezone')));
+        $missingTask = $this->createWorkflowTask([
+            'title' => 'Task missing today update',
+            'status' => 'in_progress',
+            'start_date' => '2026-11-11',
+            'due_date' => '2026-11-13',
+            'original_deadline' => '2026-11-13',
+        ]);
+        $submittedTask = $this->createWorkflowTask([
+            'title' => 'Task with today update',
+            'status' => 'in_progress',
+            'start_date' => '2026-11-11',
+            'due_date' => '2026-11-13',
+            'original_deadline' => '2026-11-13',
+        ]);
+        $subtask = $submittedTask->subtasks()->create([
+            'title' => 'Submitted today',
+            'created_by' => $this->admin->id,
+            'status' => 'todo',
+        ]);
+        $subtask->forceFill([
+            'created_at' => CarbonImmutable::parse('2026-11-11 09:00:00', config('app.timezone')),
+        ])->saveQuietly();
+
+        $html = $this->get(route('tasks.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-task-id="'.$missingTask->id.'"', $html);
+        $this->assertStringContainsString('data-task-id="'.$submittedTask->id.'"', $html);
+        $this->assertStringContainsString('No daily update received today.', $html);
+        $this->assertStringContainsString('Daily update submitted.', $html);
+        $this->travelBack();
     }
 
     public function test_task_detail_places_overview_activity_and_task_details_in_the_dashboard_layout(): void
@@ -436,7 +472,7 @@ class TaskManagementTest extends TestCase
             ->assertSee('Next occurrence:');
     }
 
-    public function test_task_activity_feed_shows_complete_history_separately_from_the_existing_timeline(): void
+    public function test_task_activity_feed_does_not_show_a_separate_daily_update_activity_category(): void
     {
         $task = $this->createWorkflowTask();
 
@@ -467,21 +503,10 @@ class TaskManagementTest extends TestCase
 
         $html = $this->get(route('tasks.show', $task))->assertOk()->getContent();
 
-        $this->assertSame(13, preg_match_all('/<li class="task-activity-feed__item" id="task-feed-event-/', $html));
-        $this->assertStringContainsString('Activity update 11', $html);
-        $this->assertStringContainsString(
-            'class="task-activity-feed__task-title">added a work update</p>',
-            $html,
-        );
+        $this->assertSame(1, preg_match_all('/<li class="task-activity-feed__item" id="task-feed-event-/', $html));
+        $this->assertStringNotContainsString('Activity update ', $html);
+        $this->assertStringNotContainsString('added a work update', $html);
         $this->assertStringNotContainsString('class="task-activity-feed__message"', $html);
-        $this->assertStringContainsString('<strong>Reason:</strong> Activity update 0', $html);
-        $this->assertStringNotContainsString('<em>Activity update 0</em>', $html);
-        $this->assertStringContainsString('Attachments (1)', $html);
-        $this->assertStringContainsString('work-update.png', $html);
-        $attachment = TaskAttachment::query()->where('task_id', $task->id)->firstOrFail();
-        $this->assertStringContainsString(route('tasks.attachments.preview', [$task, $attachment]), $html);
-        $this->assertStringContainsString('target="_blank" rel="noopener noreferrer"', $html);
-        $this->assertStringContainsString('class="task-activity-feed__attachment"', $html);
         $this->assertStringContainsString('data-task-activity-feed', $html);
         $this->assertStringContainsString('data-timeline-model=', $html);
         $this->assertStringNotContainsString('data-task-feed-bookmark', $html);
@@ -489,11 +514,10 @@ class TaskManagementTest extends TestCase
         $this->assertStringNotContainsString('task-activity-feed__actions', $html);
         $this->assertStringNotContainsString('class="task-activity-feed__date"', $html);
         $this->assertSame(
-            18,
+            2,
             preg_match_all('/<time class="task-activity-feed__card-time"\s+datetime="[^"]+">.*?<\/time>/s', $html),
         );
-        $this->assertStringContainsString('ago,', $html);
-        $this->assertStringContainsString('class="task-activity-feed__card-attachments"', $html);
+        $this->assertStringNotContainsString('class="task-activity-feed__card-attachments"', $html);
         $this->assertStringNotContainsString('task-activity-feed__assignment-date', $html);
         $this->assertStringContainsString('class="task-activity-feed__author-details"', $html);
         $this->assertStringContainsString('data-tone="created"', $html);
@@ -2292,7 +2316,7 @@ class TaskManagementTest extends TestCase
             true,
             flags: JSON_THROW_ON_ERROR,
         );
-        $this->assertTrue(collect($timelineModel['activities'])->contains(
+        $this->assertFalse(collect($timelineModel['activities'])->contains(
             fn (array $activity): bool => $activity['type'] === 'work_update',
         ));
         $this->assertArrayNotHasKey('dailyUpdates', $timelineModel);

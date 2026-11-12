@@ -5,8 +5,7 @@
 @section('content')
     <header class="tf-page-head">
         <div>
-            <h1>Tasks</h1>
-            <p>Comprehensive register of tasks across companies, departments, and teams.</p>
+            <h1>Tasks Management</h1>
         </div>
     </header>
 
@@ -256,6 +255,7 @@
                             $assigneeNames = $taskAssignees->pluck('name')->implode(', ');
                             $taskDetailUrl = route('tasks.show', $task);
                             $deadline = $task->due_date ?? $task->original_deadline;
+                            $schedule = $task->task_type === 'recurring' ? $task->recurringSchedule : null;
                         @endphp
                         <tr class="tf-task-table__row" @if ($taskDetailUrl) data-task-detail-url="{{ $taskDetailUrl }}" @endif>
                             <td class="tf-task-table__check">
@@ -279,7 +279,7 @@
                                     </div>
                                     @if ($isRecurringOccurrence)
                                         <small class="tf-task-identity__occurrence">
-                                            Recurring occurrence · {{ $task->occurrence_date?->format('M d, Y') ?? 'Date unavailable' }}
+                                            Recurring  · {{ $task->occurrence_date?->format('M d, Y') ?? 'Date unavailable' }}
                                         </small>
                                     @endif
                                     <small class="tf-task-identity__company">
@@ -332,11 +332,27 @@
                             <td>
                                 <span class="tf-task-type">
                                     @if ($isRecurringOccurrence)
-                                        Recurring occurrence
+                                        Recuring
                                     @else
                                         {{ ucfirst($task->task_type ?? 'process') }}
                                     @endif
                                 </span>
+                                @if ($schedule)
+                                    <small class="d-block text-secondary">
+                                        {{ ucfirst($schedule->repeat_frequency) }}
+                                        · {{ \Carbon\Carbon::parse($schedule->start_date)->format('M d, Y') }}
+                                        – {{ \Carbon\Carbon::parse($schedule->end_date)->format('M d, Y') }}
+                                    </small>
+                                    @if ($schedule->start_time && $schedule->end_time)
+                                        <small class="d-block text-secondary">
+                                            {{ \Carbon\Carbon::parse($schedule->start_time)->format('h:i A') }}
+                                            – {{ \Carbon\Carbon::parse($schedule->end_time)->format('h:i A') }} ({{ $schedule->timezone }})
+                                        </small>
+                                    @endif
+                                    <small class="d-block">
+                                        Schedule: <strong>{{ ucfirst($schedule->status) }}</strong>
+                                    </small>
+                                @endif
                             </td>
 
                             {{-- Status --}}
@@ -385,6 +401,17 @@
                                              aria-valuemax="100">
                                         </div>
                                     </div>
+                                    @if ($task->daily_update_monitoring_status === 'missing')
+                                        <span class="tf-daily-update-status tf-daily-update-status--missing">
+                                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                                            No daily update received today.
+                                        </span>
+                                    @elseif ($task->daily_update_monitoring_status === 'submitted')
+                                        <span class="tf-daily-update-status tf-daily-update-status--submitted">
+                                            <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                                            Daily update submitted.
+                                        </span>
+                                    @endif
                                 </div>
                             </td>
 
@@ -562,6 +589,17 @@
                                     <span class="tf-kanban-card__meta">
                                         <i class="bi bi-calendar-event" aria-hidden="true"></i>
                                         <span>Occurrence: {{ $kTask->occurrence_date->format('M d, Y') }}</span>
+                                    </span>
+                                @endif
+                                @if ($kTask->daily_update_monitoring_status === 'missing')
+                                    <span class="tf-daily-update-status tf-daily-update-status--missing">
+                                        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                                        No daily update received today.
+                                    </span>
+                                @elseif ($kTask->daily_update_monitoring_status === 'submitted')
+                                    <span class="tf-daily-update-status tf-daily-update-status--submitted">
+                                        <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+                                        Daily update submitted.
                                     </span>
                                 @endif
 

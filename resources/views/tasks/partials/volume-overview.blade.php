@@ -18,19 +18,19 @@
                 </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                @if ($volumeSummary['completed'] >= $volumeSummary['total'])
-                    <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle px-2.5 py-1.5 rounded-pill font-medium d-inline-flex align-items-center gap-1" style="font-size: 11px;">
-                        <i class="bi bi-check-circle-fill text-success"></i> Target Achieved
-                    </span>
-                @elseif ($volumeSummary['mismatch_count'] > 0)
-                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2.5 py-1.5 rounded-pill font-medium d-inline-flex align-items-center gap-1" style="font-size: 11px;">
-                        <i class="bi bi-exclamation-triangle-fill text-warning"></i> Behind Pace
-                    </span>
-                @else
-                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1.5 rounded-pill font-medium d-inline-flex align-items-center gap-1" style="font-size: 11px;">
-                        <i class="bi bi-activity"></i> On Track
-                    </span>
-                @endif
+                @php
+                    $overallStatusClass = match ($volumeSummary['overall_status']) {
+                        'Completed' => 'success',
+                        'Ahead' => 'info',
+                        'Caught Up' => 'primary',
+                        'Behind' => 'warning',
+                        'Overdue' => 'danger',
+                        default => 'secondary',
+                    };
+                @endphp
+                <span class="badge bg-{{ $overallStatusClass }}-subtle text-{{ $overallStatusClass }}-emphasis border border-{{ $overallStatusClass }}-subtle px-2.5 py-1.5 rounded-pill font-medium d-inline-flex align-items-center gap-1" style="font-size: 11px;">
+                    <i class="bi bi-activity"></i> {{ $volumeSummary['overall_status'] }}
+                </span>
             </div>
         </header>
 
@@ -51,16 +51,30 @@
                     </div>
                 </article>
 
-                {{-- Completed --}}
+                {{-- Minimum daily target --}}
+                <article class="tf-volume-overview-card__metric">
+                    <div class="tf-volume-overview-card__metric-heading">
+                        <span class="tf-volume-overview-card__metric-label">Daily Target</span>
+                        <span class="tf-volume-overview-card__metric-icon text-info-emphasis bg-info-subtle">
+                            <i class="bi bi-calendar2-check fs-6"></i>
+                        </span>
+                    </div>
+                    <div class="tf-volume-overview-card__metric-content">
+                        <strong class="tf-volume-overview-card__metric-value">{{ number_format($volumeSummary['minimum_daily_count']) }}</strong>
+                        <small class="tf-volume-overview-card__metric-detail">Units per working day</small>
+                    </div>
+                </article>
+
+                {{-- Cumulative actual --}}
                 <article class="tf-volume-overview-card__metric tf-volume-overview-card__metric--completed">
                     <div class="tf-volume-overview-card__metric-heading">
-                        <span class="tf-volume-overview-card__metric-label">Completed</span>
+                        <span class="tf-volume-overview-card__metric-label">Cumulative Actual</span>
                         <span class="tf-volume-overview-card__metric-icon text-success bg-success-subtle">
                             <i class="bi bi-check2-circle fs-6"></i>
                         </span>
                     </div>
                     <div class="tf-volume-overview-card__metric-content">
-                        <strong class="tf-volume-overview-card__metric-value" data-volume-completed>{{ number_format($volumeSummary['completed']) }}</strong>
+                        <strong class="tf-volume-overview-card__metric-value" data-volume-completed>{{ number_format($volumeSummary['cumulative_actual']) }}</strong>
                         <small class="tf-volume-overview-card__metric-detail">{{ $volumeSummary['percentage'] }}% of total goal</small>
                     </div>
                 </article>
@@ -126,14 +140,14 @@
             </div>
 
             {{-- Health / Mismatch Warning Alert --}}
-            @if ($volumeSummary['mismatch_count'] > 0)
+            @if ($volumeSummary['overall_status'] === 'Behind' || $volumeSummary['overall_status'] === 'Overdue')
                 <div class="alert alert-warning border border-warning-subtle d-flex align-items-center gap-3 p-3 rounded-3 mb-4 tf-volume-overview-card__alert" role="alert">
                     <span class="tf-volume-overview-card__alert-icon d-flex align-items-center justify-content-center text-warning">
                         <i class="bi bi-exclamation-triangle-fill"></i>
                     </span>
                     <div class="tf-volume-overview-card__alert-copy">
-                        <strong class="text-warning-emphasis">Pace alert:</strong>
-                        <span class="text-secondary">{{ $volumeSummary['mismatch_count'] }} workday(s) below the target of {{ $volumeSummary['minimum_daily_count'] }}/day or missing subtasks.</span>
+                        <strong class="text-warning-emphasis">{{ $volumeSummary['overall_status'] }}:</strong>
+                        <span class="text-secondary">Cumulative output is {{ $volumeSummary['cumulative_actual'] }}. Additional output is needed to complete the volume.</span>
                     </div>
                 </div>
             @endif
@@ -149,13 +163,15 @@
                         <col class="tf-volume-overview-card__column-date">
                         <col class="tf-volume-overview-card__column-target">
                         <col class="tf-volume-overview-card__column-actual">
+                        <col class="tf-volume-overview-card__column-actual">
                         <col class="tf-volume-overview-card__column-status">
                     </colgroup>
                     <thead class="table-light text-secondary small text-uppercase tracking-wider">
                         <tr>
-                            <th class="ps-3 py-3">Working Date</th>
-                            <th class="py-3">Target (Count)</th>
-                            <th class="py-3">Actual Output (Count)</th>
+                            <th class="ps-3 py-3">Date</th>
+                            <th class="py-3">Daily Target</th>
+                            <th class="py-3">Actual Output</th>
+                            <th class="py-3">Cumulative Actual</th>
                             <th class="py-3">Status</th>
                         </tr>
                     </thead>
@@ -164,6 +180,7 @@
                             @php
                                 $dateStr = $row['date']->toDateString();
                                 $isToday = $dateStr === $todayStr;
+                                $statusClass = strtolower(str_replace(' ', '-', $row['status']));
                             @endphp
                             <tr class="tf-volume-overview-card__table-row {{ $isToday ? 'tf-volume-overview-card__table-row--today' : '' }}" data-volume-date="{{ $dateStr }}">
                                 <td class="ps-3 py-3 fw-medium tf-volume-overview-card__date">
@@ -175,41 +192,23 @@
                                     </div>
                                     <small class="tf-volume-overview-card__weekday">{{ $row['date']->format('l') }}</small>
                                 </td>
-                                <td class="text-center py-3" data-volume-actual>
-                                    <span class="tf-volume-overview-card__target">{{ $row['minimum'] }} <small>/ day</small></span>
+                                <td class="text-center py-3">
+                                    <span class="tf-volume-overview-card__target">{{ number_format($row['daily_target']) }}</span>
                                 </td>
                                 <td class="text-center py-3">
-                                    @if ($row['has_update'])
-                                        <span class="tf-volume-overview-card__actual {{ $row['actual'] >= $row['minimum'] ? 'tf-volume-overview-card__actual--achieved' : 'tf-volume-overview-card__actual--below' }}">
-                                            {{ number_format($row['actual']) }}
-                                        </span>
-                                    @else
-                                        <span class="tf-volume-overview-card__actual-empty">—</span>
-                                    @endif
+                                    <span class="tf-volume-overview-card__actual">{{ number_format($row['actual']) }}</span>
                                 </td>
+                                <td class="text-center py-3">{{ number_format($row['cumulative_actual']) }}</td>
                                 <td class="py-3 tf-volume-overview-card__status" data-volume-status>
-                                    @if ($row['status'] === 'Achieved')
-                                        <span class="badge tf-volume-overview-card__status-badge tf-volume-overview-card__status-badge--achieved">
-                                            <span class="tf-volume-overview-card__status-indicator" aria-hidden="true"></span> Achieved
-                                        </span>
-                                    @elseif ($row['status'] === 'Mismatch')
-                                        <span class="badge tf-volume-overview-card__status-badge tf-volume-overview-card__status-badge--mismatch">
-                                            <span class="tf-volume-overview-card__status-indicator" aria-hidden="true"></span> Mismatch
-                                        </span>
-                                    @elseif ($row['status'] === 'Missed Update')
-                                        <span class="badge tf-volume-overview-card__status-badge tf-volume-overview-card__status-badge--missed">
-                                            <span class="tf-volume-overview-card__status-indicator" aria-hidden="true"></span> Missed
-                                        </span>
-                                    @else
-                                        <span class="badge tf-volume-overview-card__status-badge tf-volume-overview-card__status-badge--pending">
-                                            <span class="tf-volume-overview-card__status-indicator" aria-hidden="true"></span> Pending
-                                        </span>
-                                    @endif
+                                    <span class="badge tf-volume-overview-card__status-badge tf-volume-overview-card__status-badge--{{ $statusClass }}">
+                                        <span class="tf-volume-overview-card__status-indicator" aria-hidden="true"></span>
+                                        {{ $row['status'] }}
+                                    </span>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">
+                                <td colspan="5" class="text-center py-4 text-muted">
                                     No working days configured for this volume period.
                                 </td>
                             </tr>
