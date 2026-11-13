@@ -90,6 +90,8 @@ class MilestoneController extends Controller
             }
 
             $milestone->fill($validated);
+            $detailsChanged = $milestone->isDirty(['title', 'description']);
+            $statusChanged = $oldStatus !== $newStatus;
             if ($newStatus === 'completed') {
                 $milestone->progress_percentage = 100;
                 $milestone->completed_at = now();
@@ -101,17 +103,7 @@ class MilestoneController extends Controller
             }
             $milestone->save();
 
-            if ($oldStatus !== $newStatus) {
-                $this->recordActivity(
-                    $task,
-                    $milestone,
-                    $request->user()->id,
-                    'milestone_status',
-                    $oldStatus,
-                    $newStatus,
-                    $remarks,
-                );
-            } elseif ($validated !== []) {
+            if ($detailsChanged) {
                 $this->recordActivity(
                     $task,
                     $milestone,
@@ -120,6 +112,18 @@ class MilestoneController extends Controller
                     null,
                     'updated',
                     $remarks ?? 'Updated milestone details.',
+                );
+            }
+
+            if ($statusChanged) {
+                $this->recordActivity(
+                    $task,
+                    $milestone,
+                    $request->user()->id,
+                    'milestone_status',
+                    $oldStatus,
+                    $newStatus,
+                    $remarks,
                 );
             }
 

@@ -80,7 +80,6 @@
 
         <div class="tf-user-toolbar">
             <form id="taskFilterForm" method="GET" action="{{ route('tasks.index') }}" class="tf-user-toolbar__search-form tf-task-toolbar__search-form" data-task-filter-form>
-                <input type="hidden" name="per_page" value="{{ request('per_page') }}">
                 <input type="hidden" name="assigned_to" value="{{ request('assigned_to') }}">
                 <input type="hidden" name="sort" value="{{ $filters['sort'] ?? 'deadline_priority' }}" data-kanban-sort-value>
                 <label class="tf-user-search" for="taskSearch">
@@ -338,11 +337,6 @@
                                     @endif
                                 </span>
                                 @if ($schedule)
-                                    <small class="d-block text-secondary">
-                                        {{ ucfirst($schedule->repeat_frequency) }}
-                                        · {{ \Carbon\Carbon::parse($schedule->start_date)->format('M d, Y') }}
-                                        – {{ \Carbon\Carbon::parse($schedule->end_date)->format('M d, Y') }}
-                                    </small>
                                     @if ($schedule->start_time && $schedule->end_time)
                                         <small class="d-block text-secondary">
                                             {{ \Carbon\Carbon::parse($schedule->start_time)->format('h:i A') }}
@@ -520,10 +514,47 @@
         </div>{{-- /.tf-table-wrap --}}
 
         <footer id="taskListFooter" class="tf-management__table-footer">
-            <span>
-                Showing {{ $tasks->firstItem() ?? 0 }}–{{ $tasks->lastItem() ?? 0 }} of {{ $tasks->total() }} tasks
-            </span>
-            {{ $tasks->links('pagination::bootstrap-5') }}
+            <div class="tf-task-pagination__summary">
+                <span>
+                    Showing {{ $tasks->firstItem() ?? 0 }}–{{ $tasks->lastItem() ?? 0 }} of {{ $tasks->total() }} tasks
+                </span>
+                <label class="tf-task-pagination__page-size">
+                    <span>Rows per page</span>
+                    <span class="tf-user-toolbar__select">
+                        <select id="taskPerPage" name="per_page" form="taskFilterForm" aria-label="Rows per page" data-task-per-page>
+                            @foreach ([10, 15, 25, 50, 100] as $pageSize)
+                                <option value="{{ $pageSize }}" @selected(($filters['per_page'] ?? 15) == $pageSize)>{{ $pageSize }}</option>
+                            @endforeach
+                        </select>
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </span>
+                </label>
+            </div>
+            <div class="tf-task-pagination__controls">
+                @if ($tasks->hasPages())
+                    {{ $tasks->onEachSide(2)->links('pagination::bootstrap-5') }}
+                @elseif ($tasks->total() > 0)
+                    <nav aria-label="Task table pagination">
+                        <ul class="pagination mb-0">
+                            <li class="page-item disabled">
+                                <span class="page-link">
+                                    <span aria-hidden="true">&laquo;</span>
+                                    <span class="visually-hidden">Previous</span>
+                                </span>
+                            </li>
+                            <li class="page-item active">
+                                <span class="page-link" aria-current="page">1</span>
+                            </li>
+                            <li class="page-item disabled">
+                                <span class="page-link">
+                                    <span aria-hidden="true">&raquo;</span>
+                                    <span class="visually-hidden">Next</span>
+                                </span>
+                            </li>
+                        </ul>
+                    </nav>
+                @endif
+            </div>
         </footer>
 
         {{-- Kanban view --}}
@@ -938,6 +969,7 @@
             const taskCompanyFilter = taskFilterForm?.querySelector('[data-task-company-filter]');
             const taskDepartmentFilter = taskFilterForm?.querySelector('[data-task-department-filter]');
             const taskToolbarFilters = taskFilterForm?.querySelectorAll('[data-task-auto-submit]');
+            const taskPerPageFilter = document.querySelector('[data-task-per-page]');
             const taskSortFilter = document.querySelector('[data-task-sort-filter]');
             const taskSortFilterToggle = taskSortFilter?.querySelector('[data-task-sort-filter-toggle]');
             const taskSortFilterPopover = taskSortFilter?.querySelector('[data-task-sort-filter-popover]');
@@ -981,6 +1013,7 @@
             taskToolbarFilters?.forEach((select) => {
                 select.addEventListener('change', () => taskFilterForm.requestSubmit());
             });
+            taskPerPageFilter?.addEventListener('change', () => taskFilterForm?.requestSubmit());
             taskSortFilterToggle?.addEventListener('click', () => {
                 setTaskSortFilterOpen(taskSortFilterPopover.hidden);
             });

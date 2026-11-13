@@ -4462,7 +4462,7 @@
                 <div class="tf-activity-tab-panel" id="panel-milestones" role="tabpanel" aria-labelledby="tab-milestones-btn"
                     hidden>
                     @if ($task->task_type === 'project')
-                        @include('tasks.partials.project-phases')
+                        <x-milestone-timeline :phases="$milestones" :task="$task" />
                     @else
                     <section class="tf-task-detail__card mb-3">
                         <header class="tf-task-detail__card-header">

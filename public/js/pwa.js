@@ -36,3 +36,7 @@ document.querySelectorAll('.pwa-action').forEach((item) => {
         document.querySelectorAll('.pwa-action[open]').forEach((other) => { if (other !== item) other.open = false; });
     });
 });
+
+document.querySelectorAll('[data-pwa-sort]').forEach((select) => {
+    select.addEventListener('change', () => select.form?.requestSubmit());
+});

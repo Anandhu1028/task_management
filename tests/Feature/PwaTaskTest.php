@@ -89,18 +89,42 @@ class PwaTaskTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('pwa.tasks.index'))
             ->assertOk()
-            ->assertSee('Total tasks')
+            ->assertSee('Total Tasks')
             ->assertSee('Overdue')
-            ->assertSee('Awaiting assignment')
-            ->assertSee('At risk')
-            ->assertSee('In progress')
+            ->assertSee('Awaiting Assignment')
+            ->assertSee('At Risk')
+            ->assertSee('In Progress')
             ->assertSee('Completed')
+            ->assertSee('New Task')
+            ->assertSee('aria-label="Sort tasks"', false)
             ->assertSee('Sign out')
             ->assertSee('Overdue report')
             ->assertDontSee('tf-sidebar', false)
             ->assertDontSee(route('users.index'), false)
             ->assertDontSee(route('reports.index'), false)
             ->assertHeader('Cache-Control');
+    }
+
+    public function test_task_list_sort_selection_orders_tasks_by_priority(): void
+    {
+        $medium = $this->makeTask([
+            'title' => 'Sort fixture medium',
+            'priority' => 'medium',
+        ]);
+        $critical = $this->makeTask([
+            'title' => 'Sort fixture critical',
+            'priority' => 'critical',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('pwa.tasks.index', [
+            'search' => 'Sort fixture',
+            'sort' => 'priority_deadline',
+        ]))->assertOk();
+
+        $this->assertSame(
+            [$critical->id, $medium->id],
+            $response->viewData('tasks')->getCollection()->pluck('id')->all(),
+        );
     }
 
     public function test_task_list_search_and_filters_work(): void
@@ -140,7 +164,20 @@ class PwaTaskTest extends TestCase
 
     public function test_task_detail_renders_split_view_with_selected_task(): void
     {
-        $task = $this->makeTask(['title' => 'Detail target', 'description' => 'Full description text', 'status' => 'in_progress']);
+        $employee = $this->makeEmployee();
+        $task = $this->makeTask([
+            'title' => 'Detail target',
+            'description' => 'Full description text',
+            'status' => 'assigned',
+            'assigned_to' => $employee->id,
+        ]);
+        TaskAssignment::create([
+            'task_id' => $task->id,
+            'user_id' => $employee->id,
+            'assigned_by' => $this->admin->id,
+            'assigned_at' => now(),
+            'is_active' => true,
+        ]);
         $other = $this->makeTask(['title' => 'Sibling task']);
 
         $this->actingAs($this->admin)
@@ -151,6 +188,12 @@ class PwaTaskTest extends TestCase
             ->assertSee('Sibling task')
             ->assertSee('aria-current="page"', false)
             ->assertSee('Workflow progress')
+            ->assertSee('tf-task-workflow__action-bar', false)
+            ->assertSee('On Hold')
+            ->assertSee('Cancel Task')
+            ->assertSee('Re-assign')
+            ->assertSee('Edit Task')
+            ->assertSee('name="assigned_to[]"', false)
             ->assertDontSee('data-tab="subtasks"', false)
             ->assertDontSee('data-tab="files"', false)
             ->assertDontSee('tf-sidebar', false);

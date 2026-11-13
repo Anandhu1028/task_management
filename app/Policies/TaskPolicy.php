@@ -104,10 +104,18 @@ class TaskPolicy
 
     public function updateMilestone(User $user, Task $task, Milestone $milestone): bool
     {
-        return $milestone->task_id === $task->id
-            && $user->can('milestones.manage')
-            && Task::query()->visibleTo($user)->whereKey($task->getKey())->exists()
+        if ($milestone->task_id !== $task->id || ! $this->isVisibleTask($user, $task)) {
+            return false;
+        }
+
+        $canManageMilestones = $user->can('milestones.manage')
             && $this->canManageOperationalTask($user, $task);
+        $isTaskParticipant = $user->company_id === $task->company_id
+            && $user->department_id === $task->department_id
+            && ($this->isTaskPoc($user, $task)
+                || ($user->hasAssignedRole('Employee') && $this->isActiveAssignee($user, $task)));
+
+        return $canManageMilestones || $isTaskParticipant;
     }
 
     public function updateSubtask(User $user, Task $task, ?Subtask $subtask = null): bool

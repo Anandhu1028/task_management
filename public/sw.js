@@ -8,3 +8,19 @@ self.addEventListener('fetch', (event) => {
     if (request.method !== 'GET' || request.mode === 'navigate' || new URL(request.url).origin !== self.location.origin || !ASSETS.includes(new URL(request.url).pathname)) return;
     event.respondWith(caches.match(request).then((response) => response || fetch(request)));
 });
+
+// Desktop notification click → focus the app and open the related task.
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    const target = new URL((event.notification.data && event.notification.data.url) || '/pwa/tasks', self.location.origin).href;
+
+    event.waitUntil((async () => {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        const existing = windows.find((client) => client.url.startsWith(self.location.origin));
+        if (existing) {
+            try { await existing.navigate(target); } catch (e) { /* ignore */ }
+            return existing.focus();
+        }
+        return self.clients.openWindow(target);
+    })());
+});

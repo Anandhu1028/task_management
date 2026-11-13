@@ -8,7 +8,7 @@
     $deadline = $task->due_date ?? $task->original_deadline;
     $assignees = $task->activeAssignees->pluck('name')->implode(', ') ?: ($task->assignee?->name ?? 'Unassigned');
     $progressValue = min(100, max(0, (int) $progress));
-    $listQuery = request()->only('search', 'filter', 'page');
+    $listQuery = request()->only('search', 'filter', 'page', 'sort');
     $tabs = array_filter([
         'details' => 'Details',
         'subtasks' => $task->subtasks->isNotEmpty() ? 'Subtasks ('.$task->subtasks->count().')' : null,
@@ -16,7 +16,8 @@
         'requests' => $extensionRequests->isNotEmpty() ? 'Requests ('.$extensionRequests->count().')' : null,
         'files' => $task->attachments->isNotEmpty() ? 'Files ('.$task->attachments->count().')' : null,
     ]);
-    $hasActions = $actions['start'] || $actions['resume'] || $actions['hold'];
+    $selectedAssigneeIds = array_map('strval', old('assigned_to', $task->activeAssignees->modelKeys()));
+    $hasActions = in_array(true, $actions, true);
 @endphp
 <div class="pwa-shell">
     {{-- Left panel: task list (hidden on narrow screens) --}}
@@ -40,62 +41,119 @@
     <section class="pwa-detail">
         @include('pwa.partials.topbar', ['class' => 'pwa-topbar--narrow'])
         <div class="pwa-detail__body">
-            <nav class="pwa-crumbs" aria-label="Breadcrumb">
-                <a href="{{ route('pwa.tasks.index', $listQuery) }}">← Tasks</a>
-                <span>/</span>
-                <span>{{ $task->task_code }}</span>
-            </nav>
+            <header class="pwa-detail__header">
+                <nav class="pwa-crumbs" aria-label="Breadcrumb">
+                    <a href="{{ route('pwa.tasks.index', $listQuery) }}">← Tasks</a>
+                    <span>/</span>
+                    <span>{{ $task->task_code }}</span>
+                </nav>
 
-            @if (session('success'))<div class="pwa-alert pwa-alert--ok" role="status">{{ session('success') }}</div>@endif
-            @if ($errors->any())<div class="pwa-alert pwa-alert--err" role="alert">{{ $errors->first() }}</div>@endif
+                @if (session('success'))<div class="pwa-alert pwa-alert--ok" role="status">{{ session('success') }}</div>@endif
+                @if ($errors->any())<div class="pwa-alert pwa-alert--err" role="alert">{{ $errors->first() }}</div>@endif
 
-            <h1 class="pwa-detail__title">{{ $task->title }}</h1>
-            <div class="pwa-detail__badges">
-                @include('pwa.partials.badges', ['task' => $task])
-                @if ($task->company)<span class="pwa-tag">{{ $task->company->name }}</span>@endif
-                @if ($task->department)<span class="pwa-tag">{{ $task->department->name }}</span>@endif
-            </div>
-
-            @if ($hasActions)
-                <div class="pwa-actions">
-                    @if ($actions['start'])
-                        <details class="pwa-action">
-                            <summary class="pwa-btn pwa-btn--primary">Start work</summary>
-                            <form method="POST" action="{{ route('tasks.start', $task) }}" class="pwa-action__form">
-                                @csrf
-                                <input type="hidden" name="return_to" value="pwa">
-                                <label class="pwa-field"><span>Start date</span><input type="date" name="start_date" value="{{ old('start_date', today()->toDateString()) }}" required></label>
-                                <label class="pwa-field"><span>Note</span><textarea name="note" rows="2" maxlength="2000" required>{{ old('note') }}</textarea></label>
-                                <button class="pwa-btn pwa-btn--primary" type="submit">Confirm</button>
-                            </form>
-                        </details>
-                    @endif
-                    @if ($actions['resume'])
-                        <details class="pwa-action">
-                            <summary class="pwa-btn pwa-btn--primary">Resume</summary>
-                            <form method="POST" action="{{ route('tasks.resume', $task) }}" class="pwa-action__form">
-                                @csrf
-                                <input type="hidden" name="return_to" value="pwa">
-                                <label class="pwa-field"><span>Note (optional)</span><textarea name="note" rows="2" maxlength="2000">{{ old('note') }}</textarea></label>
-                                <button class="pwa-btn pwa-btn--primary" type="submit">Resume work</button>
-                            </form>
-                        </details>
-                    @endif
-                    @if ($actions['hold'])
-                        <details class="pwa-action">
-                            <summary class="pwa-btn pwa-btn--ghost">On hold</summary>
-                            <form method="POST" action="{{ route('tasks.status.update', $task) }}" class="pwa-action__form">
-                                @csrf
-                                <input type="hidden" name="return_to" value="pwa">
-                                <input type="hidden" name="status" value="on_hold">
-                                <label class="pwa-field"><span>Date</span><input type="date" name="update_date" value="{{ today()->toDateString() }}" required></label>
-                                <label class="pwa-field"><span>Reason</span><textarea name="reason" rows="2" maxlength="2000" required></textarea></label>
-                                <button class="pwa-btn pwa-btn--ghost" type="submit">Put on hold</button>
-                            </form>
-                        </details>
-                    @endif
+                <h1 class="pwa-detail__title">{{ $task->title }}</h1>
+                <div class="pwa-detail__badges">
+                    @include('pwa.partials.badges', ['task' => $task])
+                    @if ($task->company)<span class="pwa-tag">{{ $task->company->name }}</span>@endif
+                    @if ($task->department)<span class="pwa-tag">{{ $task->department->name }}</span>@endif
                 </div>
-            @endif
+
+                @if ($hasActions)
+                    <div class="pwa-actions tf-task-workflow__action-bar">
+                        @if ($actions['start'])
+                            <details class="pwa-action">
+                                <summary class="pwa-btn pwa-btn--primary">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 4 14 8-14 8z"/></svg>
+                                    Start work
+                                </summary>
+                                <form method="POST" action="{{ route('tasks.start', $task) }}" class="pwa-action__form">
+                                    @csrf
+                                    <input type="hidden" name="return_to" value="pwa">
+                                    <label class="pwa-field"><span>Start date</span><input type="date" name="start_date" value="{{ old('start_date', today()->toDateString()) }}" required></label>
+                                    <label class="pwa-field"><span>Note</span><textarea name="note" rows="2" maxlength="2000" required>{{ old('note') }}</textarea></label>
+                                    <button class="pwa-btn pwa-btn--primary" type="submit">Confirm</button>
+                                </form>
+                            </details>
+                        @endif
+                        @if ($actions['resume'])
+                            <details class="pwa-action">
+                                <summary class="pwa-btn pwa-btn--primary">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v5h-5"/><path d="M3 17v-5h5"/><path d="M5.6 9A7 7 0 0 1 17 6l4 6M3 12l4 6a7 7 0 0 0 11.4-3"/></svg>
+                                    Resume
+                                </summary>
+                                <form method="POST" action="{{ route('tasks.resume', $task) }}" class="pwa-action__form">
+                                    @csrf
+                                    <input type="hidden" name="return_to" value="pwa">
+                                    <label class="pwa-field"><span>Note (optional)</span><textarea name="note" rows="2" maxlength="2000">{{ old('note') }}</textarea></label>
+                                    <button class="pwa-btn pwa-btn--primary" type="submit">Resume work</button>
+                                </form>
+                            </details>
+                        @endif
+                        @if ($actions['hold'])
+                            <details class="pwa-action">
+                                <summary class="pwa-btn pwa-btn--outline">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9 8v8M15 8v8"/></svg>
+                                    On Hold
+                                </summary>
+                                <form method="POST" action="{{ route('tasks.status.update', $task) }}" class="pwa-action__form">
+                                    @csrf
+                                    <input type="hidden" name="return_to" value="pwa">
+                                    <input type="hidden" name="status" value="on_hold">
+                                    <label class="pwa-field"><span>Date</span><input type="date" name="update_date" value="{{ today()->toDateString() }}" required></label>
+                                    <label class="pwa-field"><span>Reason</span><textarea name="reason" rows="2" maxlength="2000" required></textarea></label>
+                                    <button class="pwa-btn pwa-btn--outline" type="submit">Put on hold</button>
+                                </form>
+                            </details>
+                        @endif
+                        @if ($actions['cancel'])
+                            <details class="pwa-action">
+                                <summary class="pwa-btn pwa-btn--outline">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6m0-6 6 6"/></svg>
+                                    Cancel Task
+                                </summary>
+                                <form method="POST" action="{{ route('tasks.status.update', $task) }}" class="pwa-action__form">
+                                    @csrf
+                                    <input type="hidden" name="return_to" value="pwa">
+                                    <input type="hidden" name="status" value="cancelled">
+                                    <label class="pwa-field"><span>Reason</span><textarea name="reason" rows="2" maxlength="2000" required></textarea></label>
+                                    <button class="pwa-btn pwa-btn--primary" type="submit">Confirm cancellation</button>
+                                </form>
+                            </details>
+                        @endif
+                        @if ($actions['reassign'])
+                            <details class="pwa-action">
+                                <summary class="pwa-btn pwa-btn--outline">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3 21 7l-4 4"/><path d="M3 7h18"/><path d="m7 21-4-4 4-4"/><path d="M21 17H3"/></svg>
+                                    Re-assign
+                                </summary>
+                                <form method="POST" action="{{ route('tasks.reassign', $task) }}" class="pwa-action__form">
+                                    @csrf
+                                    <input type="hidden" name="company_id" value="{{ $task->company_id }}">
+                                    <input type="hidden" name="department_id" value="{{ $task->department_id }}">
+                                    <label class="pwa-field" for="pwa-reassign-assignees">
+                                        <span>Assigned employees</span>
+                                        <select id="pwa-reassign-assignees" name="assigned_to[]" multiple required size="{{ min(5, max(2, $employees->count())) }}">
+                                            @foreach ($employees as $employee)
+                                                <option value="{{ $employee->id }}" @selected(in_array((string) $employee->id, $selectedAssigneeIds, true))>
+                                                    {{ $employee->name }}@if ($employee->designation) · {{ $employee->designation }}@endif
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </label>
+                                    <label class="pwa-field"><span>Reason (optional)</span><textarea name="reason" rows="2" maxlength="500"></textarea></label>
+                                    <button class="pwa-btn pwa-btn--outline" type="submit">Save assignment</button>
+                                </form>
+                            </details>
+                        @endif
+                        @if ($actions['edit'])
+                            <a class="pwa-btn pwa-btn--primary" href="{{ route('tasks.index', ['edit' => $task->id]) }}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                                Edit Task
+                            </a>
+                        @endif
+                    </div>
+                @endif
+            </header>
 
             <ol class="pwa-steps" aria-label="Workflow progress">
                 @foreach ($stages as $stage)

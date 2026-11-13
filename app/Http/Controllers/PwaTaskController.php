@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Task;
+use App\Models\User;
 use App\Services\SubtaskProgressService;
 use App\Services\TaskQueryService;
 use App\Services\TaskWorkflowService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -27,6 +29,14 @@ class PwaTaskController extends Controller
         'done' => 'Done',
     ];
 
+    /** @var array<string, string> */
+    public const SORT_OPTIONS = [
+        'deadline_priority' => 'Due Date',
+        'priority_deadline' => 'Priority',
+        'recently_created' => 'Recently Created',
+        'recently_updated' => 'Recently Updated',
+    ];
+
     public function index(Request $request, TaskQueryService $queries): View
     {
         $this->authorize('viewAny', Task::class);
@@ -34,6 +44,7 @@ class PwaTaskController extends Controller
         return view('pwa.tasks.index', [
             ...$this->listData($request, $queries, 15),
             'summary' => $queries->counts($request->user()),
+            'sortOptions' => self::SORT_OPTIONS,
         ]);
     }
 
@@ -67,6 +78,21 @@ class PwaTaskController extends Controller
             ->get();
 
         $statusOptions = $workflow->availableTransitions($task, $user);
+        $canReviewSubmission = $user->can('review', $task);
+        $canUpdate = $user->can('update', $task);
+        $canReassign = $canUpdate
+            && ! $canReviewSubmission
+            && ! in_array($task->status, ['notified', 'completed', 'cancelled'], true)
+            && $task->company_id !== null
+            && $task->department_id !== null;
+        $employees = $canReassign
+            ? User::query()
+                ->where('status', 'active')
+                ->where('company_id', $task->company_id)
+                ->where('department_id', $task->department_id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'designation'])
+            : collect();
 
         return view('pwa.tasks.show', [
             ...$this->listData($request, $queries, 25),
@@ -75,10 +101,14 @@ class PwaTaskController extends Controller
             'progress' => $subtaskProgress->summary($task)['work_completion'],
             'stages' => $this->workflowStages($task),
             'extensionRequests' => $extensionRequests,
+            'employees' => $employees,
             'actions' => [
                 'start' => $user->can('startWork', $task),
                 'resume' => $user->can('resume', $task),
                 'hold' => isset($statusOptions['on_hold']),
+                'cancel' => isset($statusOptions['cancelled']) && ! $canReviewSubmission,
+                'reassign' => $canReassign && $employees->isNotEmpty(),
+                'edit' => $canUpdate && ! $canReviewSubmission,
             ],
         ]);
     }
@@ -86,7 +116,7 @@ class PwaTaskController extends Controller
     /**
      * Shared list query used by both the list screen and the split-view sidebar.
      *
-     * @return array{tasks: LengthAwarePaginator, filter: string, search: string, filters: array<string, string>}
+     * @return array{tasks: LengthAwarePaginator, filter: string, search: string, sort: string, filters: array<string, string>}
      */
     private function listData(Request $request, TaskQueryService $queries, int $perPage): array
     {
@@ -94,10 +124,12 @@ class PwaTaskController extends Controller
             'search' => ['nullable', 'string', 'max:100'],
             'filter' => ['nullable', 'in:all,overdue,active,done,awaiting,at_risk,in_progress'],
             'page' => ['nullable', 'integer', 'min:1'],
+            'sort' => ['nullable', Rule::in(array_keys(self::SORT_OPTIONS))],
         ]);
 
         $filter = $validated['filter'] ?? 'all';
         $search = trim((string) ($validated['search'] ?? ''));
+        $sort = $validated['sort'] ?? 'deadline_priority';
 
         // Reuse the existing, authorization-aware query service.
         $criteria = array_filter(['search' => $search !== '' ? $search : null]);
@@ -116,7 +148,7 @@ class PwaTaskController extends Controller
             $query->whereNotIn('tasks.status', ['completed', 'cancelled']);
         }
 
-        $tasks = $queries->applySort($query, 'deadline_priority')
+        $tasks = $queries->applySort($query, $sort)
             ->with(['activeAssignees:id,name', 'assignee:id,name'])
             ->paginate($perPage)
             ->withQueryString();
@@ -125,6 +157,7 @@ class PwaTaskController extends Controller
             'tasks' => $tasks,
             'filter' => $filter,
             'search' => $search,
+            'sort' => $sort,
             'filters' => self::FILTERS,
             'recurringVisibilityRefreshAt' => $queries->nextRecurringVisibilityTransition($request->user()),
         ];

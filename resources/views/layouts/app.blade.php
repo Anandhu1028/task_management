@@ -125,6 +125,7 @@
     <script src="{{ asset('js/recurring-task-visibility.js') }}?v={{ filemtime(public_path('js/recurring-task-visibility.js')) }}"></script>
     @stack('scripts')
     <script src="{{ asset('js/pwa-install.js') }}"></script>
+    <script src="{{ asset('js/desktop-notifications.js') }}?v={{ filemtime(public_path('js/desktop-notifications.js')) }}" defer></script>
 
 </body>
 

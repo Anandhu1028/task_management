@@ -28,7 +28,7 @@ class Milestone extends Model
     public const STATUS_TRANSITIONS = [
         'pending' => ['in_progress', 'completed', 'cancelled'],
         'in_progress' => ['pending', 'completed', 'cancelled'],
-        'completed' => ['in_progress'],
+        'completed' => ['in_progress', 'pending', 'cancelled'],
         'cancelled' => [],
     ];
 

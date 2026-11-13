@@ -12,6 +12,13 @@
 
     <div class="tf-navbar__actions">
 
+        {{-- Desktop notification opt-in (hidden once permission is granted) --}}
+        <button class="tf-icon-btn" type="button" hidden
+                data-tf-desktop-notify data-mode="admin" data-poll-url="{{ route('notifications.poll') }}"
+                aria-label="Enable desktop notifications" title="Enable desktop notifications">
+            <i class="bi bi-bell-slash"></i>
+        </button>
+
         {{-- Notifications --}}
         <div class="dropdown" data-tf-notification-poll="{{ route('notifications.poll') }}">
             <button class="tf-icon-btn tf-bell" type="button" data-bs-toggle="dropdown"

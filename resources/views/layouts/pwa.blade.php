@@ -29,6 +29,7 @@
 <script src="{{ asset('js/recurring-task-visibility.js') }}?v={{ filemtime(public_path('js/recurring-task-visibility.js')) }}"></script>
 <script src="{{ asset('js/pwa.js') }}?v={{ file_exists($pwaJavaScriptPath) ? filemtime($pwaJavaScriptPath) : 1 }}" defer></script>
 <script src="{{ asset('js/pwa-install.js') }}"></script>
+<script src="{{ asset('js/desktop-notifications.js') }}?v={{ filemtime(public_path('js/desktop-notifications.js')) }}" defer></script>
 <script>
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('{{ asset('sw.js') }}', { scope: '/' }));

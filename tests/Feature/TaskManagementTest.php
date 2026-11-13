@@ -77,6 +77,24 @@ class TaskManagementTest extends TestCase
             ->assertDontSee("checkbox.name = 'poc_ids[]';", false);
     }
 
+    public function test_task_table_shows_page_size_and_numbered_pagination_controls(): void
+    {
+        for ($taskNumber = 1; $taskNumber <= 16; $taskNumber++) {
+            $this->createWorkflowTask([
+                'title' => 'Paginated task '.$taskNumber,
+            ]);
+        }
+
+        $response = $this->get(route('tasks.index', ['per_page' => 10]));
+
+        $response->assertOk()
+            ->assertSee('Rows per page')
+            ->assertSee('id="taskPerPage" name="per_page" form="taskFilterForm"', false)
+            ->assertSee('class="page-item active"', false)
+            ->assertSee('page=2', false)
+            ->assertSee('per_page=10', false);
+    }
+
     public function test_task_list_shows_the_daily_update_state_for_each_active_task(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00:00', config('app.timezone')));
@@ -1186,6 +1204,7 @@ class TaskManagementTest extends TestCase
             'status' => 'active',
             'role_id' => $roleIds['Employee'],
         ]);
+        $poc3->assignRole('Employee');
         $assignee = User::factory()->create([
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
@@ -1256,37 +1275,146 @@ class TaskManagementTest extends TestCase
         $this->assertSame($firstPhaseDeadline, $phases[0]->target_date->toDateString());
         $this->assertSame('Define the project scope.', $phases[0]->description);
         $this->assertSame(0, DB::table('milestone_assignees')->whereIn('milestone_id', $phases->modelKeys())->count());
-        $phases[0]->update(['target_date' => today()->subDay()]);
+        $firstPhaseCreatedDate = $phases[0]->created_at->toDateString();
+        $unrelatedEmployee = User::factory()->create([
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'status' => 'active',
+        ]);
+        $unrelatedEmployee->assignRole('Employee');
+        $phases[0]->update([
+            'target_date' => today()->subDay(),
+            'progress_percentage' => 70,
+        ]);
         $phases[1]->update(['status' => 'completed']);
 
         $this->actingAs($this->admin)
-            ->patch(route('milestones.update', [$task, $phases[0]]), ['status' => 'in_progress'])
+            ->patch(route('milestones.update', [$task, $phases[0]]), [
+                'title' => 'Planning reviewed',
+                'description' => 'Updated project scope.',
+                'status' => 'in_progress',
+            ])
             ->assertRedirect();
         $this->assertDatabaseHas('milestones', [
             'id' => $phases[0]->id,
+            'title' => 'Planning reviewed',
+            'description' => 'Updated project scope.',
             'status' => 'in_progress',
         ]);
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'milestone_id' => $phases[0]->id,
+            'changed_by' => $this->admin->id,
+            'old_status' => null,
+            'new_status' => 'updated',
+            'event_type' => 'milestone_updated',
+        ]);
+        $this->assertDatabaseHas('task_status_histories', [
+            'task_id' => $task->id,
+            'milestone_id' => $phases[0]->id,
+            'changed_by' => $this->admin->id,
+            'old_status' => 'pending',
+            'new_status' => 'in_progress',
+            'event_type' => 'milestone_status',
+        ]);
+
+        $this->actingAs($poc3)
+            ->patch(route('milestones.update', [$task, $phases[0]]), [
+                'description' => 'POC reviewed project scope.',
+            ])
+            ->assertRedirect();
+        $this->assertDatabaseHas('milestones', [
+            'id' => $phases[0]->id,
+            'description' => 'POC reviewed project scope.',
+        ]);
+
+        $this->actingAs($assignee)
+            ->patch(route('milestones.update', [$task, $phases[0]]), [
+                'description' => 'Employee updated project scope.',
+            ])
+            ->assertRedirect();
+        $this->assertDatabaseHas('milestones', [
+            'id' => $phases[0]->id,
+            'description' => 'Employee updated project scope.',
+        ]);
+        $this->assertSame(
+            3,
+            TaskStatusHistory::query()
+                ->where('milestone_id', $phases[0]->id)
+                ->where('event_type', 'milestone_updated')
+                ->count(),
+        );
+
+        $this->actingAs($assignee)
+            ->patch(route('milestones.update', [$task, $phases[0]]), [
+                'title' => 'Planning reviewed',
+                'description' => 'Employee updated project scope.',
+                'status' => 'in_progress',
+            ])
+            ->assertRedirect();
+        $this->assertSame(
+            3,
+            TaskStatusHistory::query()
+                ->where('milestone_id', $phases[0]->id)
+                ->where('event_type', 'milestone_updated')
+                ->count(),
+        );
+
+        $this->actingAs($unrelatedEmployee)
+            ->patch(route('milestones.update', [$task, $phases[0]]), [
+                'description' => 'Unauthorized update.',
+            ])
+            ->assertForbidden();
 
         $taskDetail = $this->actingAs($assignee)->get(route('tasks.show', $task));
         $taskDetail->assertOk()
-            ->assertSee('Project phases')
-            ->assertSee('Planning')
+            ->assertSee('Project timeline')
+            ->assertSee('Track each phase, its dates and deadline')
+            ->assertDontSee('data-timeline-progress', false)
+            ->assertSee('data-phase-can-update="true"', false)
+            ->assertSee('Milestone updated', false)
+            ->assertSee('Status updated to: In progress', false)
+            ->assertSee('Planning reviewed')
+            ->assertSee('data-phase-description="Employee updated project scope."', false)
             ->assertSee('Delivery')
-            ->assertSee('In Progress')
-            ->assertSee('Overdue')
-            ->assertSee('Completed')
-            ->assertSee(today()->subDay()->format('M j, Y'));
+            ->assertSee('data-phase-start-date="'.$firstPhaseCreatedDate.'"', false)
+            ->assertSee('data-phase-created-date="'.$firstPhaseCreatedDate.'"', false)
+            ->assertSee('data-phase-creator="'.$this->admin->name.'"', false)
+            ->assertSee('data-phase-activity-actor="'.$this->admin->name.'"', false)
+            ->assertSee('data-phase-activity-text="created the milestone"', false)
+            ->assertSee('data-phase-status="in_progress"', false)
+            ->assertSee('data-phase-progress="70"', false)
+            ->assertSee('data-phase-status="completed"', false)
+            ->assertSee('data-phase-end-date="'.today()->subDay()->format('Y-m-d').'"', false);
+        $this->actingAs($poc3)
+            ->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('data-phase-can-update="true"', false);
         $taskDetail->assertSeeInOrder([
             'id="tab-subtasks-btn"',
             'id="tab-milestones-btn"',
             '> Milestone',
             'id="panel-milestones"',
-            'class="tf-task-detail__card task-overview-project-phases"',
+            'class="tf-task-detail__card task-overview-project-phases milestone-timeline"',
         ], false);
         $this->assertSame(
             1,
-            preg_match('/<div class="tf-activity-tab-panel" id="panel-milestones".*?class="tf-task-detail__card task-overview-project-phases"/s', $taskDetail->getContent()),
+            preg_match('/<div class="tf-activity-tab-panel" id="panel-milestones".*?class="tf-task-detail__card task-overview-project-phases milestone-timeline"/s', $taskDetail->getContent()),
         );
+
+        $this->actingAs($this->admin)
+            ->patch(route('milestones.update', [$task, $phases[1]]), ['status' => 'cancelled'])
+            ->assertRedirect();
+        $this->assertDatabaseHas('milestones', [
+            'id' => $phases[1]->id,
+            'status' => 'cancelled',
+        ]);
+        $this->assertDatabaseHas('task_status_histories', [
+            'milestone_id' => $phases[1]->id,
+            'old_status' => 'completed',
+            'new_status' => 'cancelled',
+            'event_type' => 'milestone_status',
+        ]);
 
         $taskListResponse = $this->actingAs($this->admin)->get(route('tasks.index', [
             'search' => 'Deliver System Enhancements',
@@ -1340,6 +1468,30 @@ class TaskManagementTest extends TestCase
         $this->get(route('notifications.open', $pocNotification))
             ->assertRedirect(route('tasks.show', $task));
         $this->assertNotNull($pocNotification->fresh()->read_at);
+    }
+
+    public function test_project_without_phases_shows_the_timeline_empty_state(): void
+    {
+        $task = Task::query()->create([
+            'task_code' => Task::generateCode(),
+            'title' => 'Project without phases',
+            'company_id' => $this->company->id,
+            'department_id' => $this->department->id,
+            'assigned_to' => $this->admin->id,
+            'created_by' => $this->admin->id,
+            'task_type' => 'project',
+            'priority' => 'medium',
+            'status' => 'assigned',
+            'progress_percentage' => 0,
+            'estimated_hours' => 1,
+            'expected_output' => 'Project phase timeline.',
+        ]);
+
+        $this->get(route('tasks.show', $task))
+            ->assertOk()
+            ->assertSee('No phases yet. Add a phase to see it on the timeline.')
+            ->assertSee('Add phase')
+            ->assertSee('0 of 0 phases complete');
     }
 
     public function test_user_can_create_a_task_with_multiple_attachments_and_download_them(): void

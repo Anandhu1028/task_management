@@ -45,6 +45,7 @@ final class NotificationPresenter
             'actor_name' => $actorName,
             'actor_role' => $data['actor_role'] ?? null,
             'url' => isset($data['task_id']) ? route('notifications.open', $notification->id) : null,
+            'pwa_url' => isset($data['task_id']) ? route('pwa.tasks.show', $data['task_id']) : null,
             'created_at' => $notification->created_at?->diffForHumans(),
             'created_at_exact' => $notification->created_at?->format('d M Y, h:i A'),
             'is_unread' => $notification->read_at === null,

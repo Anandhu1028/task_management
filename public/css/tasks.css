@@ -5818,6 +5818,76 @@
 
 .tf-task-management .tf-management__table-footer {
     border-top: 1px solid #edf1f7;
+    flex-wrap: wrap;
+}
+
+.tf-task-pagination__summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.tf-task-pagination__page-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #73819a;
+    white-space: nowrap;
+}
+
+.tf-task-pagination__page-size .tf-user-toolbar__select {
+    height: 30px;
+    border-color: #e5eaf3;
+    border-radius: 7px;
+}
+
+.tf-task-pagination__page-size select {
+    width: 64px;
+    max-width: none;
+    padding-right: 22px;
+}
+
+.tf-task-pagination__controls {
+    margin-left: auto;
+}
+
+.tf-task-management .tf-task-pagination__controls .pagination {
+    gap: 4px;
+}
+
+.tf-task-management .tf-task-pagination__controls .page-link {
+    display: inline-flex;
+    min-width: 30px;
+    min-height: 30px;
+    align-items: center;
+    justify-content: center;
+    border-color: #e5eaf3;
+    border-radius: 7px !important;
+    background: #fff;
+    color: #52617b;
+    font-size: 11px;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.tf-task-management .tf-task-pagination__controls .page-link:hover,
+.tf-task-management .tf-task-pagination__controls .page-link:focus-visible {
+    border-color: #9db8f7;
+    background: #f5f8ff;
+    color: #2456d9;
+}
+
+.tf-task-management .tf-task-pagination__controls .page-item.active .page-link {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.tf-task-management .tf-task-pagination__controls .page-item.disabled .page-link {
+    background: #fff;
+    color: #9aa6b8;
+    box-shadow: none;
 }
 
 @media (max-width: 700px) {
@@ -5851,6 +5921,10 @@
 
     .tf-task-management .tf-task-toolbar-filters .tf-user-toolbar__select {
         flex: 1 1 125px;
+    }
+
+    .tf-task-pagination__controls {
+        margin-left: 0;
     }
 }
 
@@ -7643,6 +7717,10 @@
     box-shadow: 0 4px 16px rgba(27, 44, 78, .045);
 }
 
+.milestone-timeline {
+    position: relative;
+}
+
 .task-overview-project-phases__header {
     display: flex;
     min-width: 0;
@@ -8013,6 +8091,1012 @@
     }
 
     .task-overview-project-phases__footer {
+        padding: 10px 13px;
+    }
+}
+
+.milestone-timeline__header,
+.milestone-timeline__toolbar,
+.milestone-timeline__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.milestone-timeline__header {
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.milestone-timeline__header h2 {
+    margin: 0;
+    color: #17243b;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.milestone-timeline__header p {
+    margin: 4px 0 0;
+    color: #718096;
+    font-size: 12px;
+}
+
+.milestone-timeline__summary {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.milestone-timeline__toolbar {
+    flex-wrap: wrap;
+    padding: 13px 20px 8px;
+}
+
+.milestone-timeline__zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.milestone-timeline__today,
+.milestone-timeline__zoom-button {
+    min-height: 31px;
+    padding: 5px 10px;
+    border: 1px solid #dbe3ee;
+    border-radius: 7px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.milestone-timeline__zoom-button {
+    width: 31px;
+    padding: 0;
+    font-size: 17px;
+}
+
+.milestone-timeline__zoom-label {
+    min-width: 42px;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.milestone-timeline__error {
+    margin: 0 20px 10px;
+    padding: 9px 11px;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 12px;
+}
+
+.milestone-timeline__scroll {
+    position: relative;
+    max-height: 480px;
+    overflow: auto;
+    border-top: 1px solid #edf1f6;
+    border-bottom: 1px solid #edf1f6;
+    overscroll-behavior: contain;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+.milestone-timeline__grid {
+    --timeline-left-width: 230px;
+    width: max-content;
+    min-width: 100%;
+    color: #334155;
+    font-size: 11px;
+}
+
+.milestone-timeline__calendar,
+.milestone-timeline__row {
+    display: grid;
+    grid-template-columns: var(--timeline-left-width) var(--timeline-track-width);
+}
+
+.milestone-timeline__calendar {
+    position: sticky;
+    z-index: 20;
+    top: 0;
+    width: max-content;
+    height: 52px;
+    background: #f8fafc;
+}
+
+.milestone-timeline__corner,
+.milestone-timeline__phase-name {
+    position: sticky;
+    left: 0;
+    z-index: 6;
+    width: var(--timeline-left-width);
+    border-right: 1px solid #e2e8f0;
+    background: #fff;
+}
+
+.milestone-timeline__corner {
+    z-index: 22;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    background: #eff6ff;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 750;
+}
+
+.milestone-timeline__date-head {
+    width: var(--timeline-track-width);
+}
+
+.milestone-timeline__days {
+    display: flex;
+    width: var(--timeline-track-width);
+    overflow: hidden;
+}
+
+.milestone-timeline__days {
+    height: 52px;
+}
+
+.milestone-timeline__day {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-right: 1px solid #eef2f7;
+    color: #64748b;
+    font-size: 8px;
+}
+
+.milestone-timeline__day.is-weekend {
+    background: #f8fafc;
+}
+
+.milestone-timeline__day.is-today {
+    background: #eff6ff;
+}
+
+.milestone-timeline__day-date {
+    color: #334155;
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.milestone-timeline__day.is-today .milestone-timeline__day-date {
+    color: #2563eb;
+}
+
+.milestone-timeline__weekday {
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.milestone-timeline__body {
+    position: relative;
+    width: max-content;
+}
+
+.milestone-timeline__track {
+    position: relative;
+    display: grid;
+    width: var(--timeline-track-width);
+    grid-template-columns: repeat(var(--timeline-days), var(--timeline-day-width));
+}
+
+.milestone-timeline__row {
+    height: var(--phase-row-height, 76px);
+    border-bottom: 1px solid #cbd5e1;
+    background: #fff;
+}
+
+.milestone-timeline__phase-name {
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    overflow: visible;
+    gap: 8px;
+    padding: 0 12px;
+    border-bottom: 1px solid #cbd5e1;
+    color: #334155;
+}
+
+.milestone-timeline__phase-name.is-editing {
+    z-index: 30;
+    background: #fff;
+}
+
+.milestone-timeline__phase-icon {
+    display: inline-flex;
+    flex: 0 0 12px;
+    align-items: center;
+    justify-content: center;
+    color: #2563eb;
+    font-size: 12px;
+}
+
+.milestone-timeline__phase-copy {
+    display: grid;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 3px;
+}
+
+.milestone-timeline__phase-copy strong {
+    overflow: hidden;
+    color: #17243b;
+    font-size: 11px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.milestone-timeline__phase-edit-trigger {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #17243b;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 750;
+    line-height: normal;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.milestone-timeline__phase-edit-trigger:focus-visible {
+    border-radius: 3px;
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__activity-toggle {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    place-items: center;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.milestone-timeline__activity-toggle:hover {
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.milestone-timeline__activity-toggle:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__activity-toggle i {
+    transition: transform .16s ease;
+}
+
+.milestone-timeline__activity-toggle[aria-expanded="false"] i {
+    transform: rotate(-90deg);
+}
+
+.milestone-timeline__phase-edit {
+    position: absolute;
+    z-index: 40;
+    display: grid;
+    width: min(270px, calc(100vw - 32px));
+    max-height: calc(100% - 68px);
+    overflow-y: auto;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #bacefb;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .2);
+}
+
+.milestone-timeline__editor-layer {
+    position: absolute;
+    z-index: 40;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.milestone-timeline__editor-layer .milestone-timeline__phase-edit {
+    pointer-events: auto;
+}
+
+.milestone-timeline__phase-edit[hidden] {
+    display: none;
+}
+
+.milestone-timeline__phase-edit label {
+    display: grid;
+    gap: 4px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 650;
+}
+
+.milestone-timeline__phase-edit input,
+.milestone-timeline__phase-edit textarea,
+.milestone-timeline__phase-edit select {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #17243b;
+    font: inherit;
+    font-size: 11px;
+}
+
+.milestone-timeline__phase-edit textarea {
+    min-height: 58px;
+    resize: vertical;
+}
+
+.milestone-timeline__phase-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+}
+
+.milestone-timeline__phase-edit-actions button {
+    min-height: 30px;
+    padding: 5px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.milestone-timeline__phase-edit-actions button[type="submit"] {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.milestone-timeline__phase-edit-actions button:focus-visible,
+.milestone-timeline__phase-edit input:focus-visible,
+.milestone-timeline__phase-edit textarea:focus-visible,
+.milestone-timeline__phase-edit select:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__phase-copy > span {
+    color: #64748b;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.milestone-timeline__track {
+    height: var(--phase-row-height, 76px);
+}
+
+.milestone-timeline__cell {
+    height: 100%;
+    border-right: 1px solid #f1f5f9;
+    border-bottom: 1px solid #cbd5e1;
+    background: #fff;
+}
+
+.milestone-timeline__cell.is-weekend {
+    background: #f8fafc;
+}
+
+.milestone-timeline__cell.is-today {
+    background: #f6f9ff;
+}
+
+.milestone-timeline__today-line {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 2px dashed #2563eb;
+    opacity: .9;
+    pointer-events: none;
+}
+
+.milestone-timeline__item {
+    position: absolute;
+    z-index: 4;
+    top: 0;
+    height: 100%;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: normal;
+    cursor: pointer;
+}
+
+.milestone-timeline__item--bar {
+    padding: 0;
+    text-align: left;
+}
+
+.milestone-timeline__phase-bar {
+    position: absolute;
+    top: 20px;
+    height: 2px;
+    border-radius: 999px;
+    background: repeating-linear-gradient(to right, #dc2626 0 2px, transparent 2px 5px);
+    overflow: visible;
+    pointer-events: none;
+}
+
+.milestone-timeline__phase-bar-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: repeating-linear-gradient(to right, #dc2626 0 2px, transparent 2px 5px);
+}
+
+.milestone-timeline__activity-badges {
+    position: absolute;
+    z-index: 4;
+    inset: 0;
+    pointer-events: none;
+}
+
+.milestone-timeline__phase-start-check {
+    position: absolute;
+    z-index: 3;
+    top: 50%;
+    left: 0;
+    display: grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    transform: translate(-25%, -50%);
+    border-radius: 50%;
+    background: var(--phase-color);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.milestone-timeline__phase-note {
+    position: absolute;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    top: 8px;
+    left: 0;
+    width: max-content;
+    max-width: 260px;
+    overflow: visible;
+    pointer-events: auto;
+}
+
+.milestone-timeline__phase-note:hover {
+    z-index: 30;
+}
+
+.milestone-timeline__phase-note-label {
+    display: block;
+    width: max-content;
+    max-width: 180px;
+    overflow: hidden;
+    padding: 3px 8px;
+    border: 1px solid #1e40af;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .16);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.milestone-timeline__activity-tooltip {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 6px);
+    left: 0;
+    display: none;
+    box-sizing: border-box;
+    width: 220px;
+    max-width: min(220px, calc(100vw - 32px));
+    max-height: min(220px, calc(100vh - 16px));
+    overflow-y: auto;
+    gap: 6px;
+    padding: 9px 10px;
+    border: 1px solid #2563eb;
+    border-radius: 9px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+    color: #1e293b;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.35;
+    text-align: left;
+    white-space: normal;
+    pointer-events: auto;
+}
+
+.milestone-timeline__phase-note:hover .milestone-timeline__activity-tooltip,
+.milestone-timeline__activity-tooltip:hover {
+    display: grid;
+}
+
+.milestone-timeline__activity-tooltip > strong {
+    color: #1d4ed8;
+    font-size: 11px;
+}
+
+.milestone-timeline__activity-tooltip-row {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 6px;
+}
+
+.milestone-timeline__activity-tooltip-row > strong {
+    color: #64748b;
+    font-weight: 650;
+}
+
+.milestone-timeline__activity-tooltip-remarks {
+    padding-top: 5px;
+    border-top: 1px solid #e2e8f0;
+    color: #475569;
+    overflow-wrap: anywhere;
+}
+
+.milestone-timeline__phase-note-label--updated {
+    border-color: #6d28d9;
+    background: linear-gradient(135deg, #581c87, #7c3aed);
+}
+
+.milestone-timeline__phase-note-label--status-completed {
+    border-color: #15803d;
+    background: linear-gradient(135deg, #166534, #22c55e);
+}
+
+.milestone-timeline__phase-note-label--status-pending {
+    border-color: #c2410c;
+    background: linear-gradient(135deg, #c2410c, #f59e0b);
+}
+
+.milestone-timeline__phase-note-label--status-cancelled {
+    border-color: #b91c1c;
+    background: linear-gradient(135deg, #991b1b, #ef4444);
+}
+
+.milestone-timeline__phase-note-label--status-in_progress {
+    border-color: #1d4ed8;
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+}
+
+.milestone-timeline__item:hover,
+.milestone-timeline__item:focus-visible {
+    z-index: 20;
+}
+
+.milestone-timeline__phase-popover {
+    position: absolute;
+    z-index: 20;
+    top: 32px;
+    left: 0;
+    display: none;
+    box-sizing: border-box;
+    width: 248px;
+    max-width: min(248px, calc(100vw - 32px));
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 9px;
+    border: 1px solid #2563eb;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+    color: #1e293b;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.3;
+    text-align: left;
+    white-space: normal;
+    pointer-events: auto;
+}
+
+.milestone-timeline__item:focus-visible .milestone-timeline__phase-popover {
+    display: grid;
+    gap: 6px;
+}
+
+.milestone-timeline__activity-badges:hover ~ .milestone-timeline__phase-popover {
+    display: none;
+}
+
+.milestone-timeline__phase-popover-heading,
+.milestone-timeline__phase-popover-dates,
+.milestone-timeline__phase-popover-dates > span,
+.milestone-timeline__phase-popover-description,
+.milestone-timeline__phase-popover-activity {
+    display: flex;
+}
+
+.milestone-timeline__phase-popover-heading {
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.milestone-timeline__phase-popover-field,
+.milestone-timeline__phase-popover-status {
+    display: flex;
+    flex-direction: column;
+}
+
+.milestone-timeline__phase-popover-status {
+    align-items: flex-end;
+}
+
+.milestone-timeline__phase-popover-heading strong {
+    color: #0f172a;
+    font-size: 11px;
+}
+
+.milestone-timeline__phase-popover-status {
+    flex: 0 0 auto;
+    color: #475569;
+    font-weight: 700;
+}
+
+.milestone-timeline__phase-popover-dates {
+    gap: 12px;
+}
+
+.milestone-timeline__phase-popover-dates > span,
+.milestone-timeline__phase-popover-description,
+.milestone-timeline__phase-popover-activity {
+    flex-direction: column;
+}
+
+.milestone-timeline__phase-popover-label,
+.milestone-timeline__phase-popover-activity small {
+    color: #64748b;
+    font-size: 9px;
+}
+
+.milestone-timeline__phase-popover-description > span:last-child,
+.milestone-timeline__phase-popover-activity > span:last-of-type {
+    overflow-wrap: anywhere;
+}
+
+.milestone-timeline__phase-target {
+    position: absolute;
+    z-index: 5;
+    top: 50%;
+    display: inline-flex;
+    transform: translateY(-50%);
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    background: transparent;
+    font-size: 9px;
+    font-weight: 650;
+    white-space: nowrap;
+    color: #dc2626;
+    pointer-events: none;
+}
+
+.milestone-timeline__phase-note time {
+    color: #dc2626;
+    font-weight: 500;
+}
+
+.milestone-timeline__phase-marker {
+    margin-right: -6px;
+    transform: translateX(-50%);
+    color: #dc2626;
+    font-size: 13px;
+}
+
+.milestone-timeline__item.is-milestone .milestone-timeline__phase-bar {
+    top: 20px;
+}
+
+.milestone-timeline__item.is-completed {
+    --phase-color: #16a34a;
+    --phase-track-color: #bbf7d0;
+    --phase-pill-background: #dcfce7;
+}
+
+.milestone-timeline__item.is-in-progress {
+    --phase-color: #2563eb;
+    --phase-track-color: #dbeafe;
+    --phase-pill-background: #eff6ff;
+}
+
+.milestone-timeline__item.is-pending {
+    --phase-color: #64748b;
+    --phase-track-color: #94a3b8;
+    --phase-pill-background: #e2e8f0;
+}
+
+.milestone-timeline__item.is-overdue {
+    --phase-color: #dc2626;
+    --phase-track-color: #fecaca;
+    --phase-pill-background: #fee2e2;
+}
+
+.milestone-timeline__item.is-milestone.is-pending {
+    --phase-color: #7c3aed;
+    --phase-track-color: #ddd6fe;
+    --phase-pill-background: #ede9fe;
+}
+
+.milestone-timeline__item:disabled,
+.milestone-timeline__item[aria-disabled="true"] {
+    cursor: default;
+}
+
+.milestone-timeline__today:focus-visible,
+.milestone-timeline__zoom-button:focus-visible,
+.milestone-timeline__item:focus-visible,
+.milestone-timeline__add-button:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__footer {
+    flex-wrap: wrap;
+    padding: 12px 20px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.milestone-timeline__empty {
+    display: grid;
+    justify-items: center;
+    gap: 12px;
+    padding: 28px 18px;
+    color: #475569;
+    font-size: 12px;
+    text-align: center;
+}
+
+.milestone-timeline__add-button {
+    padding: 8px 13px;
+    border: 1px solid #2563eb;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #fff;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.milestone-timeline__add-button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.milestone-timeline__create-form {
+    display: grid;
+    width: min(100%, 520px);
+    gap: 10px;
+    text-align: left;
+}
+
+.milestone-timeline__create-form[hidden] {
+    display: none;
+}
+
+.milestone-timeline__create-form label {
+    display: grid;
+    gap: 4px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.milestone-timeline__create-form input,
+.milestone-timeline__create-form textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #17243b;
+    font: inherit;
+}
+
+[data-theme="dark"] .milestone-timeline__header h2,
+[data-theme="dark"] .milestone-timeline__phase-name,
+[data-theme="dark"] .milestone-timeline__phase-copy strong,
+[data-theme="dark"] .milestone-timeline__phase-edit-trigger,
+[data-theme="dark"] .milestone-timeline__day-date,
+[data-theme="dark"] .milestone-timeline__phase-note,
+[data-theme="dark"] .milestone-timeline__create-form input,
+[data-theme="dark"] .milestone-timeline__create-form textarea {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .task-overview-project-phases.milestone-timeline {
+    border-color: #334155;
+    background: #172033;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .2);
+}
+
+[data-theme="dark"] .milestone-timeline__header p,
+[data-theme="dark"] .milestone-timeline__footer,
+[data-theme="dark"] .milestone-timeline__zoom-label,
+[data-theme="dark"] .milestone-timeline__empty,
+[data-theme="dark"] .milestone-timeline__create-form label,
+[data-theme="dark"] .milestone-timeline__today {
+    color: #a8b4c7;
+}
+
+[data-theme="dark"] .milestone-timeline__header,
+[data-theme="dark"] .milestone-timeline__scroll,
+[data-theme="dark"] .milestone-timeline__row,
+[data-theme="dark"] .milestone-timeline__cell,
+[data-theme="dark"] .milestone-timeline__phase-name,
+[data-theme="dark"] .milestone-timeline__corner,
+[data-theme="dark"] .milestone-timeline__today,
+[data-theme="dark"] .milestone-timeline__zoom-button {
+    border-color: #334155;
+    background-color: #172033;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-name.is-editing,
+[data-theme="dark"] .milestone-timeline__phase-edit,
+[data-theme="dark"] .milestone-timeline__phase-edit input,
+[data-theme="dark"] .milestone-timeline__phase-edit textarea,
+[data-theme="dark"] .milestone-timeline__phase-edit select {
+    border-color: #3b82f6;
+    background-color: #172033;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-toggle {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-toggle:hover {
+    background: #1e3a5f;
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-tooltip {
+    border-color: #3b82f6;
+    background: #172033;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-tooltip > strong {
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-tooltip-row > strong {
+    color: #a8b4c7;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-tooltip-remarks {
+    border-color: #334155;
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-edit label {
+    color: #a8b4c7;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-edit-actions button {
+    border-color: #475569;
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-edit-actions button[type="submit"] {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+[data-theme="dark"] .milestone-timeline__calendar,
+[data-theme="dark"] .milestone-timeline__day.is-today,
+[data-theme="dark"] .milestone-timeline__day.is-weekend,
+[data-theme="dark"] .milestone-timeline__cell.is-weekend,
+[data-theme="dark"] .milestone-timeline__footer {
+    border-color: #334155;
+    background-color: #1e293b;
+}
+
+[data-theme="dark"] .milestone-timeline__day,
+[data-theme="dark"] .milestone-timeline__weekday,
+[data-theme="dark"] .milestone-timeline__phase-copy > span,
+[data-theme="dark"] .milestone-timeline__phase-note time,
+[data-theme="dark"] .milestone-timeline__corner,
+[data-theme="dark"] .milestone-timeline__zoom-button {
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-target {
+    background: transparent;
+}
+
+[data-theme="dark"] .milestone-timeline__day.is-today .milestone-timeline__day-date {
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .milestone-timeline__cell.is-today {
+    background: #1e3a5f;
+}
+
+[data-theme="dark"] .milestone-timeline__summary {
+    border-color: #1e40af;
+    background: #172554;
+    color: #bfdbfe;
+}
+
+[data-theme="dark"] .milestone-timeline__create-form input,
+[data-theme="dark"] .milestone-timeline__create-form textarea {
+    border-color: #475569;
+    background: #0f172a;
+}
+
+@media (max-width: 640px) {
+    .milestone-timeline__header {
+        align-items: flex-start;
+        padding: 15px 13px 12px;
+    }
+
+    .milestone-timeline__summary {
+        padding: 6px 8px;
+        font-size: 10px;
+    }
+
+    .milestone-timeline__toolbar {
+        align-items: flex-start;
+        padding: 12px 13px 8px;
+    }
+
+    .milestone-timeline__footer {
         padding: 10px 13px;
     }
 }
