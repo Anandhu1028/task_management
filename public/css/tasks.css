@@ -8192,7 +8192,7 @@
 }
 
 .milestone-timeline__grid {
-    --timeline-left-width: 230px;
+    --timeline-left-width: 460px;
     width: max-content;
     min-width: 100%;
     color: #334155;
@@ -8226,13 +8226,27 @@
 
 .milestone-timeline__corner {
     z-index: 22;
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
+    display: grid;
+    grid-template-columns: 170px minmax(100px, 1fr) 90px 90px;
     background: #eff6ff;
     color: #64748b;
     font-size: 11px;
     font-weight: 750;
+}
+
+.milestone-timeline__corner > span {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    height: 100%;
+    padding: 0 8px;
+    border-right: 1px solid #dbeafe;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.milestone-timeline__corner > span:last-child {
+    border-right: 0;
 }
 
 .milestone-timeline__date-head {
@@ -8307,11 +8321,9 @@
 
 .milestone-timeline__phase-name {
     z-index: 5;
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 170px minmax(100px, 1fr) 90px 90px;
     overflow: visible;
-    gap: 8px;
-    padding: 0 12px;
     border-bottom: 1px solid #cbd5e1;
     color: #334155;
 }
@@ -8321,23 +8333,31 @@
     background: #fff;
 }
 
-.milestone-timeline__phase-icon {
-    display: inline-flex;
-    flex: 0 0 12px;
+.milestone-timeline__phase-name-cell,
+.milestone-timeline__phase-description,
+.milestone-timeline__phase-date,
+.milestone-timeline__phase-status {
+    min-width: 0;
+    height: 100%;
+    border-right: 1px solid #f1f5f9;
+}
+
+.milestone-timeline__phase-name-cell {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    color: #2563eb;
-    font-size: 12px;
+    gap: 4px;
+    padding: 0 4px;
 }
 
 .milestone-timeline__phase-copy {
-    display: grid;
+    display: block;
     min-width: 0;
     flex: 1 1 auto;
-    gap: 3px;
+    overflow: hidden;
 }
 
 .milestone-timeline__phase-copy strong {
+    display: block;
     overflow: hidden;
     color: #17243b;
     font-size: 11px;
@@ -8383,6 +8403,76 @@
     background: transparent;
     color: #64748b;
     cursor: pointer;
+}
+
+.milestone-timeline__phase-description {
+    display: -webkit-box;
+    align-self: center;
+    overflow: hidden;
+    height: auto;
+    max-height: 2.6em;
+    padding: 0 8px;
+    color: #64748b;
+    font-size: 10px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.milestone-timeline__phase-date {
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    color: #64748b;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.milestone-timeline__phase-status {
+    display: flex;
+    align-self: center;
+    justify-self: start;
+    width: fit-content;
+    max-width: calc(100% - 12px);
+    height: auto;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow: hidden;
+    padding: 4px 7px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.1;
+    border-right: 0;
+    text-overflow: ellipsis;
+    white-space: normal;
+}
+
+.milestone-timeline__phase-status small {
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.milestone-timeline__phase-status.is-completed {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.milestone-timeline__phase-status.is-in-progress {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.milestone-timeline__phase-status.is-pending {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.milestone-timeline__phase-status.is-overdue,
+.milestone-timeline__phase-status.is-cancelled {
+    background: #fee2e2;
+    color: #b91c1c;
 }
 
 .milestone-timeline__activity-toggle:hover {
@@ -8492,12 +8582,6 @@
 .milestone-timeline__phase-edit select:focus-visible {
     outline: 2px solid #93c5fd;
     outline-offset: 2px;
-}
-
-.milestone-timeline__phase-copy > span {
-    color: #64748b;
-    font-size: 10px;
-    white-space: nowrap;
 }
 
 .milestone-timeline__track {
@@ -8948,6 +9032,8 @@
 
 [data-theme="dark"] .milestone-timeline__header h2,
 [data-theme="dark"] .milestone-timeline__phase-name,
+[data-theme="dark"] .milestone-timeline__phase-description,
+[data-theme="dark"] .milestone-timeline__phase-date,
 [data-theme="dark"] .milestone-timeline__phase-copy strong,
 [data-theme="dark"] .milestone-timeline__phase-edit-trigger,
 [data-theme="dark"] .milestone-timeline__day-date,
@@ -8978,6 +9064,10 @@
 [data-theme="dark"] .milestone-timeline__cell,
 [data-theme="dark"] .milestone-timeline__phase-name,
 [data-theme="dark"] .milestone-timeline__corner,
+[data-theme="dark"] .milestone-timeline__phase-name-cell,
+[data-theme="dark"] .milestone-timeline__phase-description,
+[data-theme="dark"] .milestone-timeline__phase-date,
+[data-theme="dark"] .milestone-timeline__phase-status,
 [data-theme="dark"] .milestone-timeline__today,
 [data-theme="dark"] .milestone-timeline__zoom-button {
     border-color: #334155;
@@ -9049,11 +9139,33 @@
 
 [data-theme="dark"] .milestone-timeline__day,
 [data-theme="dark"] .milestone-timeline__weekday,
-[data-theme="dark"] .milestone-timeline__phase-copy > span,
+[data-theme="dark"] .milestone-timeline__phase-description,
+[data-theme="dark"] .milestone-timeline__phase-date,
 [data-theme="dark"] .milestone-timeline__phase-note time,
 [data-theme="dark"] .milestone-timeline__corner,
 [data-theme="dark"] .milestone-timeline__zoom-button {
     color: #cbd5e1;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-completed {
+    background: #14532d;
+    color: #bbf7d0;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-in-progress {
+    background: #1e3a8a;
+    color: #bfdbfe;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-pending {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-overdue,
+[data-theme="dark"] .milestone-timeline__phase-status.is-cancelled {
+    background: #7f1d1d;
+    color: #fecaca;
 }
 
 [data-theme="dark"] .milestone-timeline__phase-target {
@@ -9221,7 +9333,7 @@
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 20px;
     }
 
-    .tf-create-task__project-phase-row [data-project-phase-deadline] {
+    .tf-create-task__project-phase-row [data-project-phase-date] {
         grid-column: 1 / 3;
     }
 }
@@ -9770,5 +9882,575 @@
     .tf-volume-overview-card__meta,
     .tf-volume-overview-card__alert {
         width: 100%;
+    }
+}
+
+.milestone-timeline__toolbar {
+    align-items: center;
+}
+
+.milestone-timeline__activity-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px 12px;
+    color: #64748b;
+    font-size: 10px;
+}
+
+.milestone-timeline__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.milestone-timeline__legend-item i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #1d4ed8;
+}
+
+.milestone-timeline__legend-item i.is-updated {
+    background: #7c3aed;
+}
+
+.milestone-timeline__legend-item i.is-completed {
+    background: #16a34a;
+}
+
+.milestone-timeline__legend-item i.is-pending {
+    background: #ea580c;
+}
+
+.milestone-timeline__legend-item i.is-in-progress {
+    background: #2563eb;
+}
+
+.milestone-timeline__progress {
+    height: 5px;
+    margin: 0 20px 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e2e8f0;
+}
+
+.milestone-timeline__progress > span {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: #2563eb;
+    transition: width 180ms ease;
+}
+
+.milestone-timeline__loading {
+    margin: 0;
+    padding: 18px 20px;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.milestone-timeline__scroll[hidden],
+.milestone-timeline__empty[hidden],
+.milestone-timeline__loading[hidden],
+.milestone-timeline__error[hidden] {
+    display: none;
+}
+
+.milestone-timeline__grid {
+    --timeline-left-width: 230px;
+    font-size: 11px;
+}
+
+.milestone-timeline__calendar,
+.milestone-timeline__row {
+    grid-template-columns: var(--timeline-left-width) var(--timeline-track-width);
+}
+
+.milestone-timeline__calendar {
+    display: grid;
+    height: 68px;
+}
+
+.milestone-timeline__corner {
+    display: flex;
+    align-items: center;
+    padding: 0 13px;
+    background: #eff6ff;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 750;
+}
+
+.milestone-timeline__date-head {
+    display: grid;
+    grid-template-rows: 25px 43px;
+    width: var(--timeline-track-width);
+}
+
+.milestone-timeline__months {
+    display: flex;
+    height: 25px;
+    overflow: hidden;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.milestone-timeline__months > span {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    overflow: hidden;
+    padding: 0 7px;
+    border-right: 1px solid #e2e8f0;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.milestone-timeline__days {
+    height: 43px;
+    background: #f1f5f9;
+}
+
+.milestone-timeline__day {
+    height: 43px;
+    gap: 3px;
+    background: #f1f5f9;
+    font-size: 8px;
+}
+
+.milestone-timeline__day-number {
+    color: #334155;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 18px;
+}
+
+.milestone-timeline__day-pill {
+    display: grid;
+    width: 21px;
+    height: 21px;
+    place-items: center;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 750;
+    line-height: 1;
+}
+
+.milestone-timeline__day.is-weekend {
+    background: #e8eef6;
+}
+
+.milestone-timeline__day.is-today {
+    background: #dbeafe;
+}
+
+.milestone-timeline__weekday {
+    font-size: 8px;
+}
+
+.milestone-timeline__body {
+    width: max-content;
+}
+
+.milestone-timeline__row {
+    min-height: var(--phase-row-height, 56px);
+    height: var(--phase-row-height, 56px);
+    background: #fff;
+}
+
+.milestone-timeline__phase-name {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    min-height: var(--phase-row-height, 56px);
+    height: var(--phase-row-height, 56px);
+    padding: 20px 9px 0 14px;
+    border-bottom: 1px solid #e8edf4;
+    background: #fff;
+}
+
+.milestone-timeline__phase-copy {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-top: 7px;
+}
+
+.milestone-timeline__phase-copy strong {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    color: #17243b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.milestone-timeline__activity-toggle {
+    display: grid;
+    width: 23px;
+    height: 23px;
+    flex: 0 0 23px;
+    place-items: center;
+    margin: 3px 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.milestone-timeline__activity-toggle:hover {
+    color: #1d4ed8;
+}
+
+.milestone-timeline__activity-toggle:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__phase-status {
+    display: inline-flex;
+    align-items: center;
+    position: absolute;
+    top: 7px;
+    right: 9px;
+    z-index: 1;
+    min-height: 18px;
+    padding: 2px 7px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.milestone-timeline__phase-status.is-completed {
+    border-color: #bbf7d0;
+    background: #ecfdf3;
+    color: #15803d;
+}
+
+.milestone-timeline__phase-status.is-in_progress {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.milestone-timeline__phase-status.is-pending {
+    border-color: #e2e8f0;
+    background: #f8fafc;
+    color: #475569;
+}
+
+.milestone-timeline__status-icon {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.milestone-timeline__status-icon.is-completed {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.milestone-timeline__status-icon.is-in_progress {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.milestone-timeline__status-icon.is-pending {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.milestone-timeline__status-icon.is-toggle {
+    cursor: pointer;
+}
+
+.milestone-timeline__status-icon.is-toggle:hover {
+    filter: brightness(.96);
+}
+
+.milestone-timeline__status-icon.is-toggle:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__status-icon:disabled {
+    opacity: .6;
+    cursor: wait;
+}
+
+.milestone-timeline__track {
+    height: var(--phase-row-height, 56px);
+    overflow: visible;
+    background: #fff;
+}
+
+.milestone-timeline__cell {
+    min-width: 0;
+    border-bottom: 1px solid #e7edf5;
+    border-right: 1px solid #eef2f7;
+}
+
+.milestone-timeline__cell.is-weekend {
+    background: #f8fafc;
+}
+
+.milestone-timeline__cell.is-today {
+    background: #f2f7ff;
+}
+
+.milestone-timeline__today-line {
+    z-index: 3;
+    border-left: 2px dashed #2563eb;
+}
+
+.milestone-timeline__event-badge {
+    position: absolute;
+    z-index: 5;
+    display: block;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 170px;
+    overflow: visible;
+    padding: 4px 7px;
+    border: 1px solid #1e40af;
+    border-radius: 999px;
+    background: #1d4ed8;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 14%);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.milestone-timeline__event-badge.is-updated {
+    border-color: #6d28d9;
+    background: #7c3aed;
+}
+
+.milestone-timeline__event-badge.is-status-completed {
+    border-color: #15803d;
+    background: #16a34a;
+}
+
+.milestone-timeline__event-badge.is-status-pending {
+    border-color: #c2410c;
+    background: #ea580c;
+}
+
+.milestone-timeline__event-badge.is-status-in_progress {
+    border-color: #1d4ed8;
+    background: #2563eb;
+}
+
+.milestone-timeline__event-badge:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.milestone-timeline__event-badge:hover,
+.milestone-timeline__event-badge:focus {
+    z-index: 100;
+}
+
+.milestone-timeline__event-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.milestone-timeline__event-tooltip {
+    position: fixed;
+    z-index: 1000;
+    top: var(--timeline-tooltip-top, 12px);
+    left: var(--timeline-tooltip-left, 12px);
+    display: none;
+    width: 230px;
+    max-width: min(230px, calc(100vw - 32px));
+    max-height: min(240px, calc(100vh - 24px));
+    overflow-y: auto;
+    gap: 5px;
+    padding: 10px 11px;
+    border: 1px solid #bfdbfe;
+    border-radius: 9px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgb(15 23 42 / 18%);
+    color: #334155;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+}
+
+.milestone-timeline__event-badge:hover .milestone-timeline__event-tooltip,
+.milestone-timeline__event-badge:focus .milestone-timeline__event-tooltip {
+    display: grid;
+}
+
+.milestone-timeline__event-tooltip strong {
+    color: #17243b;
+    font-size: 11px;
+}
+
+.milestone-timeline__event-tooltip time {
+    color: #64748b;
+    font-size: 9px;
+}
+
+.milestone-timeline__event-actor {
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.milestone-timeline__event-description {
+    overflow-wrap: anywhere;
+    color: #475569;
+}
+
+.milestone-timeline__footer {
+    border-top: 1px solid #edf1f6;
+}
+
+.milestone-timeline__create-form input:focus-visible,
+.milestone-timeline__create-form textarea:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 1px;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-legend,
+[data-theme="dark"] .milestone-timeline__loading {
+    color: #a8b4c7;
+}
+
+[data-theme="dark"] .milestone-timeline__progress {
+    background: #334155;
+}
+
+[data-theme="dark"] .milestone-timeline__calendar,
+[data-theme="dark"] .milestone-timeline__corner,
+[data-theme="dark"] .milestone-timeline__months,
+[data-theme="dark"] .milestone-timeline__months > span,
+[data-theme="dark"] .milestone-timeline__day,
+[data-theme="dark"] .milestone-timeline__row,
+[data-theme="dark"] .milestone-timeline__phase-name,
+[data-theme="dark"] .milestone-timeline__track,
+[data-theme="dark"] .milestone-timeline__cell {
+    border-color: #334155;
+    background-color: #172033;
+}
+
+[data-theme="dark"] .milestone-timeline__corner,
+[data-theme="dark"] .milestone-timeline__months > span,
+[data-theme="dark"] .milestone-timeline__day-number {
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .milestone-timeline__day.is-weekend,
+[data-theme="dark"] .milestone-timeline__cell.is-weekend {
+    background: #1e293b;
+}
+
+[data-theme="dark"] .milestone-timeline__day.is-today,
+[data-theme="dark"] .milestone-timeline__cell.is-today {
+    background: #1e3a5f;
+}
+
+[data-theme="dark"] .milestone-timeline__status-icon.is-completed {
+    background: #14532d;
+    color: #bbf7d0;
+}
+
+[data-theme="dark"] .milestone-timeline__status-icon.is-in_progress {
+    background: #1e3a8a;
+    color: #bfdbfe;
+}
+
+[data-theme="dark"] .milestone-timeline__status-icon.is-pending {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-toggle {
+    background: transparent;
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .milestone-timeline__activity-toggle:hover {
+    color: #bfdbfe;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-completed {
+    border-color: #166534;
+    background: #14532d;
+    color: #bbf7d0;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-in_progress {
+    border-color: #1d4ed8;
+    background: #1e3a8a;
+    color: #bfdbfe;
+}
+
+[data-theme="dark"] .milestone-timeline__phase-status.is-pending {
+    border-color: #475569;
+    background: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__event-tooltip {
+    border-color: #3b82f6;
+    background: #172033;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__event-tooltip strong,
+[data-theme="dark"] .milestone-timeline__event-description {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .milestone-timeline__event-tooltip time,
+[data-theme="dark"] .milestone-timeline__event-actor {
+    color: #a8b4c7;
+}
+
+@media (max-width: 640px) {
+    .milestone-timeline__activity-legend {
+        gap: 6px 9px;
+        font-size: 9px;
+    }
+
+    .milestone-timeline__progress {
+        margin-right: 13px;
+        margin-left: 13px;
+    }
+
+    .milestone-timeline__loading {
+        padding-right: 13px;
+        padding-left: 13px;
     }
 }

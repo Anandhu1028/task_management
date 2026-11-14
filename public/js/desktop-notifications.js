@@ -27,10 +27,14 @@
         if (Notification.permission === 'granted') { button.hidden = true; return; }
         button.hidden = false;
         if (Notification.permission === 'denied') {
-            button.title = 'Desktop notifications are blocked. Click the lock icon in the address bar and allow Notifications.';
+            const label = 'Desktop notifications are blocked. Change this site’s notification permission to allow them.';
+            button.title = label;
+            button.setAttribute('aria-label', label);
             button.classList.add('is-blocked');
         } else {
             button.title = 'Enable desktop notifications';
+            button.setAttribute('aria-label', 'Enable desktop notifications');
+            button.classList.remove('is-blocked');
         }
     };
 

@@ -11,6 +11,7 @@ use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
 use App\Models\TaskStatusHistory;
 use App\Models\User;
+use App\Services\MilestoneService;
 use App\Services\RecurringTaskTemplateService;
 use App\Services\SubtaskActivityService;
 use App\Services\SubtaskProgressService;
@@ -146,6 +147,7 @@ class TaskController extends Controller
         RecurringTaskTemplateService $recurringTemplates,
         TaskAttachmentService $attachments,
         VolumeTaskService $volumes,
+        MilestoneService $milestones,
     ): RedirectResponse {
         $this->authorize('create', Task::class);
 
@@ -218,7 +220,7 @@ class TaskController extends Controller
         $storedAttachments = $this->storeAttachmentFiles($validated['attachments'] ?? []);
 
         try {
-            DB::transaction(function () use ($taskData, $phaseData, $pocIds, $assigneeIds, $storedAttachments, $workflow, $request, $validated, $volumes): void {
+            DB::transaction(function () use ($taskData, $phaseData, $pocIds, $assigneeIds, $storedAttachments, $workflow, $request, $validated, $volumes, $milestones): void {
                 $task = Task::create($taskData);
 
                 if ($task->task_type === 'volume') {
@@ -240,21 +242,8 @@ class TaskController extends Controller
                     $task->pocs()->sync($pocIds);
                 }
 
-                foreach ($phaseData as $sortOrder => $phase) {
-                    $milestone = $task->milestones()->create([
-                        'created_by' => $request->user()->id,
-                        'title' => $phase['title'],
-                        'description' => $phase['description'] ?? null,
-                        'target_date' => $phase['target_date'],
-                        'sort_order' => $sortOrder + 1,
-                    ]);
-                    $task->statusHistory()->create([
-                        'milestone_id' => $milestone->id,
-                        'changed_by' => $request->user()->id,
-                        'new_status' => $milestone->status,
-                        'event_type' => 'milestone_created',
-                        'remarks' => 'Created project phase '.$milestone->title,
-                    ]);
+                foreach ($phaseData as $phase) {
+                    $milestones->create($task, $request->user(), $phase);
                 }
 
                 $this->syncTaskAssignees($task, $assigneeIds, 'Initial assignment', auth()->id());
@@ -721,7 +710,24 @@ class TaskController extends Controller
     {
         $this->authorize('delete', $task);
 
-        $task->delete();
+        $attachments = $task->attachments()->get(['disk', 'path']);
+
+        DB::transaction(function () use ($task): void {
+            $task->subtaskDailyUpdates()->delete();
+            DB::table('notifications')
+                ->where('data->task_id', $task->getKey())
+                ->delete();
+            if (! $task->forceDelete()) {
+                throw new RuntimeException('Unable to permanently delete the task.');
+            }
+        });
+
+        foreach ($attachments->groupBy('disk') as $disk => $diskAttachments) {
+            $paths = $diskAttachments->pluck('path')->all();
+            if ($paths !== [] && ! Storage::disk($disk)->delete($paths)) {
+                throw new RuntimeException('The task was deleted, but one or more attachment files could not be removed.');
+            }
+        }
 
         return redirect()->route('tasks.index')->with('success', 'Task deleted successfully.');
     }

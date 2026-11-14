@@ -483,7 +483,7 @@
                                         @can('tasks.delete')
                                             <li><hr class="dropdown-divider"></li>
                                             <li>
-                                                <form action="{{ route('tasks.destroy', $task) }}" method="POST" onsubmit="return confirm('Delete task {{ $task->task_code }}: {{ $task->title }}?');">
+                                                <form action="{{ route('tasks.destroy', $task) }}" method="POST" onsubmit="return confirm('Permanently delete this task and all associated data? This cannot be undone.');">
                                                     @csrf
                                                     @method('DELETE')
                                                     <button type="submit" class="dropdown-item py-2 text-danger">

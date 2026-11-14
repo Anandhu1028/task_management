@@ -1,696 +1,564 @@
 (() => {
-    const STATUS_LABELS = {
-        pending: 'Pending',
-        in_progress: 'In progress',
-        completed: 'Completed',
-        cancelled: 'Cancelled',
-    };
+    'use strict';
+
+    const DEFAULT_DAY_WIDTH = 60;
     const MIN_DAY_WIDTH = 18;
     const MAX_DAY_WIDTH = 72;
-    const DEFAULT_DAY_WIDTH = 64;
-    const LEFT_COLUMN_WIDTH = 230;
+    const ZOOM_STEP = 6;
+    const DEFAULT_RANGE_DAYS = 14;
+    const EVENT_BADGE_WIDTH = 170;
+    const ROW_HEIGHT = 56;
+    const EVENT_LANE_HEIGHT = 24;
+    const STATUS_LABELS = {
+        completed: 'Completed',
+        in_progress: 'In Progress',
+        pending: 'Pending',
+    };
 
-    document.querySelectorAll('[data-milestone-timeline]').forEach((root) => {
-        const source = [...root.querySelectorAll('[data-timeline-phase]')];
-        const phases = source.map((element) => ({
-            id: element.dataset.phaseId,
-            name: element.dataset.phaseName || '',
-            description: element.dataset.phaseDescription || '',
-            startDate: parseDate(element.dataset.phaseStartDate),
-            endDate: parseDate(element.dataset.phaseEndDate),
-            createdDate: parseDate(element.dataset.phaseCreatedDate),
-            activityActor: element.dataset.phaseActivityActor || element.dataset.phaseCreator || 'Unknown user',
-            activityText: element.dataset.phaseActivityText || 'created the milestone',
-            activityAt: element.dataset.phaseActivityAt || '',
-            completedAt: parseDate(element.dataset.phaseCompletedAt),
-            isMilestone: element.dataset.phaseIsMilestone === 'true',
-            status: element.dataset.phaseStatus,
-            progressPercentage: Number(element.dataset.phaseProgress) || 0,
-            activityEvents: JSON.parse(element.dataset.phaseActivityEvents || '[]')
-                .map((activity) => ({ ...activity, date: parseDate(activity.date) }))
-                .filter((activity) => activity.date),
-            activityExpanded: true,
-            updateUrl: element.dataset.phaseUpdateUrl,
-            canUpdate: element.dataset.phaseCanUpdate === 'true',
-        }));
+    document.querySelectorAll('[data-milestone-timeline]').forEach(initializeTimeline);
 
-        initializeTimeline(root, { phases, onUpdate: updatePhase });
-    });
-
-    function initializeTimeline(root, { phases, onUpdate }) {
-        const error = root.querySelector('[data-timeline-error]');
-        const addPhaseButton = root.querySelector('[data-timeline-add-phase]');
-        const createPhaseForm = root.querySelector('.milestone-timeline__create-form');
-
-        addPhaseButton?.addEventListener('click', () => {
-            createPhaseForm.hidden = false;
-            addPhaseButton.setAttribute('aria-expanded', 'true');
-            createPhaseForm.querySelector('input[name="title"]')?.focus();
-        });
-
-        if (phases.length === 0) {
-            return;
-        }
-
-        if (phases.some((phase) => !phase.startDate || !phase.endDate || !STATUS_LABELS[phase.status])) {
-            showError(error, 'A phase has an unsupported date or status, so the timeline could not be displayed.');
-            return;
-        }
-
-        const today = startOfDay(new Date());
-        const allDates = phases.flatMap((phase) => [
-            phase.startDate,
-            phase.endDate,
-            ...phase.activityEvents.map((activity) => activity.date),
-        ]);
-        const earliestDate = new Date(Math.min(...allDates.map((date) => date.getTime())));
-        const latestDate = new Date(Math.max(...allDates.map((date) => date.getTime())));
-        const rangeStart = addDays(earliestDate, -3);
-        const rangeEnd = addDays(latestDate, 14);
-        const days = datesBetween(rangeStart, rangeEnd);
-        const todayIndex = days.findIndex((date) => sameDay(date, today));
-        const content = root.querySelector('[data-timeline-content]');
+    function initializeTimeline(root) {
         const scroll = root.querySelector('[data-timeline-scroll]');
-        const zoomLabel = root.querySelector('[data-timeline-zoom-label]');
-        const editorLayer = document.createElement('div');
-        editorLayer.className = 'milestone-timeline__editor-layer';
-        root.append(editorLayer);
-        const editFormOrigins = new WeakMap();
-        let dayWidth = DEFAULT_DAY_WIDTH;
+        const content = root.querySelector('[data-timeline-content]');
+        const loading = root.querySelector('[data-timeline-loading]');
+        const empty = root.querySelector('[data-timeline-empty]');
+        const error = root.querySelector('[data-timeline-error]');
+        const addButton = root.querySelector('[data-timeline-add-phase]');
+        const createForm = root.querySelector('[data-timeline-create-form]');
+        const todayKey = root.dataset.timelineToday;
 
-        const positionEditForm = (form) => {
-            const viewport = scroll.getBoundingClientRect();
-            const rootRect = root.getBoundingClientRect();
-            const width = Math.min(270, Math.max(180, viewport.width - 16));
+        if (!scroll || !content || !loading || !empty || !error || !todayKey) {
+            throw new Error('The project timeline is missing required markup or date configuration.');
+        }
 
-            form.style.width = `${width}px`;
-            form.style.left = `${viewport.left + 8 - rootRect.left}px`;
-            form.style.top = `${viewport.top + 60 - rootRect.top}px`;
+        const today = parseDateKey(todayKey);
+        const state = {
+            milestones: [],
+            summary: { completed_count: 0, total_count: 0, progress_percent: 0 },
+            dayWidth: DEFAULT_DAY_WIDTH,
+            expandedMilestones: new Set(),
         };
 
-        const positionPopovers = () => {
-            const viewport = scroll.getBoundingClientRect();
-            const minimumLeft = viewport.left + 8;
-            const popovers = content.querySelectorAll('.milestone-timeline__phase-popover');
-
-            popovers.forEach((popover) => {
-                const bar = popover.parentElement;
-                const barRect = bar.getBoundingClientRect();
-                const popoverWidth = Math.min(248, Math.max(160, viewport.width - 16));
-                const maximumLeft = viewport.right - popoverWidth - 8;
-                const left = Math.max(minimumLeft, Math.min(barRect.left, maximumLeft));
-                const originalDisplay = popover.style.display;
-
-                popover.style.width = `${popoverWidth}px`;
-                popover.style.left = `${left - barRect.left}px`;
-                popover.style.display = 'grid';
-                const popoverHeight = popover.getBoundingClientRect().height;
-                const preferredTop = viewport.top + 60;
-                const maximumTop = Math.max(viewport.top + 8, viewport.bottom - popoverHeight - 8);
-                const top = Math.min(preferredTop, maximumTop);
-
-                popover.style.top = `${top - barRect.top}px`;
-                popover.style.display = originalDisplay;
-            });
-
-            const activityTooltips = content.querySelectorAll('.milestone-timeline__activity-tooltip');
-            activityTooltips.forEach((tooltip) => {
-                const badge = tooltip.parentElement;
-                const badgeRect = badge.getBoundingClientRect();
-                const tooltipWidth = Math.min(220, Math.max(160, viewport.width - 16));
-                const maximumLeft = viewport.right - tooltipWidth - 8;
-                const left = Math.max(minimumLeft, Math.min(badgeRect.left, maximumLeft));
-                const originalDisplay = tooltip.style.display;
-                const originalVisibility = tooltip.style.visibility;
-
-                tooltip.style.width = `${tooltipWidth}px`;
-                tooltip.style.left = `${left - badgeRect.left}px`;
-                tooltip.style.visibility = 'hidden';
-                tooltip.style.display = 'grid';
-                const tooltipHeight = tooltip.getBoundingClientRect().height;
-                const belowTop = badgeRect.bottom;
-                const top = belowTop + tooltipHeight <= viewport.bottom - 8
-                    ? belowTop
-                    : Math.max(viewport.top + 8, badgeRect.top - tooltipHeight);
-
-                tooltip.style.top = `${top - badgeRect.top}px`;
-                tooltip.style.display = originalDisplay;
-                tooltip.style.visibility = originalVisibility;
-            });
-
-            const editForm = editorLayer.querySelector('[data-phase-edit-form]:not([hidden])');
-            if (editForm instanceof HTMLFormElement) {
-                positionEditForm(editForm);
-            }
-        };
-
-        scroll.addEventListener('scroll', positionPopovers, { passive: true });
-        window.addEventListener('resize', positionPopovers);
-        root.addEventListener('pointerover', (event) => {
-            if (event.target instanceof Element && event.target.closest('.milestone-timeline__item')) {
-                positionPopovers();
-            }
-        });
-        root.addEventListener('focusin', (event) => {
-            if (event.target instanceof Element && event.target.closest('.milestone-timeline__item')) {
-                positionPopovers();
-            }
-        });
-
-        const render = () => {
-            const openForm = editorLayer.querySelector('[data-phase-edit-form]:not([hidden])');
-            if (openForm instanceof HTMLFormElement) {
-                closeEditForm(openForm, false);
-            }
-
-            const previousScrollLeft = scroll.scrollLeft;
-            const previousScrollTop = scroll.scrollTop;
-            const gridWidth = days.length * dayWidth;
-            const style = `--timeline-days:${days.length};--timeline-day-width:${dayWidth}px;--timeline-track-width:${gridWidth}px`;
-            const dateHeaders = days.map((date) => {
-                const isToday = sameDay(date, today);
-                const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
-                const dateLabel = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
-
-                return `<span class="milestone-timeline__day${isWeekend(date) ? ' is-weekend' : ''}${isToday ? ' is-today' : ''}" style="width:${dayWidth}px"><span class="milestone-timeline__day-date">${escapeHtml(dateLabel)}</span><span class="milestone-timeline__weekday">${escapeHtml(weekday)}</span></span>`;
-            }).join('');
-            const rows = phases.map((phase) => renderPhaseRow(phase, days, dayWidth, today)).join('');
-            const todayLine = todayIndex < 0
-                ? ''
-                : `<span class="milestone-timeline__today-line" style="left:${LEFT_COLUMN_WIDTH + (todayIndex * dayWidth) + dayWidth / 2}px" aria-hidden="true"></span>`;
-
-            content.innerHTML = `
-                <div class="milestone-timeline__grid" style="${style}">
-                    <div class="milestone-timeline__calendar">
-                        <div class="milestone-timeline__corner">Phase / Milestone</div>
-                        <div class="milestone-timeline__date-head">
-                            <div class="milestone-timeline__days">${dateHeaders}</div>
-                        </div>
-                    </div>
-                    <div class="milestone-timeline__body">
-                        ${todayLine}
-                        ${rows}
-                    </div>
-                </div>`;
-            scroll.scrollLeft = previousScrollLeft;
-            scroll.scrollTop = previousScrollTop;
-            positionPopovers();
-            zoomLabel.textContent = `${Math.round((dayWidth / DEFAULT_DAY_WIDTH) * 100)}%`;
-            updateProgress(root, phases);
-        };
-
-        const closeEditForm = (form, restoreFocus = true) => {
-            const origin = editFormOrigins.get(form);
-            if (origin) {
-                origin.placeholder.parentNode?.insertBefore(form, origin.placeholder);
-                origin.placeholder.remove();
-                editFormOrigins.delete(form);
-            }
-
-            form.hidden = true;
-            const phaseName = origin?.phaseName ?? form.closest('.milestone-timeline__phase-name');
-            phaseName?.classList.remove('is-editing');
-            const editButton = origin?.editButton ?? phaseName?.querySelector('[data-phase-edit]');
-            editButton?.setAttribute('aria-expanded', 'false');
-            if (restoreFocus) {
-                editButton?.focus();
-            }
-        };
-
-        root.addEventListener('click', async (event) => {
-            const target = event.target instanceof Element ? event.target : null;
-            const activityToggle = target?.closest('[data-phase-activity-toggle]');
-            if (activityToggle) {
-                const phase = phases.find((item) => item.id === activityToggle.dataset.phaseActivityToggle);
-                if (!phase) {
-                    return;
-                }
-
-                phase.activityExpanded = !phase.activityExpanded;
-                render();
-                root.querySelectorAll('[data-phase-activity-toggle]').forEach((toggle) => {
-                    if (toggle.dataset.phaseActivityToggle === phase.id) {
-                        toggle.focus();
-                    }
-                });
-                return;
-            }
-
-            const editButton = target?.closest('[data-phase-edit]');
-            if (editButton) {
-                const phaseName = editButton.closest('.milestone-timeline__phase-name');
-                const form = phaseName?.querySelector('[data-phase-edit-form]');
-                if (!(form instanceof HTMLFormElement)) {
-                    return;
-                }
-
-                const openForm = editorLayer.querySelector('[data-phase-edit-form]:not([hidden])');
-                if (openForm instanceof HTMLFormElement) {
-                    closeEditForm(openForm, false);
-                }
-
-                const placeholder = document.createComment('');
-                phaseName.insertBefore(placeholder, form);
-                editFormOrigins.set(form, { placeholder, phaseName, editButton });
-                editorLayer.append(form);
-                form.hidden = false;
-                phaseName.classList.add('is-editing');
-                editButton.setAttribute('aria-expanded', 'true');
-                positionEditForm(form);
-                const titleInput = form.querySelector('input[name="title"]');
-                titleInput?.focus();
-                titleInput?.select();
-                return;
-            }
-
-            const cancelButton = target?.closest('[data-phase-edit-cancel]');
-            if (cancelButton) {
-                const form = cancelButton.closest('[data-phase-edit-form]');
-                if (form instanceof HTMLFormElement) {
-                    closeEditForm(form);
-                }
-                return;
-            }
-
-            if (target?.closest('.milestone-timeline__phase-note')) {
-                return;
-            }
-
-            const button = target?.closest('[data-timeline-toggle]');
-            if (!button
-                || button.disabled
-                || button.getAttribute('aria-disabled') === 'true'
-                || target?.closest('.milestone-timeline__phase-popover')) {
-                return;
-            }
-
-            const phase = phases.find((item) => item.id === button.dataset.timelineToggle);
-            if (!phase) {
-                return;
-            }
-
-            const nextStatus = phase.status === 'completed' ? 'pending' : 'completed';
-            button.disabled = true;
-            error.hidden = true;
-
-            try {
-                await onUpdate(phase, { status: nextStatus });
-                render();
-            } catch (requestError) {
-                showError(error, requestError instanceof Error
-                    ? requestError.message
-                    : 'Could not update this phase. Try again.');
-                button.disabled = false;
-            }
-        });
-
-        root.addEventListener('submit', async (event) => {
-            const form = event.target;
-            if (!(form instanceof HTMLFormElement) || !form.matches('[data-phase-edit-form]')) {
-                return;
-            }
-
-            event.preventDefault();
-            const phase = phases.find((item) => item.id === form.dataset.phaseEditForm);
-            if (!phase) {
-                return;
-            }
-
-            const titleInput = form.querySelector('input[name="title"]');
-            const descriptionInput = form.querySelector('textarea[name="description"]');
-            const statusInput = form.querySelector('select[name="status"]');
-            if (!(titleInput instanceof HTMLInputElement)
-                || !(descriptionInput instanceof HTMLTextAreaElement)
-                || !(statusInput instanceof HTMLSelectElement)) {
-                return;
-            }
-
-            const title = titleInput.value.trim();
-            if (!title) {
-                titleInput.setCustomValidity('Enter a phase name.');
-                titleInput.reportValidity();
-                return;
-            }
-            titleInput.setCustomValidity('');
-
-            const saveButton = form.querySelector('[type="submit"]');
-            if (saveButton instanceof HTMLButtonElement) {
-                saveButton.disabled = true;
-            }
-            error.hidden = true;
-
-            try {
-                await onUpdate(phase, {
-                    title,
-                    description: descriptionInput.value.trim() || null,
-                    status: statusInput.value,
-                });
-                closeEditForm(form, false);
-                render();
-                root.querySelectorAll('[data-phase-edit]').forEach((button) => {
-                    if (button.dataset.phaseEdit === phase.id) {
-                        button.focus();
-                    }
-                });
-            } catch (requestError) {
-                showError(error, requestError instanceof Error
-                    ? requestError.message
-                    : 'Could not update this phase. Try again.');
-                if (saveButton instanceof HTMLButtonElement) {
-                    saveButton.disabled = false;
-                }
-            }
-        });
-
-        root.addEventListener('keydown', (event) => {
-            if (event.key !== 'Escape') {
-                return;
-            }
-
-            const form = root.querySelector('[data-phase-edit-form]:not([hidden])');
-            if (form instanceof HTMLFormElement) {
-                event.preventDefault();
-                closeEditForm(form);
-            }
-        });
-
-        root.querySelector('[data-timeline-today]')?.addEventListener('click', () => {
-            if (todayIndex >= 0) {
-                scroll.scrollLeft = Math.max(
-                    0,
-                    LEFT_COLUMN_WIDTH + (todayIndex * dayWidth) - (scroll.clientWidth / 2),
-                );
-            }
+        root.querySelector('[data-timeline-zoom-label]').textContent = '100%';
+        root.querySelector('[data-timeline-zoom-out]').addEventListener('click', () => changeZoom(-ZOOM_STEP));
+        root.querySelector('[data-timeline-zoom-in]').addEventListener('click', () => changeZoom(ZOOM_STEP));
+        root.querySelector('[data-timeline-today]').addEventListener('click', () => {
+            scroll.scrollLeft = 0;
             scroll.scrollTop = 0;
         });
 
-        root.querySelector('[data-timeline-zoom-out]')?.addEventListener('click', () => {
-            dayWidth = Math.max(MIN_DAY_WIDTH, dayWidth - 6);
-            render();
+        if (addButton && createForm) {
+            addButton.addEventListener('click', () => {
+                createForm.hidden = !createForm.hidden;
+                addButton.setAttribute('aria-expanded', String(!createForm.hidden));
+                if (!createForm.hidden) {
+                    createForm.querySelector('input[name="title"]')?.focus();
+                }
+            });
+        }
+
+        content.addEventListener('pointerover', (event) => {
+            const badge = event.target.closest('.milestone-timeline__event-badge');
+            if (badge && !badge.contains(event.relatedTarget)) {
+                positionActivityTooltip(badge);
+            }
         });
-        root.querySelector('[data-timeline-zoom-in]')?.addEventListener('click', () => {
-            dayWidth = Math.min(MAX_DAY_WIDTH, dayWidth + 6);
-            render();
+        content.addEventListener('focusin', (event) => {
+            const badge = event.target.closest('.milestone-timeline__event-badge');
+            if (badge) {
+                positionActivityTooltip(badge);
+            }
         });
 
-        render();
+        content.addEventListener('click', async (event) => {
+            const activitiesToggle = event.target.closest('[data-timeline-activities-toggle]');
+            if (activitiesToggle) {
+                const milestoneId = activitiesToggle.dataset.timelineActivitiesToggle;
+                if (state.expandedMilestones.has(milestoneId)) {
+                    state.expandedMilestones.delete(milestoneId);
+                } else {
+                    state.expandedMilestones.add(milestoneId);
+                }
+
+                const scrollLeft = scroll.scrollLeft;
+                const scrollTop = scroll.scrollTop;
+                renderTimeline();
+                scroll.scrollLeft = scrollLeft;
+                scroll.scrollTop = scrollTop;
+                [...content.querySelectorAll('[data-timeline-activities-toggle]')]
+                    .find((button) => button.dataset.timelineActivitiesToggle === milestoneId)
+                    ?.focus();
+                return;
+            }
+
+            const button = event.target.closest('[data-timeline-toggle]');
+            if (!button || button.disabled) {
+                return;
+            }
+
+            const milestone = state.milestones.find((item) => String(item.id) === button.dataset.timelineToggle);
+            if (!milestone) {
+                showError(new Error('The selected milestone is no longer available. Reload the page and try again.'));
+                return;
+            }
+
+            const nextStatus = milestone.status === 'completed' ? 'pending' : 'completed';
+            button.disabled = true;
+            clearError();
+
+            try {
+                const url = root.dataset.updateUrlTemplate?.replace('__MILESTONE__', encodeURIComponent(milestone.id));
+                if (!url || url.includes('__MILESTONE__')) {
+                    throw new Error('The milestone update URL is not configured.');
+                }
+
+                await requestJson(url, {
+                    method: 'PATCH',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    body: JSON.stringify({ status: nextStatus }),
+                });
+                await loadTimeline();
+            } catch (requestError) {
+                button.disabled = false;
+                showError(requestError);
+            }
+        });
+
+        function positionActivityTooltip(badge) {
+            const badgeRect = badge.getBoundingClientRect();
+            const tooltip = badge.querySelector('.milestone-timeline__event-tooltip');
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const tooltipWidth = Math.min(230, window.innerWidth - 32);
+            const tooltipHeight = Math.min(tooltipRect.height || 100, window.innerHeight - 24);
+            const margin = 12;
+            const left = Math.max(margin, Math.min(badgeRect.left, window.innerWidth - tooltipWidth - margin));
+            const belowBadge = badgeRect.bottom + 6;
+            const top = belowBadge + tooltipHeight <= window.innerHeight - margin
+                ? belowBadge
+                : Math.max(margin, badgeRect.top - tooltipHeight - 6);
+
+            badge.style.setProperty('--timeline-tooltip-left', `${left}px`);
+            badge.style.setProperty('--timeline-tooltip-top', `${top}px`);
+        }
+
+        function changeZoom(delta) {
+            state.dayWidth = Math.min(MAX_DAY_WIDTH, Math.max(MIN_DAY_WIDTH, state.dayWidth + delta));
+            const percentage = Math.round((state.dayWidth / DEFAULT_DAY_WIDTH) * 100);
+            root.querySelector('[data-timeline-zoom-label]').textContent = `${percentage}%`;
+            renderTimeline();
+        }
+
+        async function loadTimeline() {
+            loading.hidden = false;
+            empty.hidden = true;
+            scroll.hidden = true;
+            clearError();
+
+            try {
+                const payload = await requestJson(root.dataset.timelineUrl, {
+                    headers: { Accept: 'application/json' },
+                });
+                validatePayload(payload);
+                state.milestones = payload.milestones;
+                state.summary = payload.summary;
+
+                loading.hidden = true;
+                updateSummary();
+                if (state.milestones.length === 0) {
+                    empty.hidden = false;
+                    return;
+                }
+
+                renderTimeline();
+                scroll.hidden = false;
+            } catch (requestError) {
+                loading.hidden = true;
+                showError(requestError);
+            }
+        }
+
+        function validatePayload(payload) {
+            if (!payload || !Array.isArray(payload.milestones) || !payload.summary) {
+                throw new Error('The project timeline response is incomplete.');
+            }
+
+            const { completed_count: completed, total_count: total, progress_percent: progress } = payload.summary;
+            if (!Number.isInteger(completed) || !Number.isInteger(total) || !Number.isInteger(progress)
+                || total !== payload.milestones.length || completed < 0 || completed > total
+                || progress < 0 || progress > 100) {
+                throw new Error('The project timeline summary does not match its milestone data.');
+            }
+
+            payload.milestones.forEach((milestone) => {
+                if (!milestone || !STATUS_LABELS[milestone.status] || !Array.isArray(milestone.activities)
+                    || typeof milestone.title !== 'string' || !isDateKey(milestone.milestone_date)) {
+                    throw new Error('The project timeline contains an invalid milestone.');
+                }
+
+                milestone.activities.forEach((activity) => {
+                    if (!activity || typeof activity.label !== 'string'
+                        || (activity.actor_name !== null && typeof activity.actor_name !== 'string')
+                        || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(activity.created_at)) {
+                        throw new Error('The project timeline contains an invalid activity.');
+                    }
+                });
+            });
+        }
+
+        function renderTimeline() {
+            const days = buildDays(state.milestones, todayKey, state.dayWidth);
+            const trackWidth = days.length * state.dayWidth;
+            const rootId = `milestone-timeline-${root.dataset.timelineUrl.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            const rows = state.milestones.map((milestone) => renderMilestoneRow(
+                milestone,
+                days,
+                state.dayWidth,
+                rootId,
+                state.expandedMilestones,
+            )).join('');
+            const todayOffset = state.dayWidth / 2;
+
+            content.innerHTML = `
+                <div
+                    class="milestone-timeline__grid"
+                    style="--timeline-left-width:230px;--timeline-track-width:${trackWidth}px;--timeline-days:${days.length};--timeline-day-width:${state.dayWidth}px"
+                >
+                    <div class="milestone-timeline__calendar">
+                        <div class="milestone-timeline__corner">Phase / Milestone</div>
+                        <div class="milestone-timeline__date-head">
+                            ${renderMonthHeaders(days, state.dayWidth)}
+                            <div class="milestone-timeline__days">${days.map((day) => renderDayHeader(day, state.dayWidth)).join('')}</div>
+                        </div>
+                    </div>
+                    <div class="milestone-timeline__body">
+                        ${rows}
+                        <span class="milestone-timeline__today-line" style="left:calc(230px + ${todayOffset}px)" aria-hidden="true"></span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateSummary() {
+            const { completed_count: completed, total_count: total, progress_percent: progress } = state.summary;
+            root.querySelector('[data-timeline-summary]').textContent = `${completed} of ${total} completed`;
+            root.querySelector('[data-timeline-footer-count]').textContent = `${completed} of ${total} phases complete`;
+            root.querySelector('[data-timeline-footer-progress]').textContent = `${progress}% progress`;
+            const progressbar = root.querySelector('[data-timeline-progress]');
+            progressbar.setAttribute('aria-valuenow', String(progress));
+            root.querySelector('[data-timeline-progress-fill]').style.width = `${progress}%`;
+        }
+
+        function showError(requestError) {
+            error.textContent = requestError instanceof Error
+                ? requestError.message
+                : 'The project timeline could not be loaded.';
+            error.hidden = false;
+        }
+
+        function clearError() {
+            error.textContent = '';
+            error.hidden = true;
+        }
+
+        async function requestJson(url, options) {
+            if (!url) {
+                throw new Error('The project timeline URL is not configured.');
+            }
+
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                ...options,
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+                const validationErrors = payload?.errors
+                    ? Object.values(payload.errors).flat().join(' ')
+                    : '';
+                throw new Error(payload?.message || validationErrors || `The request failed (${response.status}).`);
+            }
+
+            return payload;
+        }
+
+        loadTimeline();
     }
 
-    function renderPhaseRow(phase, days, dayWidth, today) {
-        const startIndex = dayIndex(days, phase.startDate);
-        const endIndex = dayIndex(days, phase.endDate);
-        const isOverdue = phase.status !== 'completed' && phase.endDate < today;
-        const visualStatus = phase.status === 'completed'
-            ? 'completed'
-            : isOverdue
-                ? 'overdue'
-                : phase.status === 'in_progress'
-                    ? 'in-progress'
-                    : 'pending';
-        const statusLabel = STATUS_LABELS[phase.status];
-        const statusDescription = isOverdue ? `${statusLabel}; Overdue` : statusLabel;
-        const progress = phase.status === 'completed'
-            ? 100
-            : Math.min(100, Math.max(0, Math.round(phase.progressPercentage)));
-        const markerDate = phase.endDate;
-        const createdDate = phase.createdDate || phase.startDate;
-        const description = phase.description.trim() || 'No description provided.';
-        const activityDescription = phase.activityEvents.length > 0
-            ? phase.activityEvents.map((activity) => (
-                `${activity.label} by ${activity.actor} on ${formatDate(activity.date)}`
-            )).join('; ')
-            : `${phase.activityActor} ${phase.activityText}`;
-        const detailText = [
-            `Phase name: ${phase.name}`,
-            `Status: ${statusDescription}`,
-            `Description: ${description}`,
-            `Created date: ${formatDate(createdDate)}`,
-            `Target date: ${formatDate(phase.endDate)}`,
-            `Activity: ${activityDescription}${phase.activityAt ? ` on ${phase.activityAt}` : ''}`,
-        ].join('. ');
-        const popoverId = `milestone-details-${phase.id}`;
-        const popover = `
-            <span id="${escapeHtml(popoverId)}" class="milestone-timeline__phase-popover" role="tooltip">
-                <span class="milestone-timeline__phase-popover-heading">
-                    <span class="milestone-timeline__phase-popover-field">
-                        <span class="milestone-timeline__phase-popover-label">Phase name</span>
-                        <strong>${escapeHtml(phase.name)}</strong>
-                    </span>
-                    <span class="milestone-timeline__phase-popover-status">
-                        <span class="milestone-timeline__phase-popover-label">Status</span>
-                        <strong>${escapeHtml(statusDescription)}</strong>
-                    </span>
-                </span>
-                <span class="milestone-timeline__phase-popover-description">
-                    <span class="milestone-timeline__phase-popover-label">Description</span>
-                    <span>${escapeHtml(description)}</span>
-                </span>
-                <span class="milestone-timeline__phase-popover-dates">
-                    <span>
-                        <span class="milestone-timeline__phase-popover-label">Created</span>
-                        <strong>${escapeHtml(formatDate(createdDate))}</strong>
-                    </span>
-                    <span>
-                        <span class="milestone-timeline__phase-popover-label">Target</span>
-                        <strong>${escapeHtml(formatDate(phase.endDate))}</strong>
-                    </span>
-                </span>
-                <span class="milestone-timeline__phase-popover-activity">
-                    <span class="milestone-timeline__phase-popover-label">Activity</span>
-                    <span><strong>${escapeHtml(phase.activityActor)}</strong> ${escapeHtml(phase.activityText)}</span>
-                    ${phase.activityAt ? `<small>${escapeHtml(phase.activityAt)}</small>` : ''}
-                </span>
-            </span>`;
-        const leftIndex = Math.min(startIndex, endIndex);
-        const left = leftIndex * dayWidth;
-        const spanDays = Math.max(1, Math.abs(endIndex - startIndex) + 1);
-        const startOffset = (startIndex - leftIndex) * dayWidth;
-        const deadlineOffset = ((endIndex - leftIndex) * dayWidth) + (dayWidth / 2);
-        const pathStart = startOffset + 6;
-        const pathWidth = Math.max(12, deadlineOffset - pathStart);
-        const targetOffset = Math.max(0, deadlineOffset - pathStart);
-        const badgeWidth = 180;
-        const itemWidth = Math.max(spanDays * dayWidth, startOffset + badgeWidth);
-        const eventLanes = [];
-        const activityEvents = phase.activityEvents.length > 0
-            ? phase.activityEvents
-            : [{
-                type: 'milestone_created',
-                status: '',
-                label: 'Milestone created',
-                date: createdDate,
-                actor: phase.activityActor,
-            }];
-        const visibleActivityEvents = phase.activityExpanded
-            ? activityEvents
-            : activityEvents.slice(0, 1);
-        const eventBadges = visibleActivityEvents.map((activity, activityIndex) => {
-            const eventIndex = dayIndex(days, activity.date);
-            if (eventIndex < 0) {
-                return '';
+    function buildDays(milestones, todayKey, dayWidth) {
+        let lastDateKey = addDaysToKey(todayKey, DEFAULT_RANGE_DAYS);
+        milestones.forEach((milestone) => {
+            if (milestone.milestone_date > lastDateKey) {
+                lastDateKey = milestone.milestone_date;
             }
-
-            const badgeVariant = activity.type === 'milestone_created'
-                ? 'created'
-                : activity.type === 'milestone_updated'
-                    ? 'updated'
-                    : `status-${activity.status || 'pending'}`;
-            const eventOffset = ((eventIndex - leftIndex) * dayWidth) + 6 - pathStart;
-            const estimatedBadgeWidth = Math.min(180, (activity.label.length * 5) + 16);
-            let laneIndex = eventLanes.findIndex((lane) => lane.every((badge) => (
-                eventOffset >= badge.right + 8
-                || eventOffset + estimatedBadgeWidth + 8 <= badge.left
-            )));
-            if (laneIndex < 0) {
-                laneIndex = eventLanes.length;
-                eventLanes.push([]);
-            }
-            eventLanes[laneIndex].push({
-                left: eventOffset,
-                right: eventOffset + estimatedBadgeWidth,
+            milestone.activities.forEach((activity) => {
+                const activityDate = activity.created_at.slice(0, 10);
+                if (activityDate >= todayKey && activityDate > lastDateKey) {
+                    lastDateKey = activityDate;
+                }
             });
-            const badgeTop = 14 + (laneIndex * 24);
-            const tooltipId = `milestone-activity-${phase.id}-${activity.id ?? activityIndex}`;
-            const statusDetails = activity.type !== 'milestone_updated' && activity.status_label
-                ? `<span class="milestone-timeline__activity-tooltip-row"><strong>Status</strong><span>${escapeHtml(activity.old_status_label ? `${activity.old_status_label} → ` : '')}${escapeHtml(activity.status_label)}</span></span>`
-                : '';
-            const remarks = activity.remarks
-                ? `<span class="milestone-timeline__activity-tooltip-remarks">${escapeHtml(activity.remarks)}</span>`
-                : '';
-            const tooltip = `<span id="${escapeHtml(tooltipId)}" class="milestone-timeline__activity-tooltip" role="tooltip"><strong>${escapeHtml(activity.label)}</strong><span class="milestone-timeline__activity-tooltip-row"><strong>By</strong><span>${escapeHtml(activity.actor || 'Unknown user')}</span></span><span class="milestone-timeline__activity-tooltip-row"><strong>Date</strong><span>${escapeHtml(formatDate(activity.date))}${activity.time ? ` · ${escapeHtml(activity.time)}` : ''}</span></span>${statusDetails}${remarks}</span>`;
+        });
 
-            return `<span class="milestone-timeline__phase-note" style="left:${eventOffset}px;top:${badgeTop}px" aria-hidden="true"><span class="milestone-timeline__phase-note-label milestone-timeline__phase-note-label--${escapeHtml(badgeVariant)}">${escapeHtml(activity.label)}</span>${tooltip}</span>`;
+        const days = [];
+        for (let dateKey = todayKey; dateKey <= lastDateKey; dateKey = addDaysToKey(dateKey, 1)) {
+            const date = parseDateKey(dateKey);
+            days.push({
+                dateKey,
+                date,
+                dayNumber: date.getDate(),
+                weekday: new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date),
+                month: new Intl.DateTimeFormat('en', { month: 'short', year: 'numeric' }).format(date),
+                isWeekend: date.getDay() === 0 || date.getDay() === 6,
+                isToday: dateKey === todayKey,
+                width: dayWidth,
+            });
+        }
+
+        return days;
+    }
+
+    function renderMonthHeaders(days, dayWidth) {
+        const groups = [];
+        days.forEach((day) => {
+            const lastGroup = groups[groups.length - 1];
+            if (lastGroup && lastGroup.label === day.month) {
+                lastGroup.count += 1;
+            } else {
+                groups.push({ label: day.month, count: 1 });
+            }
+        });
+
+        return `
+            <div class="milestone-timeline__months" style="width:${days.length * dayWidth}px">
+                ${groups.map((group) => `<span style="width:${group.count * dayWidth}px">${escapeHtml(group.label)}</span>`).join('')}
+            </div>
+        `;
+    }
+
+    function renderDayHeader(day, dayWidth) {
+        const classes = [
+            'milestone-timeline__day',
+            day.isWeekend ? 'is-weekend' : '',
+            day.isToday ? 'is-today' : '',
+        ].filter(Boolean).join(' ');
+        const number = day.isToday
+            ? `<span class="milestone-timeline__day-pill">${day.dayNumber}</span>`
+            : `<span class="milestone-timeline__day-number">${day.dayNumber}</span>`;
+
+        return `
+            <div class="${classes}" style="width:${dayWidth}px" aria-label="${escapeHtml(formatLongDate(day.date))}">
+                ${number}
+                <span class="milestone-timeline__weekday">${escapeHtml(day.weekday)}</span>
+            </div>
+        `;
+    }
+
+    function renderMilestoneRow(milestone, days, dayWidth, rootId, expandedMilestones) {
+        const placements = placeActivities(milestone.activities, days, dayWidth);
+        const milestoneId = String(milestone.id);
+        const isExpanded = expandedMilestones.has(milestoneId);
+        const visiblePlacements = isExpanded ? placements.items : placements.items.slice(0, 1);
+        const visibleLaneCount = isExpanded ? placements.laneCount : Math.min(1, placements.laneCount);
+        const rowHeight = Math.max(ROW_HEIGHT, 16 + visibleLaneCount * EVENT_LANE_HEIGHT);
+        const status = milestone.status;
+        const statusLabel = STATUS_LABELS[status];
+        const description = milestone.description || '';
+        const titleAttribute = description ? `${milestone.title}\n${description}` : milestone.title;
+        const statusIcon = renderStatusIcon(milestone, statusLabel);
+        const activityToggleLabel = isExpanded
+            ? `Show one activity badge for ${milestone.title}`
+            : `Show all ${placements.items.length} activity badges for ${milestone.title}`;
+        const activityToggle = placements.items.length > 1
+            ? `
+                <button
+                    type="button"
+                    class="milestone-timeline__activity-toggle"
+                    data-timeline-activities-toggle="${escapeHtml(milestoneId)}"
+                    aria-expanded="${String(isExpanded)}"
+                    aria-label="${escapeHtml(activityToggleLabel)}"
+                    title="${escapeHtml(activityToggleLabel)}"
+                ><i class="bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'}" aria-hidden="true"></i></button>
+            `
+            : '';
+        const trackId = `${rootId}-milestone-${milestoneId}`;
+        const cells = days.map((day) => {
+            const classes = [
+                'milestone-timeline__cell',
+                day.isWeekend ? 'is-weekend' : '',
+                day.isToday ? 'is-today' : '',
+            ].filter(Boolean).join(' ');
+            return `<div class="${classes}" aria-hidden="true"></div>`;
         }).join('');
-        const activityBadgesId = `milestone-activity-${phase.id}`;
-        const activityBadges = `<span id="${escapeHtml(activityBadgesId)}" class="milestone-timeline__activity-badges">${eventBadges}</span>`;
-        const rowHeight = Math.max(76, 62 + ((eventLanes.length - 1) * 24));
-        const isMilestone = phase.isMilestone || startIndex === endIndex;
-        const targetStatus = phase.status === 'completed' ? 'pending' : 'completed';
-        const canToggle = phase.canUpdate && phase.status !== 'cancelled';
-        const statusOptions = [
-            { value: 'pending', label: 'Pending' },
-            { value: 'completed', label: 'Completed' },
-            { value: 'cancelled', label: 'Cancel' },
-            ...(phase.status === 'in_progress' ? [{ value: 'in_progress', label: 'In progress' }] : []),
-        ];
-        const item = `<button type="button" class="milestone-timeline__item milestone-timeline__item--bar is-${visualStatus}${isMilestone ? ' is-milestone' : ''}" style="left:${left}px;width:${itemWidth}px" aria-label="${escapeHtml(`${detailText}. Activate to mark ${targetStatus === 'completed' ? 'complete' : 'pending'}.`)}" aria-describedby="${escapeHtml(popoverId)}" aria-disabled="${canToggle ? 'false' : 'true'}" aria-pressed="${phase.status === 'completed'}" data-timeline-toggle="${escapeHtml(phase.id)}"><span class="milestone-timeline__phase-bar" style="left:${pathStart}px;width:${pathWidth}px" aria-hidden="true"><span class="milestone-timeline__phase-bar-progress" style="width:${progress}%"></span>${phase.status === 'completed' ? '<i class="bi bi-check-lg milestone-timeline__phase-start-check"></i>' : ''}${activityBadges}${popover}<span class="milestone-timeline__phase-target" style="left:${targetOffset}px"><i class="bi bi-diamond-fill milestone-timeline__phase-marker"></i><time>(${escapeHtml(formatShortDate(markerDate))})</time></span></span></button>`;
-
-        const editForm = phase.canUpdate
-            ? `<form id="milestone-edit-${escapeHtml(phase.id)}" class="milestone-timeline__phase-edit" role="dialog" aria-modal="false" aria-label="Edit phase ${escapeHtml(phase.name)}" data-phase-edit-form="${escapeHtml(phase.id)}" hidden>
-                    <label>
-                        <span>Phase name</span>
-                        <input type="text" name="title" value="${escapeHtml(phase.name)}" maxlength="500" required>
-                    </label>
-                    <label>
-                        <span>Description</span>
-                        <textarea name="description" rows="2" maxlength="5000">${escapeHtml(phase.description)}</textarea>
-                    </label>
-                    <label>
-                        <span>Status</span>
-                        <select name="status"${phase.status === 'cancelled' ? ' disabled' : ''}>${statusOptions.map(({ value, label }) => `<option value="${value}"${phase.status === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select>
-                    </label>
-                    <div class="milestone-timeline__phase-edit-actions">
-                        <button type="button" data-phase-edit-cancel>Cancel</button>
-                        <button type="submit">Save</button>
-                    </div>
-                </form>`
-            : '';
-        const phaseTitle = phase.canUpdate
-            ? `<button type="button" class="milestone-timeline__phase-edit-trigger" data-phase-edit="${escapeHtml(phase.id)}" aria-haspopup="dialog" aria-expanded="false" aria-controls="milestone-edit-${escapeHtml(phase.id)}">${escapeHtml(phase.name)}</button>`
-            : `<strong>${escapeHtml(phase.name)}</strong>`;
-        const activityToggle = activityEvents.length > 1
-            ? `<button type="button" class="milestone-timeline__activity-toggle" data-phase-activity-toggle="${escapeHtml(phase.id)}" aria-expanded="${phase.activityExpanded ? 'true' : 'false'}" aria-controls="${escapeHtml(activityBadgesId)}" aria-label="${phase.activityExpanded ? 'Collapse' : 'Expand'} activity badges for ${escapeHtml(phase.name)}"><i class="bi bi-chevron-down" aria-hidden="true"></i></button>`
-            : '';
 
         return `
             <div class="milestone-timeline__row" style="--phase-row-height:${rowHeight}px">
-                <div class="milestone-timeline__phase-name" title="${escapeHtml(phase.name)}">
-                    <span class="milestone-timeline__phase-icon" aria-hidden="true"><i class="bi ${phase.status === 'completed' ? 'bi-check-circle-fill' : 'bi-diamond-fill'}"></i></span>
-                    <span class="milestone-timeline__phase-copy">
-                        ${phaseTitle}
-                        <span>${escapeHtml(formatShortDate(phase.startDate))} – ${escapeHtml(formatShortDate(phase.endDate))}</span>
-                    </span>
+                <div class="milestone-timeline__phase-name" aria-label="${escapeHtml(`${milestone.title}, ${statusLabel}`)}">
+                    ${statusIcon}
+                    <div class="milestone-timeline__phase-copy">
+                        <strong title="${escapeHtml(titleAttribute)}">${escapeHtml(milestone.title)}</strong>
+                        <span class="milestone-timeline__phase-status is-${status}">${escapeHtml(statusLabel)}</span>
+                    </div>
                     ${activityToggle}
-                    ${editForm}
                 </div>
-                <div class="milestone-timeline__track">
-                    ${renderDayCells(days, today)}
-                    ${item}
+                <div id="${escapeHtml(trackId)}" class="milestone-timeline__track" style="--timeline-track-width:${days.length * dayWidth}px;--timeline-days:${days.length};--timeline-day-width:${dayWidth}px;--phase-row-height:${rowHeight}px">
+                    ${cells}
+                    ${visiblePlacements.map((placement) => renderActivityBadge(
+                        milestone,
+                        placement,
+                        dayWidth,
+                        rootId,
+                    )).join('')}
                 </div>
-            </div>`;
+            </div>
+        `;
     }
 
-    function updateProgress(root, phases) {
-        const completed = phases.filter((phase) => phase.status === 'completed').length;
-        const total = phases.length;
-        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    function renderStatusIcon(milestone, statusLabel) {
+        const iconClass = milestone.status === 'completed'
+            ? 'bi-check-lg'
+            : milestone.status === 'in_progress'
+                ? 'bi-diamond-fill'
+                : 'bi-diamond';
+        const className = `milestone-timeline__status-icon is-${milestone.status}`;
+        const ariaLabel = `Status: ${statusLabel}. Click to mark ${milestone.status === 'completed' ? 'pending' : 'completed'}.`;
 
-        root.querySelector('[data-timeline-summary]').textContent = `${completed} of ${total} completed`;
-        root.querySelector('[data-timeline-footer-count]').textContent = `${completed} of ${total} phases complete`;
-        root.querySelector('[data-timeline-footer-progress]').textContent = `${percentage}% progress`;
-    }
-
-    async function updatePhase(phase, changes) {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-        if (!csrfToken) {
-            throw new Error('The security token is missing. Refresh the page and try again.');
+        if (milestone.can_update) {
+            return `
+                <button
+                    type="button"
+                    class="${className} is-toggle"
+                    data-timeline-toggle="${escapeHtml(String(milestone.id))}"
+                    aria-label="${escapeHtml(ariaLabel)}"
+                    title="${escapeHtml(ariaLabel)}"
+                ><i class="bi ${iconClass}" aria-hidden="true"></i><span class="visually-hidden">${statusLabel}</span></button>
+            `;
         }
 
-        const response = await fetch(phase.updateUrl, {
-            method: 'PATCH',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken,
-            },
-            body: JSON.stringify(changes),
-        });
+        return `<span class="${className}" role="img" aria-label="Status: ${escapeHtml(statusLabel)}" title="Status: ${escapeHtml(statusLabel)}"><i class="bi ${iconClass}" aria-hidden="true"></i></span>`;
+    }
 
-        if (!response.ok) {
-            throw new Error(`Could not update this phase (HTTP ${response.status}).`);
+    function placeActivities(activities, days, dayWidth) {
+        const todayKey = days[0]?.dateKey;
+        const dayIndexes = new Map(days.map((day, index) => [day.dateKey, index]));
+        const laneEnds = [];
+        const items = [...activities]
+            .filter((activity) => activity.created_at.slice(0, 10) >= todayKey)
+            .sort((first, second) => first.created_at.localeCompare(second.created_at) || first.id - second.id)
+            .flatMap((activity) => {
+                const dateKey = activity.created_at.slice(0, 10);
+                const dayIndex = dayIndexes.get(dateKey);
+                if (dayIndex === undefined) {
+                    return [];
+                }
+
+                const occupiedDays = Math.max(1, Math.ceil((EVENT_BADGE_WIDTH + 8) / dayWidth));
+                let laneIndex = laneEnds.findIndex((endIndex) => dayIndex >= endIndex);
+                if (laneIndex === -1) {
+                    laneIndex = laneEnds.length;
+                    laneEnds.push(dayIndex + occupiedDays);
+                } else {
+                    laneEnds[laneIndex] = dayIndex + occupiedDays;
+                }
+
+                return [{ activity, dayIndex, laneIndex }];
+            });
+
+        return { items, laneCount: laneEnds.length };
+    }
+
+    function renderActivityBadge(milestone, placement, dayWidth, rootId) {
+        const { activity, dayIndex, laneIndex } = placement;
+        const eventDate = activity.created_at.slice(0, 10);
+        const eventTime = formatEventTime(activity.created_at);
+        const dateLabel = formatLongDate(parseDateKey(eventDate));
+        const colorClass = activity.type === 'created'
+            ? 'is-created'
+            : activity.type === 'updated'
+                ? 'is-updated'
+                : `is-status-${activity.new_status || 'unknown'}`;
+        const tooltipId = `${rootId}-activity-${milestone.id}-${activity.id}`;
+        const badgeLabel = `${activity.label} on ${dateLabel} at ${eventTime}`;
+        const actor = `<span class="milestone-timeline__event-actor">By: ${escapeHtml(activity.actor_name || 'Unknown user')}</span>`;
+        const description = milestone.description
+            ? `<span class="milestone-timeline__event-description">${escapeHtml(milestone.description)}</span>`
+            : '';
+
+        return `
+            <span
+                class="milestone-timeline__event-badge ${colorClass}"
+                style="left:${dayIndex * dayWidth + 4}px;top:${8 + laneIndex * EVENT_LANE_HEIGHT}px"
+                tabindex="0"
+                role="note"
+                aria-label="${escapeHtml(badgeLabel)}"
+                aria-describedby="${escapeHtml(tooltipId)}"
+            >
+                <span class="milestone-timeline__event-label">${escapeHtml(activity.label)}</span>
+                <span id="${escapeHtml(tooltipId)}" class="milestone-timeline__event-tooltip" role="tooltip">
+                    <strong>${escapeHtml(milestone.title)}</strong>
+                    <span>${escapeHtml(activity.label)}</span>
+                    ${actor}
+                    ${description}
+                    <time datetime="${escapeHtml(activity.created_at)}">${escapeHtml(dateLabel)} · ${escapeHtml(eventTime)}</time>
+                </span>
+            </span>
+        `;
+    }
+
+    function formatEventTime(dateTime) {
+        const match = dateTime.match(/T(\d{2}):(\d{2}):\d{2}/);
+        if (!match) {
+            throw new Error('A milestone activity has an invalid time.');
         }
 
-        const result = await response.json();
-        if (result.ok !== true
-            || Object.entries(changes).some(([field, value]) => {
-                const actualValue = result.milestone?.[field];
-                return (field === 'description' ? (actualValue ?? '') : actualValue)
-                    !== (field === 'description' ? (value ?? '') : value);
-            })) {
-            throw new Error('The server did not confirm the requested phase update.');
-        }
+        const hour = Number(match[1]);
+        const minute = match[2];
+        const suffix = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour % 12 || 12;
 
-        phase.name = result.milestone.title;
-        phase.description = result.milestone.description ?? '';
-        phase.status = result.milestone.status;
-        phase.progressPercentage = Number(result.milestone.progress_percentage) || 0;
-        phase.completedAt = typeof result.milestone.completed_at === 'string'
-            ? parseDate(result.milestone.completed_at.slice(0, 10))
-            : null;
+        return `${displayHour}:${minute} ${suffix}`;
     }
 
-    function renderDayCells(days, today) {
-        return days.map((date) => `<span class="milestone-timeline__cell${isWeekend(date) ? ' is-weekend' : ''}${sameDay(date, today) ? ' is-today' : ''}" aria-hidden="true"></span>`).join('');
-    }
-
-    function datesBetween(start, end) {
-        const dates = [];
-        for (let date = start; date <= end; date = addDays(date, 1)) {
-            dates.push(date);
-        }
-
-        return dates;
-    }
-
-    function addDays(date, days) {
-        const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        result.setDate(result.getDate() + days);
-        return result;
-    }
-
-    function parseDate(value) {
-        if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-            return null;
-        }
-
-        const [year, month, day] = value.split('-').map(Number);
-        const date = new Date(year, month - 1, day);
-        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
-            ? date
-            : null;
-    }
-
-    function startOfDay(date) {
-        return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    }
-
-    function sameDay(left, right) {
-        return left.getFullYear() === right.getFullYear()
-            && left.getMonth() === right.getMonth()
-            && left.getDate() === right.getDate();
-    }
-
-    function isWeekend(date) {
-        return date.getDay() === 0 || date.getDay() === 6;
-    }
-
-    function dayIndex(days, target) {
-        return days.findIndex((date) => sameDay(date, target));
-    }
-
-    function formatDate(date) {
-        return new Intl.DateTimeFormat(undefined, {
-            month: 'short',
+    function formatLongDate(date) {
+        return new Intl.DateTimeFormat('en', {
             day: 'numeric',
+            month: 'short',
             year: 'numeric',
         }).format(date);
     }
 
-    function formatShortDate(date) {
-        return new Intl.DateTimeFormat(undefined, {
-            month: 'short',
-            day: 'numeric',
-        }).format(date);
+    function parseDateKey(dateKey) {
+        if (!isDateKey(dateKey)) {
+            throw new Error(`Invalid calendar date: ${dateKey}`);
+        }
+
+        const [year, month, day] = dateKey.split('-').map(Number);
+        const date = new Date(year, month - 1, day, 12);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+            throw new Error(`Invalid calendar date: ${dateKey}`);
+        }
+
+        return date;
+    }
+
+    function addDaysToKey(dateKey, days) {
+        const date = parseDateKey(dateKey);
+        date.setDate(date.getDate() + days);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function isDateKey(value) {
+        return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    }
+
+    function csrfToken() {
+        const token = document.querySelector('meta[name="csrf-token"]')?.content;
+        if (!token) {
+            throw new Error('The security token is missing. Refresh the page and try again.');
+        }
+
+        return token;
     }
 
     function escapeHtml(value) {
@@ -701,12 +569,5 @@
             '"': '&quot;',
             "'": '&#39;',
         })[character]);
-    }
-
-    function showError(element, message) {
-        if (element) {
-            element.textContent = message;
-            element.hidden = false;
-        }
     }
 })();

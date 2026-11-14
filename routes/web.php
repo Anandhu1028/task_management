@@ -68,6 +68,7 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::put('/tasks/{task}/description', [TaskController::class, 'updateDescription'])->name('tasks.description.update');
     Route::get('/tasks/{task}/attachments/{attachment}', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
     Route::get('/tasks/{task}/attachments/{attachment}/preview', [TaskController::class, 'previewAttachment'])->name('tasks.attachments.preview');
+    Route::get('/tasks/{task}/timeline', [MilestoneController::class, 'timeline'])->name('tasks.timeline');
     Route::resource('tasks', TaskController::class);
 
     Route::post('/tasks/{task}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');

@@ -9,10 +9,7 @@
         <div>
             <h1>
                 <span>{{ $greeting }}, {{ $user->name }}</span>
-                <span class="tf-wave">👋</span>
-                
             </h1>
-            <p>Your personal task board, upcoming deadlines, and productivity history.</p>
         </div>
 
         <div class="tf-page-head__actions">

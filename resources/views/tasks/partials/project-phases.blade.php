@@ -1,5 +1,5 @@
 @php
-    $projectPhases = $milestones->sortBy('sort_order')->values();
+    $projectPhases = $milestones->values();
     $completedProjectPhases = $projectPhases->where('status', 'completed')->count();
     $projectPhaseProgress = $projectPhases->isNotEmpty()
         ? (int) round($completedProjectPhases / $projectPhases->count() * 100)
@@ -14,7 +14,7 @@
             </span>
             <div>
                 <h2 id="task-project-phases-title">Project phases</h2>
-                <p>Track each phase and its deadline</p>
+                <p>Track each phase and its milestone date</p>
             </div>
         </div>
         @if ($projectPhases->isNotEmpty())
@@ -33,12 +33,9 @@
         <ol class="task-overview-project-phases__list">
             @foreach ($projectPhases as $phase)
                 @php
-                    $phaseIsOverdue = ! in_array($phase->status, ['completed', 'cancelled'], true)
-                        && $phase->target_date->lt(today());
                     $phaseStatusClass = match ($phase->status) {
                         'completed' => 'is-completed',
                         'in_progress' => 'is-in-progress',
-                        'cancelled' => 'is-cancelled',
                         default => 'is-pending',
                     };
                     $phaseStatusLabel = \App\Models\Milestone::STATUS_LABELS[$phase->status] ?? ucfirst($phase->status);
@@ -47,10 +44,8 @@
                     <span class="task-overview-project-phase__marker" aria-hidden="true">
                         @if ($phase->status === 'completed')
                             <i class="bi bi-check-lg"></i>
-                        @elseif ($phase->status === 'cancelled')
-                            <i class="bi bi-x-lg"></i>
                         @else
-                            <i class="bi bi-circle-fill"></i>
+                            <i class="bi bi-diamond-fill"></i>
                         @endif
                     </span>
                     <div class="task-overview-project-phase__content">
@@ -67,15 +62,10 @@
                             <p class="task-overview-project-phase__description">{{ $phase->description }}</p>
                         @endif
                         <div class="task-overview-project-phase__meta">
-                            <span class="{{ $phaseIsOverdue ? 'is-overdue' : '' }}">
+                            <span>
                                 <i class="bi bi-calendar-event" aria-hidden="true"></i>
-                                Deadline: {{ $phase->target_date->format('M j, Y') }}
+                                Date: {{ $phase->milestone_date->format('M j, Y') }}
                             </span>
-                            @if ($phaseIsOverdue)
-                                <span class="task-overview-project-phase__overdue">
-                                    <i class="bi bi-exclamation-circle" aria-hidden="true"></i> Overdue
-                                </span>
-                            @endif
                         </div>
                     </div>
                     @can('updateMilestone', [$task, $phase])

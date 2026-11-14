@@ -5,7 +5,6 @@ namespace App\Http\Requests;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Validator;
 
 class StoreMilestoneRequest extends FormRequest
@@ -22,10 +21,9 @@ class StoreMilestoneRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title' => ['required', 'string', 'max:500'],
+            'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:5000'],
-            'expected_outcome' => ['nullable', 'string', 'max:5000'],
-            'target_date' => ['required', 'date_format:Y-m-d'],
+            'milestone_date' => ['nullable', 'date_format:Y-m-d'],
             'assignee_ids' => ['nullable', 'array', 'max:50'],
             'assignee_ids.*' => ['integer', 'distinct', 'exists:users,id'],
         ];
@@ -43,16 +41,6 @@ class StoreMilestoneRequest extends FormRequest
                 $task = $this->route('task');
                 if (! $task instanceof Task) {
                     return;
-                }
-
-                $targetDate = Carbon::createFromFormat('Y-m-d', (string) $this->input('target_date'));
-                if ($task->start_date !== null && $targetDate?->lt($task->start_date)) {
-                    $validator->errors()->add('target_date', 'The milestone target date cannot precede the main task start date.');
-                }
-
-                $deadline = $task->due_date ?? $task->original_deadline;
-                if ($deadline !== null && $targetDate?->gt($deadline)) {
-                    $validator->errors()->add('target_date', 'The milestone target date cannot exceed the main task deadline.');
                 }
 
                 $assigneeIds = array_values((array) $this->input('assignee_ids', []));

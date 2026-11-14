@@ -229,7 +229,7 @@ class Task extends Model
 
     public function milestones(): HasMany
     {
-        return $this->hasMany(Milestone::class)->orderBy('target_date')->orderBy('id');
+        return $this->hasMany(Milestone::class)->orderBy('milestone_date')->orderBy('id');
     }
 
     public function volume(): HasOne

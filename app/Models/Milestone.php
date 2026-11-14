@@ -14,27 +14,24 @@ class Milestone extends Model
     /** @use HasFactory<MilestoneFactory> */
     use HasFactory;
 
-    public const STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
+    public const STATUSES = ['pending', 'in_progress', 'completed'];
 
     /** @var array<string, string> */
     public const STATUS_LABELS = [
         'pending' => 'Pending',
         'in_progress' => 'In Progress',
         'completed' => 'Completed',
-        'cancelled' => 'Cancelled',
     ];
 
     /** @var array<string, list<string>> */
     public const STATUS_TRANSITIONS = [
-        'pending' => ['in_progress', 'completed', 'cancelled'],
-        'in_progress' => ['pending', 'completed', 'cancelled'],
-        'completed' => ['in_progress', 'pending', 'cancelled'],
-        'cancelled' => [],
+        'pending' => ['in_progress', 'completed'],
+        'in_progress' => ['pending', 'completed'],
+        'completed' => ['in_progress', 'pending'],
     ];
 
     protected $attributes = [
         'status' => 'pending',
-        'progress_percentage' => 0,
     ];
 
     protected $fillable = [
@@ -42,20 +39,16 @@ class Milestone extends Model
         'created_by',
         'title',
         'description',
-        'expected_outcome',
-        'target_date',
-        'sort_order',
         'status',
-        'progress_percentage',
+        'milestone_date',
         'completed_at',
+        'completed_by',
     ];
 
     protected function casts(): array
     {
         return [
-            'target_date' => 'date',
-            'sort_order' => 'integer',
-            'progress_percentage' => 'integer',
+            'milestone_date' => 'date',
             'completed_at' => 'datetime',
         ];
     }
@@ -83,5 +76,10 @@ class Milestone extends Model
     public function activity(): HasMany
     {
         return $this->hasMany(TaskStatusHistory::class)->latest('id');
+    }
+
+    public function activities(): HasMany
+    {
+        return $this->hasMany(MilestoneActivity::class)->orderBy('created_at')->orderBy('id');
     }
 }

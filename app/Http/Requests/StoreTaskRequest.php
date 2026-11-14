@@ -5,9 +5,7 @@ namespace App\Http\Requests;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 class StoreTaskRequest extends FormRequest
 {
@@ -75,10 +73,10 @@ class StoreTaskRequest extends FormRequest
                 ...($this->filled('original_deadline') ? ['after_or_equal:original_deadline'] : []),
             ],
             'phases' => ['exclude_unless:task_type,project', 'required', 'array', 'min:1', 'max:50'],
-            'phases.*' => ['required', 'array:title,description,target_date'],
-            'phases.*.title' => ['required', 'string', 'max:500'],
+            'phases.*' => ['required', 'array:title,description,milestone_date'],
+            'phases.*.title' => ['required', 'string', 'max:255'],
             'phases.*.description' => ['nullable', 'string', 'max:5000'],
-            'phases.*.target_date' => ['required', 'date_format:Y-m-d'],
+            'phases.*.milestone_date' => ['nullable', 'date_format:Y-m-d'],
             'start_date' => ['nullable', 'date'],
             'estimated_hours' => ['exclude_if:task_type,recurring,volume', 'required', 'numeric', 'min:0.1', 'max:9999.99'],
             'repeat_frequency' => [
@@ -118,45 +116,6 @@ class StoreTaskRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:10000'],
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
-        ];
-    }
-
-    /** @return array<int, callable> */
-    public function after(): array
-    {
-        return [
-            function (Validator $validator): void {
-                if ($validator->errors()->isNotEmpty() || $this->input('task_type') !== 'project') {
-                    return;
-                }
-
-                $startDate = $this->filled('start_date')
-                    ? Carbon::parse((string) $this->input('start_date'))
-                    : null;
-                $deadline = $this->filled('due_date')
-                    ? Carbon::parse((string) $this->input('due_date'))
-                    : ($this->filled('original_deadline')
-                        ? Carbon::parse((string) $this->input('original_deadline'))
-                        : null);
-
-                foreach ((array) $this->input('phases', []) as $index => $phase) {
-                    $targetDate = Carbon::createFromFormat('Y-m-d', (string) $phase['target_date']);
-
-                    if ($startDate !== null && $targetDate?->toDateString() < $startDate->toDateString()) {
-                        $validator->errors()->add(
-                            "phases.{$index}.target_date",
-                            'A phase deadline cannot precede the main task start date.',
-                        );
-                    }
-
-                    if ($deadline !== null && $targetDate?->toDateString() > $deadline->toDateString()) {
-                        $validator->errors()->add(
-                            "phases.{$index}.target_date",
-                            'A phase deadline cannot exceed the main task deadline.',
-                        );
-                    }
-                }
-            },
         ];
     }
 

@@ -10,20 +10,11 @@
         <div>
             <h1>
                 <span>{{ $greeting }}, {{ $user->name }}</span>
-                <span class="tf-wave">👋</span>
-                <span class="tf-role-badge tf-role-badge--ceo">
-                    <i class="bi bi-briefcase-fill"></i> CEO
-                </span>
+                
             </h1>
-            <p>Executive Enterprise Performance Dashboard · Real-time company operations, task velocity & department monitoring.</p>
         </div>
 
         <div class="tf-page-head__actions">
-            <span class="tf-ceo-live-indicator" title="Authoritative real-time database connection active">
-                <span class="tf-ceo-live-dot"></span>
-                <span>Live Data</span>
-            </span>
-
             @can('tasks.create')
                 <button class="tf-btn tf-btn--primary tf-btn--create" type="button" data-task-create-trigger>
                     <i class="bi bi-plus-lg"></i>

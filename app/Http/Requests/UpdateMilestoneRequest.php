@@ -6,7 +6,6 @@ use App\Models\Milestone;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -26,12 +25,10 @@ class UpdateMilestoneRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title' => ['sometimes', 'required', 'string', 'max:500'],
+            'title' => ['sometimes', 'required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'expected_outcome' => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'target_date' => ['sometimes', 'required', 'date_format:Y-m-d'],
+            'milestone_date' => ['sometimes', 'required', 'date_format:Y-m-d'],
             'status' => ['sometimes', 'required', Rule::in(Milestone::STATUSES)],
-            'progress_percentage' => ['sometimes', 'required', 'integer', 'min:0', 'max:100'],
             'assignee_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'assignee_ids.*' => ['integer', 'distinct', 'exists:users,id'],
             'remarks' => ['nullable', 'string', 'max:5000'],
@@ -50,20 +47,6 @@ class UpdateMilestoneRequest extends FormRequest
                 $task = $this->route('task');
                 if (! $task instanceof Task) {
                     return;
-                }
-
-                $targetDate = $this->filled('target_date')
-                    ? Carbon::createFromFormat('Y-m-d', (string) $this->input('target_date'))
-                    : null;
-                $startDate = $task->start_date;
-                $deadline = $task->due_date ?? $task->original_deadline;
-
-                if ($targetDate !== null && $startDate !== null && $targetDate->lt($startDate)) {
-                    $validator->errors()->add('target_date', 'The milestone target date cannot precede the main task start date.');
-                }
-
-                if ($targetDate !== null && $deadline !== null && $targetDate->gt($deadline)) {
-                    $validator->errors()->add('target_date', 'The milestone target date cannot exceed the main task deadline.');
                 }
 
                 $assigneeIds = array_values((array) $this->input('assignee_ids', []));

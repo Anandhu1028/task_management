@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\Milestone;
 use App\Models\Subtask;
+use App\Models\SubtaskDailyUpdate;
 use App\Models\Task;
 use App\Models\TaskAssignment;
 use App\Models\TaskAttachment;
@@ -141,8 +143,11 @@ class TaskManagementTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('tasks.show', $task));
         $html = $response->getContent();
 
-        $response->assertOk();
+        $response->assertOk()
+            ->assertSee('navigator.serviceWorker.register', false)
+            ->assertSee(asset('sw.js'), false);
         $response->assertDontSee('id="tab-milestones-btn"', false);
+        $response->assertDontSee('id="panel-milestones"', false);
         $this->assertStringContainsString(
             'class="tf-task-detail__header-status tf-task-detail__header-status--in_progress"',
             $html,
@@ -1224,7 +1229,7 @@ class TaskManagementTest extends TestCase
         ]);
 
         $deadline = now()->addDays(5)->toDateString();
-        $firstPhaseDeadline = now()->addDays(2)->toDateString();
+        $firstMilestoneDate = now()->toDateString();
 
         $response = $this->actingAs($this->admin)->followingRedirects()->post(route('tasks.store'), [
             'title' => 'Deliver System Enhancements',
@@ -1242,12 +1247,11 @@ class TaskManagementTest extends TestCase
                 [
                     'title' => 'Planning',
                     'description' => 'Define the project scope.',
-                    'target_date' => $firstPhaseDeadline,
+                    'milestone_date' => $firstMilestoneDate,
                 ],
                 [
                     'title' => 'Delivery',
                     'description' => '',
-                    'target_date' => $deadline,
                 ],
             ],
         ]);
@@ -1269,29 +1273,28 @@ class TaskManagementTest extends TestCase
         $task = Task::query()->where('title', 'Deliver System Enhancements')->firstOrFail();
         $this->assertSame('assigned', $task->status);
         $this->assertSame($deadline, $task->original_deadline->toDateString());
-        $phases = $task->milestones()->orderBy('sort_order')->get();
+        $phases = $task->milestones()->get();
         $this->assertSame(['Planning', 'Delivery'], $phases->pluck('title')->all());
-        $this->assertSame([1, 2], $phases->pluck('sort_order')->all());
-        $this->assertSame($firstPhaseDeadline, $phases[0]->target_date->toDateString());
+        $this->assertSame($firstMilestoneDate, $phases[0]->milestone_date->toDateString());
+        $this->assertSame(today()->toDateString(), $phases[1]->milestone_date->toDateString());
         $this->assertSame('Define the project scope.', $phases[0]->description);
         $this->assertSame(0, DB::table('milestone_assignees')->whereIn('milestone_id', $phases->modelKeys())->count());
-        $firstPhaseCreatedDate = $phases[0]->created_at->toDateString();
+        $this->assertDatabaseCount('milestone_activities', 2);
         $unrelatedEmployee = User::factory()->create([
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
             'status' => 'active',
         ]);
         $unrelatedEmployee->assignRole('Employee');
-        $phases[0]->update([
-            'target_date' => today()->subDay(),
-            'progress_percentage' => 70,
-        ]);
-        $phases[1]->update(['status' => 'completed']);
+        $this->actingAs($this->admin)
+            ->patch(route('milestones.update', [$task, $phases[1]]), ['status' => 'completed'])
+            ->assertRedirect();
 
         $this->actingAs($this->admin)
             ->patch(route('milestones.update', [$task, $phases[0]]), [
                 'title' => 'Planning reviewed',
                 'description' => 'Updated project scope.',
+                'milestone_date' => today()->subDay()->toDateString(),
                 'status' => 'in_progress',
             ])
             ->assertRedirect();
@@ -1369,27 +1372,31 @@ class TaskManagementTest extends TestCase
         $taskDetail = $this->actingAs($assignee)->get(route('tasks.show', $task));
         $taskDetail->assertOk()
             ->assertSee('Project timeline')
-            ->assertSee('Track each phase, its dates and deadline')
-            ->assertDontSee('data-timeline-progress', false)
-            ->assertSee('data-phase-can-update="true"', false)
-            ->assertSee('Milestone updated', false)
-            ->assertSee('Status updated to: In progress', false)
-            ->assertSee('Planning reviewed')
-            ->assertSee('data-phase-description="Employee updated project scope."', false)
-            ->assertSee('Delivery')
-            ->assertSee('data-phase-start-date="'.$firstPhaseCreatedDate.'"', false)
-            ->assertSee('data-phase-created-date="'.$firstPhaseCreatedDate.'"', false)
-            ->assertSee('data-phase-creator="'.$this->admin->name.'"', false)
-            ->assertSee('data-phase-activity-actor="'.$this->admin->name.'"', false)
-            ->assertSee('data-phase-activity-text="created the milestone"', false)
-            ->assertSee('data-phase-status="in_progress"', false)
-            ->assertSee('data-phase-progress="70"', false)
-            ->assertSee('data-phase-status="completed"', false)
-            ->assertSee('data-phase-end-date="'.today()->subDay()->format('Y-m-d').'"', false);
+            ->assertSee('Track each phase, its milestone date and activity')
+            ->assertSee('data-timeline-url="'.route('tasks.timeline', $task).'"', false)
+            ->assertSee('data-timeline-progress', false)
+            ->assertDontSee('target_date', false)
+            ->assertDontSee('expected_outcome', false);
+        $this->actingAs($assignee)
+            ->getJson(route('tasks.timeline', $task))
+            ->assertOk()
+            ->assertJsonPath('summary.completed_count', 1)
+            ->assertJsonPath('summary.total_count', 2)
+            ->assertJsonPath('summary.progress_percent', 50)
+            ->assertJsonPath('milestones.0.title', 'Planning reviewed')
+            ->assertJsonPath('milestones.0.status', 'in_progress')
+            ->assertJsonPath('milestones.0.milestone_date', today()->subDay()->toDateString())
+            ->assertJsonPath('milestones.0.can_update', true)
+            ->assertJsonPath('milestones.0.activities.0.label', 'Milestone created')
+            ->assertJsonPath('milestones.0.activities.0.actor_name', $this->admin->name)
+            ->assertJsonPath('milestones.0.activities.1.label', 'Milestone updated')
+            ->assertJsonPath('milestones.0.activities.2.label', 'Status updated to: In Progress')
+            ->assertJsonPath('milestones.0.activities.3.actor_name', $poc3->name)
+            ->assertJsonPath('milestones.0.activities.4.actor_name', $assignee->name);
         $this->actingAs($poc3)
             ->get(route('tasks.show', $task))
             ->assertOk()
-            ->assertSee('data-phase-can-update="true"', false);
+            ->assertSee('data-timeline-url="'.route('tasks.timeline', $task).'"', false);
         $taskDetail->assertSeeInOrder([
             'id="tab-subtasks-btn"',
             'id="tab-milestones-btn"',
@@ -1404,16 +1411,11 @@ class TaskManagementTest extends TestCase
 
         $this->actingAs($this->admin)
             ->patch(route('milestones.update', [$task, $phases[1]]), ['status' => 'cancelled'])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHasErrors('status');
         $this->assertDatabaseHas('milestones', [
             'id' => $phases[1]->id,
-            'status' => 'cancelled',
-        ]);
-        $this->assertDatabaseHas('task_status_histories', [
-            'milestone_id' => $phases[1]->id,
-            'old_status' => 'completed',
-            'new_status' => 'cancelled',
-            'event_type' => 'milestone_status',
+            'status' => 'completed',
         ]);
 
         $taskListResponse = $this->actingAs($this->admin)->get(route('tasks.index', [
@@ -1519,7 +1521,7 @@ class TaskManagementTest extends TestCase
                 [
                     'title' => 'Review materials',
                     'description' => null,
-                    'target_date' => $taskDeadline,
+                    'milestone_date' => $taskDeadline,
                 ],
             ],
             'attachments' => [
@@ -3477,37 +3479,111 @@ class TaskManagementTest extends TestCase
             ->assertSee('class="tf-wf-action-btn tf-wf-action-btn--primary">', false);
     }
 
-    public function test_project_phase_deadline_cannot_exceed_the_task_deadline(): void
+    public function test_project_phase_milestone_date_defaults_to_today_when_omitted(): void
     {
         $poc = User::factory()->create([
             'company_id' => $this->company->id,
             'department_id' => $this->department->id,
             'status' => 'active',
         ]);
-        $taskDeadline = now()->addDays(2)->toDateString();
-
-        $this->actingAs($this->admin)->post(route('tasks.store'), [
-            'title' => 'Project with an invalid phase deadline',
-            'company_id' => $this->company->id,
-            'department_id' => $this->department->id,
-            'poc_ids' => [$poc->id],
-            'task_type' => 'project',
-            'priority' => 'medium',
-            'original_deadline' => $taskDeadline,
-            'estimated_hours' => 4,
-            'expected_output' => 'A completed project.',
-            'phases' => [
-                [
-                    'title' => 'Late phase',
-                    'description' => null,
-                    'target_date' => now()->addDays(3)->toDateString(),
+        $this->actingAs($this->admin)
+            ->post(route('tasks.store'), [
+                'title' => 'Project with an undated phase',
+                'company_id' => $this->company->id,
+                'department_id' => $this->department->id,
+                'poc_ids' => [$poc->id],
+                'task_type' => 'project',
+                'priority' => 'medium',
+                'estimated_hours' => 4,
+                'expected_output' => 'A completed project.',
+                'phases' => [
+                    [
+                        'title' => 'Undated phase',
+                        'description' => null,
+                    ],
                 ],
-            ],
-        ])->assertSessionHasErrors('phases.0.target_date');
+            ])
+            ->assertRedirect(route('tasks.index'));
 
-        $this->assertDatabaseMissing('tasks', [
-            'title' => 'Project with an invalid phase deadline',
+        $task = Task::query()->where('title', 'Project with an undated phase')->firstOrFail();
+        $milestone = $task->milestones()->firstOrFail();
+        $this->assertSame('Undated phase', $milestone->title);
+        $this->assertSame(today()->toDateString(), $milestone->milestone_date->toDateString());
+    }
+
+    public function test_deleting_a_task_permanently_removes_its_database_details_and_attachments(): void
+    {
+        Storage::fake('local');
+
+        $task = $this->createWorkflowTask();
+        $subtask = Subtask::query()->create([
+            'task_id' => $task->id,
+            'created_by' => $this->admin->id,
+            'title' => 'Task detail to remove',
         ]);
+        $dailyUpdate = SubtaskDailyUpdate::query()->create([
+            'task_id' => $task->id,
+            'subtask_id' => $subtask->id,
+            'task_title' => $task->title,
+            'subtask_title' => $subtask->title,
+            'employee_name' => $this->admin->name,
+            'work_date' => today()->toDateString(),
+            'work_description' => 'Task-specific update',
+            'current_status' => 'in_progress',
+        ]);
+        $milestone = Milestone::query()->create([
+            'task_id' => $task->id,
+            'created_by' => $this->admin->id,
+            'title' => 'Task milestone to remove',
+            'milestone_date' => today()->toDateString(),
+        ]);
+        $milestoneActivityId = DB::table('milestone_activities')->insertGetId([
+            'milestone_id' => $milestone->id,
+            'task_id' => $task->id,
+            'type' => 'created',
+            'label' => 'Milestone created',
+            'created_by' => $this->admin->id,
+            'created_at' => now(),
+        ]);
+        $history = $task->statusHistory()->create([
+            'changed_by' => $this->admin->id,
+            'new_status' => 'completed',
+            'event_type' => 'status',
+        ]);
+        $attachmentPath = 'task-attachments/task-to-delete.txt';
+        Storage::disk('local')->put($attachmentPath, 'task attachment');
+        $attachment = TaskAttachment::query()->create([
+            'task_id' => $task->id,
+            'uploaded_by' => $this->admin->id,
+            'disk' => 'local',
+            'path' => $attachmentPath,
+            'original_name' => 'task-to-delete.txt',
+            'size_bytes' => 16,
+        ]);
+        $this->admin->notify(new TaskLifecycleNotification(
+            $task,
+            $this->admin->name,
+            'Task update',
+            'Task-specific notification',
+        ));
+        $notificationId = $this->admin->notifications()->latest()->value('id');
+        $this->assertNotNull($notificationId);
+        $this->assertDatabaseHas('notifications', ['id' => $notificationId]);
+
+        $this->actingAs($this->admin)
+            ->delete(route('tasks.destroy', $task))
+            ->assertRedirect(route('tasks.index'))
+            ->assertSessionHas('success', 'Task deleted successfully.');
+
+        $this->assertDatabaseMissing('tasks', ['id' => $task->id]);
+        $this->assertDatabaseMissing('subtasks', ['id' => $subtask->id]);
+        $this->assertDatabaseMissing('subtask_daily_updates', ['id' => $dailyUpdate->id]);
+        $this->assertDatabaseMissing('milestones', ['id' => $milestone->id]);
+        $this->assertDatabaseMissing('milestone_activities', ['id' => $milestoneActivityId]);
+        $this->assertDatabaseMissing('task_status_histories', ['id' => $history->id]);
+        $this->assertDatabaseMissing('task_attachments', ['id' => $attachment->id]);
+        $this->assertDatabaseMissing('notifications', ['id' => $notificationId]);
+        Storage::disk('local')->assertMissing($attachmentPath);
     }
 
     /**

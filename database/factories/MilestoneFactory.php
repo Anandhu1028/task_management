@@ -24,10 +24,8 @@ class MilestoneFactory extends Factory
             'created_by' => User::factory(),
             'title' => fake()->sentence(4),
             'description' => fake()->optional()->paragraph(),
-            'expected_outcome' => fake()->optional()->sentence(),
-            'target_date' => fake()->dateTimeBetween('today', '+30 days')->format('Y-m-d'),
+            'milestone_date' => fake()->dateTimeBetween('today', '+30 days')->format('Y-m-d'),
             'status' => 'pending',
-            'progress_percentage' => 0,
         ];
     }
 }

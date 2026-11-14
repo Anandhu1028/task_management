@@ -13,12 +13,12 @@
     $initialCompanyId = old('company_id', $isEditingTask ? $editingTask->company_id : '');
     $initialDepartmentId = old('department_id', $isEditingTask ? $editingTask->department_id : '');
     $initialTaskType = old('task_type', $isEditingTask ? $editingTask->task_type : '');
-    $initialPhases = old('phases', [['title' => '', 'description' => '', 'target_date' => '']]);
+    $initialPhases = old('phases', [['title' => '', 'description' => '', 'milestone_date' => '']]);
     $initialPhases = is_array($initialPhases)
         ? array_values(array_filter($initialPhases, 'is_array'))
         : [];
     if ($initialPhases === []) {
-        $initialPhases = [['title' => '', 'description' => '', 'target_date' => '']];
+        $initialPhases = [['title' => '', 'description' => '', 'milestone_date' => '']];
     }
     $initialAssigneeIds = old('assigned_to', $isEditingTask
         ? ($editingTask->activeAssignees->isNotEmpty()
@@ -686,9 +686,9 @@
             row.querySelector('[data-project-phase-description]').setAttribute('aria-label', `Phase ${index + 1} description (optional)`);
             row.querySelector('[data-project-phase-description]').id = `createTaskProjectPhaseDescription${index}`;
             row.querySelector('[data-project-phase-description]').name = `phases[${index}][description]`;
-            row.querySelector('[data-project-phase-deadline]').setAttribute('aria-label', `Phase ${index + 1} deadline`);
-            row.querySelector('[data-project-phase-deadline]').id = `createTaskProjectPhaseDeadline${index}`;
-            row.querySelector('[data-project-phase-deadline]').name = `phases[${index}][target_date]`;
+            row.querySelector('[data-project-phase-date]').setAttribute('aria-label', `Phase ${index + 1} milestone date`);
+            row.querySelector('[data-project-phase-date]').id = `createTaskProjectPhaseDate${index}`;
+            row.querySelector('[data-project-phase-date]').name = `phases[${index}][milestone_date]`;
             row.querySelector('[data-project-phase-remove]').setAttribute('aria-label', `Remove phase ${index + 1}`);
         });
     };
@@ -702,15 +702,15 @@
         row.className = 'tf-create-task__project-phase-row';
         row.dataset.projectPhaseRow = '';
         row.innerHTML = `
-            <input class="form-control" data-project-phase-title maxlength="500" placeholder="Phase name *" required>
+            <input class="form-control" data-project-phase-title maxlength="255" placeholder="Phase name *" required>
             <input class="form-control" data-project-phase-description maxlength="5000" placeholder="Description (optional)">
-            <input class="form-control" data-project-phase-deadline type="date" required>
+            <input class="form-control" data-project-phase-date type="date">
             <button class="tf-create-task__project-phase-remove" type="button" data-project-phase-remove>
                 <i class="bi bi-trash3" aria-hidden="true"></i>
             </button>`;
         row.querySelector('[data-project-phase-title]').value = phase.title ?? '';
         row.querySelector('[data-project-phase-description]').value = phase.description ?? '';
-        row.querySelector('[data-project-phase-deadline]').value = phase.target_date ?? '';
+        row.querySelector('[data-project-phase-date]').value = phase.milestone_date ?? '';
         row.querySelector('[data-project-phase-remove]').addEventListener('click', () => {
             row.remove();
             if (projectPhaseList.children.length === 0) {
@@ -731,7 +731,7 @@
         projectPhasesSection.hidden = !enabled;
         projectPhaseList.querySelectorAll('input, textarea').forEach(input => {
             input.disabled = !enabled;
-            input.required = enabled && input.matches('[data-project-phase-title], [data-project-phase-deadline]');
+            input.required = enabled && input.matches('[data-project-phase-title]');
         });
     };
 
